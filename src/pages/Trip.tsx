@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowRightLeft, BookmarkCheck, BookmarkPlus, Check, ExternalLink, Flag, Home, LocateFixed, MapPin, MapPinCheck, MapPinned, Play } from 'lucide-react'
+import { ArrowRightLeft, BookmarkCheck, BookmarkPlus, Check, ChevronRight, ExternalLink, FileText, Flag, Home, LocateFixed, MapPin, MapPinCheck, MapPinned, Play } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import IconChip from '@/components/IconChip'
 import ModeArt, { modeLook } from '@/components/ModeArt'
 import HomePlace from '@/components/HomePlace'
 import StartRide, { SwapRide } from '@/components/StartRide'
+import LegHistory from '@/components/LegHistory'
 import Camera, { type Shot } from '@/components/Camera'
 import { lineKm, mapLink, placeName, whereAmI, type Fix, type Point } from '@/lib/geo'
 import { clockTime } from '@/lib/when'
@@ -377,32 +378,54 @@ function CancelTrip({ tripId }: { tripId: string }) {
   )
 }
 
-/** The day so far: each leg and each stop, in the order they happened. */
+/**
+ * The day so far: each leg and each stop, in the order they happened.
+ *
+ * A leg says when it ran, shows a paper if it has a bill, and opens its
+ * history when pressed — times, places, distance, documents (the user,
+ * 2 Oct: "can we add each mode start n end time? … add a document icon also
+ * and on click each mode, small history").
+ */
 function Journey({ legs, stops, modes }: { legs: Leg[]; stops: Stop[]; modes: Mode[] }) {
   const label = (m: string) => modes.find(x => x.mode === m)?.label ?? m
   const closed = legs.filter(l => l.to_at)
+  // Held by its id, so the history shows the leg as it is now if the list refreshes under it.
+  const [openId, setOpenId] = useState<string | null>(null)
+  const open = legs.find(l => l.id === openId) ?? null
   if (closed.length === 0 && stops.length === 0) return null
   return (
-    <ul className="divide-y divide-ink-100 border-t border-ink-200 text-sm">
-      {closed.map(l => (
-        <li key={l.id} className="flex items-center justify-between gap-3 px-4 py-2">
-          <span className="flex min-w-0 items-center gap-2.5 text-ink-700">
-            <ModeArt mode={l.mode} className="w-9 rounded-md" />
-            <span className="truncate">{label(l.mode)} <span className="text-ink-400">· {km(l.road_km)}</span></span>
-          </span>
-          <span className="tabular-nums font-medium text-ink-900">{rupees(l.amount)}</span>
-        </li>
-      ))}
-      {stops.map(s => (
-        <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2">
-          <span className="min-w-0 truncate text-ink-700">
-            <span className={clsx('badge mr-2', TONE_CLASS[STOP_KIND[s.kind].tone])}>{STOP_KIND[s.kind].label}</span>
-            {s.facility_name}{s.ticket_no ? ` · ${s.ticket_no}` : ''}
-          </span>
-          <span className={clsx('shrink-0 text-xs', s.closed_at ? 'text-green-700' : 'text-amber-700')}>{s.closed_at ? 'Closed' : 'Open'}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="divide-y divide-ink-100 border-t border-ink-200 text-sm">
+        {closed.map(l => (
+          <li key={l.id}>
+            <button type="button" onClick={() => setOpenId(l.id)} aria-label={`${label(l.mode)} leg, ${clockTime(l.from_at)} to ${clockTime(l.to_at!)}: open its history`}
+              className="btn-press flex w-full items-center gap-2.5 px-4 py-2 text-left hover:bg-ink-50">
+              <ModeArt mode={l.mode} className="w-9 rounded-md" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-ink-700">{label(l.mode)} <span className="text-ink-400">· {km(l.road_km)}</span></span>
+                <span className="block text-xs tabular-nums text-ink-500">{clockTime(l.from_at)} – {clockTime(l.to_at!)}</span>
+              </span>
+              {l.bill_path && <FileText className="h-4 w-4 shrink-0 text-ink-400" aria-label="Has a bill photograph" />}
+              <span className="shrink-0 tabular-nums font-medium text-ink-900">{rupees(l.amount)}</span>
+              <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-300" />
+            </button>
+          </li>
+        ))}
+        {stops.map(s => (
+          <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2">
+            <span className="min-w-0 truncate text-ink-700">
+              <span className={clsx('badge mr-2', TONE_CLASS[STOP_KIND[s.kind].tone])}>{STOP_KIND[s.kind].label}</span>
+              {s.facility_name}{s.ticket_no ? ` · ${s.ticket_no}` : ''}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {s.proof_path && <FileText className="h-4 w-4 text-ink-400" aria-label="Has a proof photograph" />}
+              <span className={clsx('text-xs', s.closed_at ? 'text-green-700' : 'text-amber-700')}>{s.closed_at ? 'Closed' : 'Open'}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {open && <LegHistory leg={open} label={label(open.mode)} stops={stops} onClose={() => setOpenId(null)} />}
+    </>
   )
 }
 
