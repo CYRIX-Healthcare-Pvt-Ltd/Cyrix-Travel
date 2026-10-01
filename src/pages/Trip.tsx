@@ -8,12 +8,12 @@ import { Alert, PageLoader, Spinner } from '@/components/ui'
 import IconChip from '@/components/IconChip'
 import ModeArt, { modeLook } from '@/components/ModeArt'
 import HomePlace from '@/components/HomePlace'
-import StartRide from '@/components/StartRide'
+import StartRide, { SwapRide } from '@/components/StartRide'
 import Camera, { type Shot } from '@/components/Camera'
 import { lineKm, mapLink, placeName, whereAmI, type Fix, type Point } from '@/lib/geo'
 import { clockTime } from '@/lib/when'
 import {
-  STOP_KIND, km, placeAt, rupees, startTrip, stopsOn, uploadShot, useChangeMode, useCloseStop, useEnd, useHome, useKnownFacilities, useModes, usePhotosRequired, usePlaces, useReach, useSavePlace, useTrip, useTrips,
+  STOP_KIND, km, placeAt, rupees, startTrip, stopsOn, uploadShot, useChangeMode, useCloseStop, useDeleteTrip, useEnd, useHome, useKnownFacilities, useModes, usePhotosRequired, usePlaces, useReach, useSavePlace, useTrip, useTrips,
   type Leg, type Mode, type SavedPlace, type Stop, type StopKind,
 } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
@@ -87,6 +87,8 @@ const MARK_KEEPS_MS = 5 * 60_000
 /** The least a start is seen to take, so the vehicle is seen arriving even when the phone answers at once; and how long it takes to ride out. */
 const RIDE_MS = 900
 const LEAVE_MS = 450
+/** The least a change of mode is seen to take: the walk across, and the new vehicle seen to start. */
+const SWAP_MS = 1500
 
 /**
  * The place just marked: what it is called, when it was read and how
@@ -322,6 +324,48 @@ function Running({ tripId, code }: { tripId: string; code: string }) {
           onDone={() => { if (panel === 'end') navigate(`/claims/${tripId}`); else done('Mode changed. The last leg is closed with its distance.') }}
         />
       )}
+      <CancelTrip tripId={tripId} code={code} />
+    </div>
+  )
+}
+
+/**
+ * A trip started by mistake, cancelled from the screen it is running on (the
+ * user, 1 Oct: "what if mistakenly started, there is no option to cancel
+ * trip"). It is the same deleting a claim's own page offers; here it is
+ * within reach of the mistake. Quiet until it is wanted, and asked twice:
+ * it sits under the buttons an engineer presses all day.
+ */
+function CancelTrip({ tripId, code }: { tripId: string; code: string }) {
+  const remove = useDeleteTrip()
+  const [asking, setAsking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const go = async () => {
+    setError(null)
+    // Gone, the list of trips has none running, and Start a trip takes this screen's place by itself.
+    try { await remove.mutateAsync({ tripId }) } catch (e) { setError(e instanceof Error ? e.message : 'The trip was not cancelled.') }
+  }
+
+  if (!asking) {
+    return (
+      <p className="pt-1 text-center">
+        <button type="button" className="link-accent text-xs text-ink-500 underline" onClick={() => setAsking(true)}>Started by mistake? Cancel this trip</button>
+      </p>
+    )
+  }
+  return (
+    <div className="card space-y-2.5 p-4">
+      {error && <Alert kind="error">{error}</Alert>}
+      <p className="text-sm text-ink-800">
+        Cancel <span className="font-mono font-semibold">{code}</span>? The trip is deleted with its legs, stops and photographs, and nothing is claimed for it. This cannot be undone.
+      </p>
+      <div className="flex gap-2">
+        <button type="button" className="btn-danger" onClick={go} disabled={remove.isPending}>
+          {remove.isPending ? <Spinner className="h-4 w-4" /> : <Flag className="h-4 w-4" />} Cancel the trip
+        </button>
+        <button type="button" className="btn-secondary" onClick={() => { setAsking(false); setError(null) }} disabled={remove.isPending}>Keep going</button>
+      </div>
     </div>
   )
 }
@@ -492,7 +536,7 @@ function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void
 }
 
 /** Ending a leg — by changing mode, or by ending the trip. A fare-paid leg gives its fare and the bill's photograph. */
-function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDone }: {
+function LegEndForm({ tripId, leg: legNow, mode: modeNow, modes, ending, via = [], onCancel, onDone }: {
   tripId: string; leg: Leg; mode: Mode | undefined; modes: Mode[]; ending: boolean
   /** The stops made on this leg: its distance goes through them, not past them. */
   via?: Point[]
@@ -500,14 +544,25 @@ function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDo
 }) {
   const change = useChangeMode()
   const end = useEnd()
+  /*
+   * The leg this form was opened to close, held. Once the change is made the
+   * trip's running leg is the new one, and this form is still on screen for a
+   * moment showing the change of vehicle — it must go on being about the leg
+   * that was closed, or the vehicle being left turns into the one being taken.
+   */
+  const [{ leg, mode }] = useState({ leg: legNow, mode: modeNow })
   const required = usePhotosRequired()
   const [next, setNext] = useState('')
   const [fare, setFare] = useState('')
   const [shot, setShot] = useState<Shot | null>(null)
   const [busy, setBusy] = useState(false)
+  // The change is made: the new vehicle rides out.
+  const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const attempt = useRef(0)
   const onFare = !!mode && mode.per_km === null
+  // Changing mode, with the next one chosen and the work under way: the button shows the change of vehicle.
+  const swapping = busy && !ending && !!next
 
   const go = async () => {
     setError(null)
@@ -516,13 +571,22 @@ function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDo
     const amount = Number(fare)
     if (onFare && (!fare.trim() || !Number.isFinite(amount) || amount < 0)) { setError(`Enter the ${mode!.label.toLowerCase()} fare.`); return }
     if (onFare && !shot && required) { setError(`Take a photograph of the ${mode!.label.toLowerCase()} bill.`); return }
-    setBusy(true)
+    if (busy) return
+    setBusy(true); setLeaving(false)
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const wait = (ms: number) => new Promise(done => setTimeout(done, still ? 0 : ms))
+    // The walk from one vehicle to the next is given time to be seen; ending a trip has no such thing to show.
+    const seen = wait(ending ? 0 : SWAP_MS)
     try {
       const at = await whereAmI()
       const bill = onFare && shot ? { path: await uploadShot(tripId, 'bill', leg.seq + 100 * attempt.current++, shot.blob), at: shot.at } : null
       const legEnd = { at, from: { lat: leg.from_lat, lng: leg.from_lng }, via, fare: onFare ? amount : null, bill }
       if (ending) await end.mutateAsync({ tripId, end: legEnd })
-      else await change.mutateAsync({ tripId, mode: next, end: legEnd })
+      else {
+        await Promise.all([change.mutateAsync({ tripId, mode: next, end: legEnd }), seen])
+        setLeaving(true)
+        await wait(LEAVE_MS)
+      }
       onDone()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That did not go through.')
@@ -555,11 +619,18 @@ function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDo
         </div>
       )}
       <div className="flex gap-2">
-        <button type="button" className="btn-primary flex-1 justify-center" onClick={go} disabled={busy}>
-          {busy ? <Spinner className="h-4 w-4" /> : ending ? <Flag className="h-4 w-4" /> : <ArrowRightLeft className="h-4 w-4" />}
-          {ending ? 'End the trip here' : 'Change here'}
+        {/* While a change is shown it is not disabled — a disabled button is dimmed — and go() ignores a second press. */}
+        <button type="button" aria-busy={busy} onClick={go} disabled={busy && !swapping}
+          className={clsx('relative flex-1 justify-center overflow-hidden',
+            swapping ? clsx('btn start-run swap-run border', modeLook(next).on, modeLook(next).scene, leaving && 'start-off') : 'btn-primary')}>
+          {swapping ? <SwapRide from={leg.mode} to={next} fromArt={modeLook(leg.mode).art} /> : (
+            <>
+              {busy ? <Spinner className="h-4 w-4" /> : ending ? <Flag className="h-4 w-4" /> : <ArrowRightLeft className="h-4 w-4" />}
+              {ending ? 'End the trip here' : 'Change here'}
+            </>
+          )}
         </button>
-        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
     </div>
   )

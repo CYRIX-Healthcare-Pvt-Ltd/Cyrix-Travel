@@ -105,6 +105,7 @@ function RateRow({ m }: { m: Mode }) {
         <span className="flex w-36 items-center gap-2.5 text-sm font-medium text-ink-900">
           <ModeArt mode={m.mode} className="w-10 rounded-md" /> {m.label}
         </span>
+        {!m.is_active && <span className="badge bg-ink-100 text-ink-500">not in use</span>}
         {m.per_km === null ? (
           <span className="text-sm text-ink-500">Paid on the actual fare, with a photograph of the bill</span>
         ) : (

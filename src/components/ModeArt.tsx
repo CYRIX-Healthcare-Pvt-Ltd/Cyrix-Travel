@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
+import { artOf } from '@/lib/modeArt'
 
 /**
  * Each way of travelling, as its own vehicle in its own colour.
@@ -68,7 +69,8 @@ const PLAIN: ModeLook = {
   bar: 'bg-slate-500', pill: 'bg-slate-100 text-slate-900',
 }
 
-export const modeLook = (mode: string | null | undefined): ModeLook => LOOK[mode ?? ''] ?? PLAIN
+/** A mode's look: its own, or — for one added later — that of the vehicle it is drawn as. */
+export const modeLook = (mode: string | null | undefined): ModeLook => LOOK[artOf(mode)] ?? PLAIN
 
 const SOFT = { fill: 'currentColor', fillOpacity: 0.16 } as const
 const GLASS = { fill: 'currentColor', fillOpacity: 0.34, stroke: 'none' } as const
@@ -230,10 +232,11 @@ export default function ModeArt({ mode, moving = false, chosen = false, bare = f
   className?: string
 }) {
   const look = modeLook(mode)
-  const Art = ART[mode] ?? Plain
+  const drawn = artOf(mode)
+  const Art = ART[drawn] ?? Plain
   return (
     <span aria-hidden className={clsx('block shrink-0', bare ? 'mode-bare' : ['overflow-hidden bg-[var(--scene)]', chosen ? look.sceneOn : look.scene, look.art], moving && 'mode-on', className)}>
-      <svg className="mode-art block h-auto w-full" data-mode={mode} viewBox="0 0 48 30" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="mode-art block h-auto w-full" data-mode={drawn} viewBox="0 0 48 30" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
         <Art />
       </svg>
     </span>

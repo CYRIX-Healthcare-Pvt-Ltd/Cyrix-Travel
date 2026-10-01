@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Play } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import ModeArt from '@/components/ModeArt'
+import { artOf } from '@/lib/modeArt'
 
 /**
  * What the Start button shows while the trip is being started: the chosen
@@ -33,7 +34,8 @@ export default function StartRide({ mode }: { mode: string }) {
       <span aria-hidden className="start-near"><Strip><Near /></Strip></span>
       <span aria-hidden className="start-road" />
       <span aria-hidden className="start-rider">
-        {mode === 'train' && (
+        {/* A mode drawn as the train — a metro, say — is as long as one. */}
+        {artOf(mode) === 'train' && (
           <>
             <ModeArt mode="coach" bare moving className="-mr-1 w-20" />
             <ModeArt mode="coach" bare moving className="-mr-2.5 w-20" />
@@ -44,6 +46,45 @@ export default function StartRide({ mode }: { mode: string }) {
       <span aria-hidden className="start-still"><Spinner className="h-5 w-5" /> Starting…</span>
       {/* Keeps the button the height it was. */}
       <span aria-hidden className="invisible inline-flex items-center gap-2"><Play className="h-5 w-5" /> Start</span>
+    </>
+  )
+}
+
+/**
+ * What "Change here" shows while the mode is being changed: the engineer
+ * leaving one vehicle for the next (the user, 1 Oct: "can animation be like
+ * getting out from bike and starting auto and going?").
+ *
+ * The vehicle they came on stands at the left, in its own colour; the next
+ * one waits ahead of it. A figure walks from the first to the second. Then
+ * the second starts — wheels, road and country all begin together — and the
+ * first is left behind, sliding back out of sight the way a parked thing
+ * does from a moving one. When the change is made, the new vehicle rides
+ * out. The strip is in the new mode's colour: it is where the trip is going.
+ *
+ * Timed in index.css ("Change here, pressed"). With less motion asked for,
+ * a spinner and the word instead.
+ */
+export function SwapRide({ from, to, fromArt }: { from: string; to: string; /** The colour the vehicle being left is drawn in: its own. */ fromArt: string }) {
+  return (
+    <>
+      <span className="sr-only">Changing…</span>
+      <span aria-hidden className="start-far"><Strip><Far /></Strip></span>
+      <span aria-hidden className="start-near"><Strip><Near /></Strip></span>
+      <span aria-hidden className="start-road" />
+      <span aria-hidden className={`swap-old ${fromArt}`}><ModeArt mode={from} bare className="w-20" /></span>
+      <span aria-hidden className="swap-walker">
+        <svg viewBox="0 0 12 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+          <circle cx={6} cy={3.6} r={2.3} fill="currentColor" stroke="none" />
+          <path d="M6 7v8M6 9.2 3.2 12.6M6 9.2l2.8 3.4" />
+          <path className="swap-leg-a" d="M6 15v7.2" />
+          <path className="swap-leg-b" d="M6 15v7.2" />
+        </svg>
+      </span>
+      <span aria-hidden className="swap-new"><ModeArt mode={to} bare moving className="w-20" /></span>
+      <span aria-hidden className="start-still"><Spinner className="h-4 w-4" /> Changing…</span>
+      {/* Keeps the button the height it was. */}
+      <span aria-hidden className="invisible inline-flex items-center gap-2">Change here</span>
     </>
   )
 }

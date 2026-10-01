@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { lineKm, roadKm, type Point } from '@/lib/geo'
+import { setModeArt } from '@/lib/modeArt'
 import type { Tone } from '@/lib/tones'
 
 export type TripStatus = 'open' | 'submitted' | 'approved' | 'returned'
 export type StopKind = 'ticket' | 'pm' | 'meeting' | 'spare'
 
-export interface Mode { mode: string; label: string; per_km: number | null; sort_order: number; is_active: boolean }
+/** `art` is the drawn vehicle a mode added later borrows (te_0007); the first five are their own. */
+export interface Mode { mode: string; label: string; per_km: number | null; sort_order: number; is_active: boolean; art?: string | null }
 
 export interface Leg {
   id: string; trip_id: string; seq: number; mode: string
@@ -79,7 +81,9 @@ export function useModes() {
     queryFn: async () => {
       const { data, error } = await supabase.from('travel_modes').select('*').order('sort_order')
       if (error) throw new Error(friendlyError(error))
-      return (data as Mode[]).map(m => num(m, ['per_km']))
+      const modes = (data as Mode[]).map(m => num(m, ['per_km']))
+      setModeArt(modes)
+      return modes
     },
   })
 }
