@@ -36,6 +36,8 @@ same public ones every module's bundle already carries.
 ## Deploy
 
 A Vercel project named `cyrix-travel` (the portal rewrites `/travel` to
-`cyrix-travel.vercel.app`), with `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-and `VITE_AUTH_EMAIL_DOMAIN`. Database changes are in `supabase/migrations`,
-applied one at a time.
+`cyrix-travel.vercel.app`), building the `main` branch of
+`CYRIX-Healthcare-Pvt-Ltd/Cyrix-Travel` on every push. It needs
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`; `VITE_AUTH_EMAIL_DOMAIN`
+may be left out, and is `cyrix.local` when it is. Database changes are in
+`supabase/migrations`, applied one at a time.
