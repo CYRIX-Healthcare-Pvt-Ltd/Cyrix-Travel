@@ -72,7 +72,13 @@ export function SwapRide({ from, to, fromArt }: { from: string; to: string; /** 
       <span aria-hidden className="start-far"><Strip><Far /></Strip></span>
       <span aria-hidden className="start-near"><Strip><Near /></Strip></span>
       <span aria-hidden className="start-road" />
-      <span aria-hidden className={`swap-old ${fromArt}`}><ModeArt mode={from} bare className="w-20" /></span>
+      {/* A train is left at its station, on its own piece of track — not parked on the road (the user, 1 Oct). */}
+      <span aria-hidden className={`swap-old ${fromArt}`}>
+        <span className="relative block w-20">
+          {artOf(from) === 'train' && <Station track />}
+          <ModeArt mode={from} bare className="relative w-20" />
+        </span>
+      </span>
       <span aria-hidden className="swap-walker">
         <svg viewBox="0 0 12 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
           <circle cx={6} cy={3.6} r={2.3} fill="currentColor" stroke="none" />
@@ -81,11 +87,38 @@ export function SwapRide({ from, to, fromArt }: { from: string; to: string; /** 
           <path className="swap-leg-b" d="M6 15v7.2" />
         </svg>
       </span>
+      {/* And one that is boarded waits at a station, which is left behind when it pulls out. The track is the button's own. */}
+      {artOf(to) === 'train' && <span aria-hidden className="swap-stop"><span className="relative block w-20"><Station /></span></span>}
       <span aria-hidden className="swap-new"><ModeArt mode={to} bare moving className="w-20" /></span>
       <span aria-hidden className="start-still"><Spinner className="h-4 w-4" /> Changing…</span>
       {/* Keeps the button the height it was. */}
       <span aria-hidden className="invisible inline-flex items-center gap-2">Change here</span>
     </>
+  )
+}
+
+/**
+ * A station, drawn in the same 48 x 30 box as a vehicle so the two sit on one
+ * another exactly: a canopy on two posts, behind the train. With `track` it
+ * brings its own piece of line — a patch of the ground's colour to cover the
+ * road's dashes, then a rail and its sleepers — for a train standing where
+ * the button's ground is a road.
+ */
+function Station({ track = false }: { track?: boolean }) {
+  return (
+    <svg className="absolute inset-0 h-full w-full" viewBox="0 0 48 30" fill="currentColor">
+      <path opacity={0.3} d="M0 7.4 24 4.2l24 3.2v1.7H0z" />
+      <path opacity={0.42} d="M3.2 9.1h1.5v16H3.2zM43.3 9.1h1.5v16h-1.5z" />
+      {track && (
+        <>
+          <rect x={0} y={24.3} width={48} height={5.7} fill="var(--scene)" />
+          <g opacity={0.5} stroke="currentColor" strokeWidth={1} fill="none">
+            <path d="M0 25.1H48" />
+            <path d="M2 25.1v2M8 25.1v2M14 25.1v2M20 25.1v2M26 25.1v2M32 25.1v2M38 25.1v2M44 25.1v2" />
+          </g>
+        </>
+      )}
+    </svg>
   )
 }
 

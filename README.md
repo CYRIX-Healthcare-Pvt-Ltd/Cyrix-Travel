@@ -45,7 +45,10 @@ same Supabase project and sign-in as KPI and Revive Lab.
 - **A facility's place is learned from the first visit**, once the manager
   approves that claim. A stop closed more than 300 m from it is marked for
   the manager, not refused.
-- **One claim per trip**, to the reporting manager.
+- **One claim per trip**, to the reporting manager. A trip has no number
+  while it is on the road or waiting to be sent; submitting it gives it the
+  next TE number, shown as it is given. So a trip cancelled or never sent
+  uses none, and the numbers run in the order claims were submitted.
 
 ## Run it
 

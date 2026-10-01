@@ -13,10 +13,11 @@ import Camera, { type Shot } from '@/components/Camera'
 import { lineKm, mapLink, placeName, whereAmI, type Fix, type Point } from '@/lib/geo'
 import { clockTime } from '@/lib/when'
 import {
-  STOP_KIND, km, placeAt, rupees, startTrip, stopsOn, uploadShot, useChangeMode, useCloseStop, useDeleteTrip, useEnd, useHome, useKnownFacilities, useModes, usePhotosRequired, usePlaces, useReach, useSavePlace, useTrip, useTrips,
+  STOP_KIND, km, placeAt, rupees, startTrip, stopsOn, tripName, uploadShot, useChangeMode, useCloseStop, useDeleteTrip, useEnd, useHome, useKnownFacilities, useModes, usePhotosRequired, usePlaces, useReach, useSavePlace, useTrip, useTrips,
   type Leg, type Mode, type SavedPlace, type Stop, type StopKind,
 } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
+import { artOf } from '@/lib/modeArt'
 
 /**
  * The engineer's day on the road: start, change mode, reach, close, end.
@@ -33,10 +34,10 @@ export default function Trip() {
     <div className="mx-auto max-w-xl space-y-4">
       {unsent.length > 0 && (
         <Alert kind="warning" title={unsent.length === 1 ? 'One claim is waiting for you to submit' : `${unsent.length} claims are waiting for you to submit`}>
-          {unsent.map(t => <Link key={t.id} to={`/claims/${t.id}`} className="link-accent mr-3">{t.code}</Link>)}
+          {unsent.map(t => <Link key={t.id} to={`/claims/${t.id}`} className="link-accent mr-3">{tripName(t)}</Link>)}
         </Alert>
       )}
-      {running ? <Running tripId={running.id} code={running.code} /> : <StartCard />}
+      {running ? <Running tripId={running.id} /> : <StartCard />}
     </div>
   )
 }
@@ -253,7 +254,7 @@ function StartCard() {
       {/* Not disabled while it works: a disabled button is dimmed, and the ride is the thing to be seen. go() ignores a second press. */}
       <button type="button" aria-busy={busy} onClick={go} disabled={marking}
         className={clsx('relative w-full justify-center overflow-hidden !py-3 text-base',
-          busy ? clsx('btn start-run border', modeLook(mode).on, modeLook(mode).scene, modeLook(mode).art, leaving && 'start-off') : 'btn-primary')}>
+          busy ? clsx('btn start-run border', modeLook(mode).on, modeLook(mode).scene, modeLook(mode).art, artOf(mode) === 'train' && 'on-rails', leaving && 'start-off') : 'btn-primary')}>
         {busy ? <StartRide mode={mode} /> : <><Play className="h-5 w-5" /> Start</>}
       </button>
     </div>
@@ -262,7 +263,7 @@ function StartCard() {
 
 type Panel = 'reach' | 'change' | 'end' | null
 
-function Running({ tripId, code }: { tripId: string; code: string }) {
+function Running({ tripId }: { tripId: string }) {
   const { data, isLoading } = useTrip(tripId)
   const { data: modes } = useModes()
   const [panel, setPanel] = useState<Panel>(null)
@@ -282,8 +283,14 @@ function Running({ tripId, code }: { tripId: string; code: string }) {
         <div aria-hidden className={clsx('h-1', look.bar)} />
         <div className="flex items-center justify-between gap-3 p-4">
           <div className="min-w-0">
-            <p className="font-mono text-lg font-semibold text-ink-900">{code}</p>
-            <p className="text-sm text-ink-500">On the road since {clockTime(data.trip.started_at)}</p>
+            {/* No number here: a trip is numbered when its claim is submitted, so one cancelled uses none. */}
+            <p className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold text-ink-900">
+              On the road
+              {/* What the legs closed so far come to (the user, 1 Oct: "show the total sum also"). The leg being travelled joins it when it is closed. */}
+              <span className="tabular-nums">· {rupees(data.trip.total_amount)}</span>
+              <span className="text-sm font-normal text-ink-500">so far</span>
+            </p>
+            <p className="text-sm text-ink-500">since {clockTime(data.trip.started_at)} · {km(data.trip.total_km)}</p>
           </div>
           {leg && (
             <span className={clsx('flex shrink-0 items-center gap-2 rounded-xl py-1 pl-1 pr-3 text-sm font-medium', look.pill)}>
@@ -324,7 +331,7 @@ function Running({ tripId, code }: { tripId: string; code: string }) {
           onDone={() => { if (panel === 'end') navigate(`/claims/${tripId}`); else done('Mode changed. The last leg is closed with its distance.') }}
         />
       )}
-      <CancelTrip tripId={tripId} code={code} />
+      <CancelTrip tripId={tripId} />
     </div>
   )
 }
@@ -336,7 +343,7 @@ function Running({ tripId, code }: { tripId: string; code: string }) {
  * within reach of the mistake. Quiet until it is wanted, and asked twice:
  * it sits under the buttons an engineer presses all day.
  */
-function CancelTrip({ tripId, code }: { tripId: string; code: string }) {
+function CancelTrip({ tripId }: { tripId: string }) {
   const remove = useDeleteTrip()
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -358,7 +365,7 @@ function CancelTrip({ tripId, code }: { tripId: string; code: string }) {
     <div className="card space-y-2.5 p-4">
       {error && <Alert kind="error">{error}</Alert>}
       <p className="text-sm text-ink-800">
-        Cancel <span className="font-mono font-semibold">{code}</span>? The trip is deleted with its legs, stops and photographs, and nothing is claimed for it. This cannot be undone.
+        Cancel this trip? It is deleted with its legs, stops and photographs, and nothing is claimed for it. It has taken no claim number. This cannot be undone.
       </p>
       <div className="flex gap-2">
         <button type="button" className="btn-danger" onClick={go} disabled={remove.isPending}>
@@ -622,7 +629,7 @@ function LegEndForm({ tripId, leg: legNow, mode: modeNow, modes, ending, via = [
         {/* While a change is shown it is not disabled — a disabled button is dimmed — and go() ignores a second press. */}
         <button type="button" aria-busy={busy} onClick={go} disabled={busy && !swapping}
           className={clsx('relative flex-1 justify-center overflow-hidden',
-            swapping ? clsx('btn start-run swap-run border', modeLook(next).on, modeLook(next).scene, leaving && 'start-off') : 'btn-primary')}>
+            swapping ? clsx('btn start-run swap-run border', modeLook(next).on, modeLook(next).scene, artOf(next) === 'train' && 'on-rails', leaving && 'start-off') : 'btn-primary')}>
           {swapping ? <SwapRide from={leg.mode} to={next} fromArt={modeLook(leg.mode).art} /> : (
             <>
               {busy ? <Spinner className="h-4 w-4" /> : ending ? <Flag className="h-4 w-4" /> : <ArrowRightLeft className="h-4 w-4" />}

@@ -125,6 +125,15 @@ const ART: Record<string, () => ReactNode> = {
         <path {...SOFT} d="M14.6 15.1h6.6q1 0 1.6.8 1.7-3 4.7-2.9 2.4.1 3.1 2L29.4 17.2H16.6q-1.7 0-2-2.1z" />
         <path {...SOFT} d="M21.8 17.6h4.4q1.2 0 1.2 1.2v1.8q0 1.2-1.2 1.2h-4.4q-1.2 0-1.2-1.2v-1.8q0-1.2 1.2-1.2z" />
         <circle cx={31.9} cy={14.7} r={1.05} fill="currentColor" stroke="none" />
+        {/* Its rider: on a bike the person is in plain sight, so a bike that is moving has one and a bike standing does
+            not (the user, 1 Oct: "in bike the person stick should be there"). Shown by the stylesheet, only while it runs. */}
+        <g className="m-rider">
+          {/* With a helmet on (the user: "add helmet also"): the face lighter under a solid dome with its peak. */}
+          <circle cx={24.7} cy={6.4} r={1.7} fill="currentColor" fillOpacity={0.4} stroke="none" />
+          <path d="M22.1 6.4a2.6 2.6 0 0 1 5.2 0z" fill="currentColor" strokeWidth={0.6} />
+          <path d="M27.3 6.4h1.3" strokeWidth={1.1} />
+          <path d="M19 14.3 23.5 8.8l5.2 2.7M19 14.3l4.7 1.9-1.1 3.7" />
+        </g>
       </g>
       <Wheel x={13.5} y={22.3} r={3.5} />
       <Wheel x={34.5} y={22.3} r={3.5} />

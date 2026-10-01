@@ -26,8 +26,9 @@ export interface Stop {
   proof_at: string | null; distance_m: number | null; flagged: boolean
 }
 
+/** `code` is the claim's TE number: null until the claim is submitted (te_0008). */
 export interface Trip {
-  id: string; code: string; employee_id: string; status: TripStatus
+  id: string; code: string | null; employee_id: string; status: TripStatus
   start_kind: 'home' | 'new'; start_lat: number; start_lng: number; start_note: string | null; started_at: string
   end_lat: number | null; end_lng: number | null; ended_at: string | null
   total_km: number; total_amount: number
@@ -35,7 +36,7 @@ export interface Trip {
 }
 
 export interface TripRow {
-  id: string; code: string; employee_id: string; employee_name: string; employee_ecode: string; status: TripStatus
+  id: string; code: string | null; employee_id: string; employee_name: string; employee_ecode: string; status: TripStatus
   started_at: string; ended_at: string | null; total_km: number; total_amount: number
   submitted_at: string | null; decided_at: string | null; decided_by_name: string | null; decision_note: string | null
   stops: number; flags: number; mine: boolean; can_decide: boolean
@@ -55,6 +56,14 @@ export function statusLook(t: { status: TripStatus; ended_at: string | null }): 
   if (t.status === 'approved') return { label: 'Approved', tone: 'green' }
   return { label: 'Sent back', tone: 'rose' }
 }
+
+/**
+ * What a trip is called: its claim number once it has one, and until then
+ * the day it was made — "Trip of 1 Oct". A trip is numbered when it is
+ * submitted, so one cancelled or never sent uses no number.
+ */
+export const tripName = (t: { code: string | null; started_at: string }) =>
+  t.code ?? `Trip of ${new Date(t.started_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
 
 export const rupees = (n: number | null | undefined) =>
   `₹${Number(n ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
@@ -237,7 +246,8 @@ export const useReach = () => useMove((a: { tripId: string; kind: StopKind; faci
 export const useCloseStop = () => useMove((a: { stopId: string; proofPath: string | null; at: Point; note?: string }) =>
   rpc<{ flagged: boolean; distance_m: number | null; facility_status: string }>('travel_close_stop', { p_stop_id: a.stopId, p_proof_path: a.proofPath, p_lat: a.at.lat, p_lng: a.at.lng, p_note: a.note || null }))
 
-export const useSubmit = () => useMove((a: { tripId: string }) => rpc('travel_submit', { p_trip_id: a.tripId }))
+/** Submits a claim, and answers with the number it was given (or already had, for one sent back). */
+export const useSubmit = () => useMove((a: { tripId: string }) => rpc<string | null>('travel_submit', { p_trip_id: a.tripId }))
 
 export const useDecide = () => useMove((a: { tripId: string; approve: boolean; note?: string }) =>
   rpc('travel_decide', { p_trip_id: a.tripId, p_approve: a.approve, p_note: a.note || null }))

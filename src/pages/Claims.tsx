@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import clsx from 'clsx'
 import { ClipboardCheck, Inbox, ReceiptText, TriangleAlert } from 'lucide-react'
 import { EmptyState, PageLoader, StatTile } from '@/components/ui'
-import { km, rupees, statusLook, useTrips, type TripRow } from '@/lib/travel'
+import { km, rupees, statusLook, tripName, useTrips, type TripRow } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
 import { dayDate } from '@/lib/when'
 
@@ -83,9 +83,12 @@ function Row({ t, team }: { t: TripRow; team: boolean }) {
     <li>
       {/* Two lines on a phone — the claim and what it comes to, then whose and when — and one on a computer. */}
       <Link to={`/claims/${t.id}`} state={{ back: team ? '/approvals' : '/claims' }} className="block px-4 py-3 hover:bg-ink-50 sm:flex sm:items-center sm:gap-3">
-        <span className="flex items-center gap-2.5 sm:w-28 sm:shrink-0">
+        <span className="flex items-center gap-2.5 sm:w-32 sm:shrink-0">
           {team ? <ClipboardCheck className="h-4 w-4 shrink-0 text-ink-300" /> : <ReceiptText className="h-4 w-4 shrink-0 text-ink-300" />}
-          <span className="font-mono text-sm font-semibold text-ink-900">{t.code}</span>
+          {/* Its number once submitted; until then the day it was made, not in the number's type — it is not one. */}
+          {t.code
+            ? <span className="font-mono text-sm font-semibold text-ink-900">{t.code}</span>
+            : <span className="text-sm font-medium text-ink-600">{tripName(t)}</span>}
           {/* On a phone the status and the amount sit on the first line, at its end. */}
           <span className="ml-auto flex items-center gap-2 sm:hidden">
             <span className={clsx('badge', TONE_CLASS[look.tone])}>{look.label}</span>

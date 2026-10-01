@@ -5,10 +5,11 @@ import { ArrowLeft, BadgeCheck, Camera as CameraIcon, ExternalLink, MapPin, Send
 import { useAuth } from '@/contexts/AuthContext'
 import { Alert, EmptyState, PageLoader, Spinner } from '@/components/ui'
 import Lightbox from '@/components/Lightbox'
+import Dialog from '@/components/Dialog'
 import ModeArt from '@/components/ModeArt'
 import { mapLink, routeLink } from '@/lib/geo'
 import { dateTime, clockTime } from '@/lib/when'
-import { STOP_KIND, km, rupees, statusLook, stopsOn, useDecide, useDeleteTrip, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
+import { STOP_KIND, km, rupees, statusLook, stopsOn, tripName, useDecide, useDeleteTrip, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
 
 /** One trip, laid out as it happened: its legs with distance and amount, its stops with their proof. */
@@ -24,6 +25,8 @@ export default function Claim() {
   const navigate = useNavigate()
   const { isSwAdmin } = useAuth()
   const [deleting, setDeleting] = useState(false)
+  // The number a claim was given as it was submitted, shown once in a small dialog.
+  const [numbered, setNumbered] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [returning, setReturning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -45,6 +48,11 @@ export default function Claim() {
     try { await remove.mutateAsync({ tripId: trip.id }); navigate(back, { replace: true }) }
     catch (e) { setError(e instanceof Error ? e.message : 'The claim was not deleted.'); setDeleting(false) }
   }
+  const send = async () => {
+    setError(null)
+    try { setNumbered(await submit.mutateAsync({ tripId: trip.id }) ?? ''); setDone(null) }
+    catch (e) { setError(e instanceof Error ? e.message : 'The claim was not submitted.') }
+  }
   const run = async (fn: () => Promise<unknown>, msg: string) => {
     setError(null)
     try { await fn(); setDone(msg); setReturning(false) } catch (e) { setError(e instanceof Error ? e.message : 'That did not go through.') }
@@ -58,7 +66,9 @@ export default function Claim() {
         <div className="flex flex-wrap items-start justify-between gap-3 p-4 sm:p-5">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-mono text-2xl font-semibold text-ink-900">{trip.code}</h1>
+              {trip.code
+                ? <h1 className="font-mono text-2xl font-semibold text-ink-900">{trip.code}</h1>
+                : <h1 className="text-2xl font-semibold text-ink-900">{tripName(trip)}</h1>}
               <span className={clsx('badge', TONE_CLASS[look.tone])}>{look.label}</span>
             </div>
             <p className="mt-1 text-sm text-ink-600">
@@ -69,6 +79,7 @@ export default function Claim() {
               Started from {trip.start_kind === 'home' ? 'home' : trip.start_note ?? 'a new place'} ·{' '}
               <a className="link-accent" href={mapLink({ lat: trip.start_lat, lng: trip.start_lng })} target="_blank" rel="noreferrer">see on the map</a>
             </p>
+            {!trip.code && mine && <p className="mt-0.5 text-xs text-ink-500">It gets its claim number when you submit it.</p>}
             {trip.decision_note && (
               <p className="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-sm text-rose-900">
                 {trip.status === 'returned' ? 'Sent back' : 'Manager'}{row?.decided_by_name ? ` by ${row.decided_by_name}` : ''}: {trip.decision_note}
@@ -87,7 +98,7 @@ export default function Claim() {
             {error && <Alert kind="error">{error}</Alert>}
             {canSubmit && (
               <button type="button" className="btn-primary" disabled={submit.isPending}
-                onClick={() => run(() => submit.mutateAsync({ tripId: trip.id }), 'Submitted. It is with your manager.')}>
+                onClick={send}>
                 {submit.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Submit to my manager
               </button>
             )}
@@ -116,6 +127,19 @@ export default function Claim() {
       </div>
 
       {done && <Alert kind="success">{done}</Alert>}
+
+      {numbered !== null && (
+        <Dialog title="Claim submitted" icon={<BadgeCheck className="h-5 w-5 text-green-600" />} onClose={() => setNumbered(null)}>
+          <div className="mt-4 space-y-4 text-center">
+            <div>
+              <p className="label !mb-1">Your claim number</p>
+              <p className="font-mono text-4xl font-semibold tracking-tight text-ink-900">{numbered || trip.code}</p>
+            </div>
+            <p className="text-sm text-ink-600">{rupees(trip.total_amount)} over {km(trip.total_km)}. It is with your manager now.</p>
+            <button type="button" className="btn-primary w-full justify-center" onClick={() => setNumbered(null)}>OK</button>
+          </div>
+        </Dialog>
+      )}
 
       <div className="card overflow-hidden">
         <h2 className="border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-sm font-semibold text-ink-800">Legs</h2>
@@ -189,7 +213,7 @@ export default function Claim() {
           {deleting ? (
             <div className="space-y-2.5">
               <p className="text-sm text-ink-800">
-                Delete <span className="font-mono font-semibold">{trip.code}</span>? Its legs, stops and photographs go with it, and its number is not used again. This cannot be undone.
+                Delete {trip.code ? <span className="font-mono font-semibold">{trip.code}</span> : 'this trip'}? Its legs, stops and photographs go with it{trip.code ? ', and its number is not used again' : ''}. This cannot be undone.
               </p>
               <div className="flex gap-2">
                 <button type="button" className="btn-danger" onClick={deleteIt} disabled={remove.isPending}>
