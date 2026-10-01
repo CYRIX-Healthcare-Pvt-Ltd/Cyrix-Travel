@@ -33,7 +33,15 @@ same Supabase project and sign-in as KPI and Revive Lab.
 - **Each mode has its own colour and its own vehicle**, the same wherever it
   appears; the one in force is drawn moving.
 - **Photographs are taken in the app**, never chosen from the phone, and each
-  carries where it was taken.
+  carries where it was taken. Whether they are required at all is a setting
+  the software administrator switches (the Rates page here, and the Travel
+  Expense tab of SW Admin in KPI); while it is off a claim says where a
+  photograph is missing. It is meant to be on.
+- **A claim can be deleted** by its engineer while the manager does not hold
+  it, and by the software administrator at any time. Its photographs go
+  first, then the trip; the deletion is written to the audit log.
+- **A stop is offered its name** from where the phone is: a facility whose
+  place a manager has agreed, or else one of the engineer's saved places.
 - **A facility's place is learned from the first visit**, once the manager
   approves that claim. A stop closed more than 300 m from it is marked for
   the manager, not refused.

@@ -1,19 +1,19 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
+import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, BookmarkCheck, BookmarkPlus, Check, ExternalLink, Flag, Home, LocateFixed, MapPin, MapPinCheck, MapPinned, Play } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import IconChip from '@/components/IconChip'
 import ModeArt, { modeLook } from '@/components/ModeArt'
 import HomePlace from '@/components/HomePlace'
+import StartRide from '@/components/StartRide'
 import Camera, { type Shot } from '@/components/Camera'
-import { mapLink, placeName, whereAmI, type Fix, type Point } from '@/lib/geo'
+import { lineKm, mapLink, placeName, whereAmI, type Fix, type Point } from '@/lib/geo'
 import { clockTime } from '@/lib/when'
-import { supabase } from '@/lib/supabase'
-import { useQuery } from '@tanstack/react-query'
 import {
-  STOP_KIND, km, placeAt, rupees, stopsOn, uploadShot, useChangeMode, useCloseStop, useEnd, useHome, useModes, usePlaces, useReach, useSavePlace, useStart, useTrip, useTrips,
+  STOP_KIND, km, placeAt, rupees, startTrip, stopsOn, uploadShot, useChangeMode, useCloseStop, useEnd, useHome, useKnownFacilities, useModes, usePhotosRequired, usePlaces, useReach, useSavePlace, useTrip, useTrips,
   type Leg, type Mode, type SavedPlace, type Stop, type StopKind,
 } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
@@ -84,8 +84,9 @@ interface Mark { at: Fix; name: string | null; when: number }
 /** A mark older than this is read again at Start: a place marked a while ago is not where Start was pressed. */
 const MARK_KEEPS_MS = 5 * 60_000
 
-/** The least a start is seen to take, so the vehicle is seen setting off even when the phone answers at once. */
+/** The least a start is seen to take, so the vehicle is seen arriving even when the phone answers at once; and how long it takes to ride out. */
 const RIDE_MS = 900
+const LEAVE_MS = 450
 
 /**
  * The place just marked: what it is called, when it was read and how
@@ -158,12 +159,14 @@ function StartCard() {
   const { data: modes } = useModes()
   const { data: home } = useHome(employee?.id)
   const { data: places } = usePlaces()
-  const start = useStart()
+  const qc = useQueryClient()
   const [kind, setKind] = useState<'home' | 'new'>('home')
   const [mark, setMark] = useState<Mark | null>(null)
   const [marking, setMarking] = useState(false)
   const [mode, setMode] = useState('')
   const [busy, setBusy] = useState(false)
+  // The place is known and the trip is being made: the vehicle rides out.
+  const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   /** Reads where the phone is and what that place is called. Nothing is typed (the user, 1 Oct). */
@@ -183,22 +186,31 @@ function StartCard() {
     setError(null)
     if (kind === 'new' && !mark) { setError('Mark your location first.'); return }
     if (!mode) { setError('Choose how you are travelling.'); return }
-    setBusy(true)
-    // The vehicle is given time to be seen setting off — unless less motion has been asked for, when there is no ride to wait for.
+    setBusy(true); setLeaving(false)
+    // The vehicle is given time to be seen — unless less motion has been asked for, when there is no ride to wait for.
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const ride = new Promise(done => setTimeout(done, still ? 0 : RIDE_MS))
+    const wait = (ms: number) => new Promise(done => setTimeout(done, still ? 0 : ms))
+    const ride = wait(RIDE_MS)
     try {
+      let at: Point, note: string | undefined
       if (kind === 'new') {
         const [from] = await Promise.all([Date.now() - mark!.when > MARK_KEEPS_MS ? readMark() : mark!, ride])
         // At a saved place the trip is recorded under the name its owner gave it; otherwise under the map's.
-        await start.mutateAsync({ kind, at: from.at, mode, note: placeAt(places ?? [], from.at)?.name ?? from.name ?? undefined })
+        at = from.at; note = placeAt(places ?? [], from.at)?.name ?? from.name ?? undefined
       } else {
-        const [at] = await Promise.all([whereAmI(), ride])
-        await start.mutateAsync({ kind, at, mode })
+        [at] = await Promise.all([whereAmI(), ride])
       }
+      // The trip is made while the vehicle is still on the button. Only once it exists does the vehicle ride out —
+      // a start that fails leaves it where it is, under the reason — and only then is the screen refreshed, which
+      // is what puts the trip's own screen in this one's place.
+      await startTrip({ kind, at, mode, note })
+      setLeaving(true)
+      await wait(LEAVE_MS)
+      await qc.invalidateQueries({ queryKey: ['travel'] })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The trip did not start.')
-    } finally { setBusy(false) }
+      setBusy(false); setLeaving(false)
+    }
   }
 
   return (
@@ -236,20 +248,11 @@ function StartCard() {
         <p className="label">Travelling by</p>
         <ModePicker modes={modes ?? []} value={mode} onChange={setMode} />
       </div>
-      {/* Not disabled while it works: a disabled button is dimmed, and the ride across it is the thing to be seen. go() ignores a second press. */}
-      <button type="button" aria-busy={busy} className={clsx('btn-primary relative w-full justify-center overflow-hidden !py-3 text-base', busy && 'start-run')} onClick={go} disabled={marking}>
-        {busy ? (
-          <>
-            <span className="sr-only">Starting…</span>
-            <span aria-hidden className="start-road" />
-            <span aria-hidden className="start-rider"><ModeArt mode={mode} bare moving className="w-20" /></span>
-            <span aria-hidden className="start-still"><Spinner className="h-5 w-5" /> Starting…</span>
-            {/* Keeps the button the height it was. */}
-            <span aria-hidden className="invisible inline-flex items-center gap-2"><Play className="h-5 w-5" /> Start</span>
-          </>
-        ) : (
-          <><Play className="h-5 w-5" /> Start</>
-        )}
+      {/* Not disabled while it works: a disabled button is dimmed, and the ride is the thing to be seen. go() ignores a second press. */}
+      <button type="button" aria-busy={busy} onClick={go} disabled={marking}
+        className={clsx('relative w-full justify-center overflow-hidden !py-3 text-base',
+          busy ? clsx('btn start-run border', modeLook(mode).on, modeLook(mode).scene, modeLook(mode).art, leaving && 'start-off') : 'btn-primary')}>
+        {busy ? <StartRide mode={mode} /> : <><Play className="h-5 w-5" /> Start</>}
       </button>
     </div>
   )
@@ -360,11 +363,29 @@ function ReachForm({ tripId, onCancel, onDone }: { tripId: string; onCancel: () 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Places already visited, so a name is spelled the same way twice.
-  const { data: known } = useQuery({
-    queryKey: ['travel', 'facilities'],
-    staleTime: 5 * 60_000,
-    queryFn: async () => ((await supabase.from('travel_facilities').select('name').order('name')).data ?? []) as Array<{ name: string }>,
-  })
+  const { data: known } = useKnownFacilities()
+  const { data: places } = usePlaces()
+  /*
+   * Where the phone is as the form opens, read once, to offer the name of the
+   * place: a facility whose place a manager has agreed, or else one of this
+   * person's own saved places, within the same 300 m either way. It only
+   * fills the box — what is recorded is still read at "I am here" — and it
+   * never writes over something already typed.
+   */
+  const [here, setHere] = useState<Point | null>(null)
+  const typed = useRef(false)
+  useEffect(() => {
+    let alive = true
+    whereAmI().then(p => { if (alive) setHere(p) }).catch(() => { /* no name is offered; the form works as it did */ })
+    return () => { alive = false }
+  }, [])
+  const offered = useMemo(() => {
+    if (!here) return null
+    let best: string | null = null, near = 0.3
+    for (const f of known ?? []) { if (f.status !== 'approved') continue; const d = lineKm(f, here); if (d <= near) { best = f.name; near = d } }
+    return best ?? placeAt(places ?? [], here)?.name ?? null
+  }, [here, known, places])
+  useEffect(() => { if (offered && !typed.current) setFacility(offered) }, [offered])
 
   const go = async () => {
     setError(null)
@@ -398,8 +419,11 @@ function ReachForm({ tripId, onCancel, onDone }: { tripId: string; onCancel: () 
       </div>
       <label className="block">
         <span className="label">Facility or place <span className="text-cyrixRed-600">*</span></span>
-        <input className="input" list="travel-facilities" value={facility} onChange={e => setFacility(e.target.value)} maxLength={200} placeholder="e.g. GH Thrissur" />
+        <input className="input" list="travel-facilities" value={facility} onChange={e => { typed.current = true; setFacility(e.target.value) }} maxLength={200} placeholder="e.g. GH Thrissur" />
         <datalist id="travel-facilities">{(known ?? []).map(f => <option key={f.name} value={f.name} />)}</datalist>
+        {offered && facility === offered && (
+          <span className="mt-1.5 block text-xs text-ink-500">Filled in from where you are. Change it if you are somewhere else.</span>
+        )}
       </label>
       {kind === 'ticket' && (
         <label className="block">
@@ -419,6 +443,7 @@ function ReachForm({ tripId, onCancel, onDone }: { tripId: string; onCancel: () 
 
 function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void }) {
   const close = useCloseStop()
+  const required = usePhotosRequired()
   const [shot, setShot] = useState<Shot | null>(null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
@@ -426,11 +451,12 @@ function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void
   const attempt = useRef(0)
 
   const go = async () => {
-    if (!shot) { setError('Take the proof photograph first.'); return }
+    if (!shot && required) { setError('Take the proof photograph first.'); return }
     setBusy(true); setError(null)
     try {
-      const path = await uploadShot(stop.trip_id, 'proof', stop.seq + 100 * attempt.current++, shot.blob)
-      const out = await close.mutateAsync({ stopId: stop.id, proofPath: path, at: shot.at, note })
+      // With a photograph, the stop is closed where it was taken; without one (while none is required), where the phone is now.
+      const path = shot ? await uploadShot(stop.trip_id, 'proof', stop.seq + 100 * attempt.current++, shot.blob) : null
+      const out = await close.mutateAsync({ stopId: stop.id, proofPath: path, at: shot ? shot.at : await whereAmI(), note })
       onDone(out.flagged
         ? `Closed. The photograph was taken ${out.distance_m} m from ${stop.facility_name}'s recorded place, so your manager will see it marked.`
         : out.facility_status === 'pending'
@@ -453,12 +479,12 @@ function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void
         {' '}When the work is done, close it with a photograph taken here.
       </p>
       {error && <Alert kind="error">{error}</Alert>}
-      <Camera label="Proof photograph" onShot={x => { setShot(x); if (x) setError(null) }} />
+      <Camera label="Proof photograph" optional={!required} onShot={x => { setShot(x); if (x) setError(null) }} />
       <label className="block">
         <span className="label">Note</span>
         <input className="input" value={note} onChange={e => setNote(e.target.value)} maxLength={500} placeholder="What was done — optional" />
       </label>
-      <button type="button" className="btn-primary w-full justify-center" onClick={go} disabled={busy || !shot}>
+      <button type="button" className="btn-primary w-full justify-center" onClick={go} disabled={busy || (required && !shot)}>
         {busy ? <Spinner className="h-4 w-4" /> : <Flag className="h-4 w-4" />} Close this stop
       </button>
     </div>
@@ -474,6 +500,7 @@ function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDo
 }) {
   const change = useChangeMode()
   const end = useEnd()
+  const required = usePhotosRequired()
   const [next, setNext] = useState('')
   const [fare, setFare] = useState('')
   const [shot, setShot] = useState<Shot | null>(null)
@@ -488,7 +515,7 @@ function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDo
     if (!ending && next === leg.mode) { setError('That is the mode you are already on.'); return }
     const amount = Number(fare)
     if (onFare && (!fare.trim() || !Number.isFinite(amount) || amount < 0)) { setError(`Enter the ${mode!.label.toLowerCase()} fare.`); return }
-    if (onFare && !shot) { setError(`Take a photograph of the ${mode!.label.toLowerCase()} bill.`); return }
+    if (onFare && !shot && required) { setError(`Take a photograph of the ${mode!.label.toLowerCase()} bill.`); return }
     setBusy(true)
     try {
       const at = await whereAmI()
@@ -518,7 +545,7 @@ function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDo
             <span className="label">{mode!.label} fare (₹) <span className="text-cyrixRed-600">*</span></span>
             <input className="input" inputMode="decimal" value={fare} onChange={e => setFare(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 150" />
           </label>
-          <Camera label={`${mode!.label} bill`} onShot={x => { setShot(x); if (x) setError(null) }} />
+          <Camera label={`${mode!.label} bill`} optional={!required} onShot={x => { setShot(x); if (x) setError(null) }} />
         </>
       )}
       {!ending && (

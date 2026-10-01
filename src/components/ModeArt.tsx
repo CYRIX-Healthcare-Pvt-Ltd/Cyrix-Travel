@@ -171,6 +171,21 @@ const ART: Record<string, () => ReactNode> = {
       <Wheel x={35.5} y={24.4} r={2.1} />
     </>
   ),
+  /* A coach, for the long train that sets off across Start: a body, its windows and its bogies. */
+  coach: () => (
+    <>
+      <Rails />
+      <g className="m-body">
+        <path {...SOFT} d="M2.5 22V11.4q0-2 2-2h39q2 0 2 2V22z" />
+        <path {...GLASS} d="M6 12h4.6v3.6H6zM12.4 12H17v3.6h-4.6zM18.8 12h4.6v3.6h-4.6zM25.2 12h4.6v3.6h-4.6zM31.6 12h4.6v3.6h-4.6zM38 12h4.6v3.6H38z" />
+        <path d="M2.5 18.5h43" strokeWidth={1} opacity={0.6} />
+      </g>
+      <Wheel x={9} y={24.4} r={2.1} />
+      <Wheel x={14.4} y={24.4} r={2.1} />
+      <Wheel x={33.6} y={24.4} r={2.1} />
+      <Wheel x={39} y={24.4} r={2.1} />
+    </>
+  ),
   /* Three wheels: the small one out in front under the nose, the open cabin under its hood. */
   auto: () => (
     <>

@@ -156,8 +156,14 @@ function useMove<A, R>(fn: (a: A) => Promise<R>) {
   return useMutation({ mutationFn: fn, onSuccess: () => qc.invalidateQueries({ queryKey: ['travel'] }) })
 }
 
-export const useStart = () => useMove((a: { kind: 'home' | 'new'; at: Point; mode: string; note?: string }) =>
-  rpc<{ id: string; code: string }>('travel_start', { p_kind: a.kind, p_lat: a.at.lat, p_lng: a.at.lng, p_mode: a.mode, p_note: a.note || null }))
+/**
+ * Starts a trip, and refreshes nothing: the Start card lets the vehicle ride out before the trip's
+ * own screen takes over, so it says when (see StartCard).
+ */
+export const startTrip = (a: { kind: 'home' | 'new'; at: Point; mode: string; note?: string }) =>
+  rpc<{ id: string; code: string }>('travel_start', { p_kind: a.kind, p_lat: a.at.lat, p_lng: a.at.lng, p_mode: a.mode, p_note: a.note || null })
+
+export const useStart = () => useMove(startTrip)
 
 export const useSetHome = () => useMove((a: { at: Point }) => rpc('travel_set_home', { p_lat: a.at.lat, p_lng: a.at.lng }))
 
@@ -224,7 +230,7 @@ export const useEnd = () => useMove(async (a: { tripId: string; end: LegEnd }) =
 export const useReach = () => useMove((a: { tripId: string; kind: StopKind; facility: string; ticketNo?: string; at: Point; note?: string }) =>
   rpc<string>('travel_reach', { p_trip_id: a.tripId, p_kind: a.kind, p_facility: a.facility, p_ticket_no: a.ticketNo || null, p_lat: a.at.lat, p_lng: a.at.lng, p_note: a.note || null }))
 
-export const useCloseStop = () => useMove((a: { stopId: string; proofPath: string; at: Point; note?: string }) =>
+export const useCloseStop = () => useMove((a: { stopId: string; proofPath: string | null; at: Point; note?: string }) =>
   rpc<{ flagged: boolean; distance_m: number | null; facility_status: string }>('travel_close_stop', { p_stop_id: a.stopId, p_proof_path: a.proofPath, p_lat: a.at.lat, p_lng: a.at.lng, p_note: a.note || null }))
 
 export const useSubmit = () => useMove((a: { tripId: string }) => rpc('travel_submit', { p_trip_id: a.tripId }))
@@ -232,4 +238,57 @@ export const useSubmit = () => useMove((a: { tripId: string }) => rpc('travel_su
 export const useDecide = () => useMove((a: { tripId: string; approve: boolean; note?: string }) =>
   rpc('travel_decide', { p_trip_id: a.tripId, p_approve: a.approve, p_note: a.note || null }))
 
-export const useSetRate = () => useMove((a: { mode: string; perKm: number }) => rpc('travel_set_rate', { p_mode: a.mode, p_per_km: a.perKm }))
+/** A rate pays by the kilometre; null pays on the actual fare. */
+export const useSetRate = () => useMove((a: { mode: string; perKm: number | null }) => rpc('travel_set_rate', { p_mode: a.mode, p_per_km: a.perKm }))
+
+/* ------------------------------------------------------------------ photographs: required, or not for now */
+
+/**
+ * Whether a stop needs its proof and a fare-paid leg its bill (te_0006).
+ * Required unless the setting says otherwise — and while it is being read,
+ * so a screen never offers to skip a photograph it may turn out to need.
+ */
+export function usePhotosRequired() {
+  const { data } = useQuery({
+    queryKey: ['travel', 'photos-required'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('travel_settings').select('value').eq('key', 'photos_required').maybeSingle()
+      if (error) throw new Error(friendlyError(error))
+      return data ? data.value !== false : true
+    },
+  })
+  return data ?? true
+}
+
+export const useSetPhotosRequired = () => useMove((a: { on: boolean }) => rpc('travel_set_photos_required', { p_on: a.on }))
+
+/* ------------------------------------------------------------------ facilities, for naming a stop */
+
+/** Facilities whose place a manager has agreed, with where they are: a stop reached at one is offered its name. */
+export function useKnownFacilities() {
+  return useQuery({
+    queryKey: ['travel', 'facilities'],
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('travel_facilities').select('name, lat, lng, status').order('name')
+      if (error) throw new Error(friendlyError(error))
+      return data as Array<Point & { name: string; status: 'pending' | 'approved' }>
+    },
+  })
+}
+
+/* ------------------------------------------------------------------ deleting a claim */
+
+/**
+ * Deletes a claim: its photographs first, while the trip they belong to is
+ * still there to say who may remove them, then the trip with its legs and
+ * stops. Who may is the database's rule — its engineer while the manager
+ * does not hold it, or the software administrator.
+ */
+export const useDeleteTrip = () => useMove(async (a: { tripId: string }) => {
+  const bucket = supabase.storage.from('travel-proofs')
+  const { data: files } = await bucket.list(a.tripId)
+  // A photograph that will not go is left behind rather than keeping the claim: nobody can open it once the trip is gone.
+  if (files?.length) await bucket.remove(files.map(f => `${a.tripId}/${f.name}`))
+  return rpc('travel_delete', { p_trip_id: a.tripId })
+})

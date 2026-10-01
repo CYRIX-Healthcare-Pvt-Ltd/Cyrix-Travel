@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { ArrowLeft, BadgeCheck, Camera as CameraIcon, ExternalLink, MapPin, Send, TriangleAlert, Undo2 } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Camera as CameraIcon, ExternalLink, MapPin, Send, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import { Alert, EmptyState, PageLoader, Spinner } from '@/components/ui'
 import Lightbox from '@/components/Lightbox'
 import ModeArt from '@/components/ModeArt'
 import { mapLink, routeLink } from '@/lib/geo'
 import { dateTime, clockTime } from '@/lib/when'
-import { STOP_KIND, km, rupees, statusLook, stopsOn, useDecide, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
+import { STOP_KIND, km, rupees, statusLook, stopsOn, useDecide, useDeleteTrip, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
 
 /** One trip, laid out as it happened: its legs with distance and amount, its stops with their proof. */
@@ -19,6 +20,10 @@ export default function Claim() {
   const { data: modes } = useModes()
   const submit = useSubmit()
   const decide = useDecide()
+  const remove = useDeleteTrip()
+  const navigate = useNavigate()
+  const { isSwAdmin } = useAuth()
+  const [deleting, setDeleting] = useState(false)
   const [note, setNote] = useState('')
   const [returning, setReturning] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,6 +38,13 @@ export default function Claim() {
   const mine = !!row?.mine
   const canSubmit = mine && !!trip.ended_at && (trip.status === 'open' || trip.status === 'returned')
   const canDecide = !!row?.can_decide && trip.status === 'submitted'
+  // Its engineer while the manager does not hold it, or the software administrator: the database's own rule (te_0006), shown here so the button is only offered where it will work.
+  const canDelete = isSwAdmin || (mine && (trip.status === 'open' || trip.status === 'returned'))
+  const deleteIt = async () => {
+    setError(null)
+    try { await remove.mutateAsync({ tripId: trip.id }); navigate(back, { replace: true }) }
+    catch (e) { setError(e instanceof Error ? e.message : 'The claim was not deleted.'); setDeleting(false) }
+  }
   const run = async (fn: () => Promise<unknown>, msg: string) => {
     setError(null)
     try { await fn(); setDone(msg); setReturning(false) } catch (e) { setError(e instanceof Error ? e.message : 'That did not go through.') }
@@ -136,6 +148,7 @@ export default function Claim() {
                     <TriangleAlert className="mr-1 h-3.5 w-3.5" /> straight-line distance
                   </span>
                 )}
+                {l.to_at && l.rate === null && !l.bill_path && <span className="badge bg-amber-100 text-amber-900">No bill photograph</span>}
                 {l.bill_path && <Photo path={l.bill_path} label="Bill" at={l.bill_lat !== null && l.bill_lng !== null ? { lat: l.bill_lat, lng: l.bill_lng } : null} />}
               </div>
             </li>
@@ -161,12 +174,40 @@ export default function Claim() {
                 )}
                 {s.closed_at && s.distance_m === null && <span className="badge bg-amber-100 text-amber-900">First visit — sets the facility’s place</span>}
                 {s.closed_at && s.distance_m !== null && !s.flagged && <span className="badge bg-green-100 text-green-900">At the facility · {s.distance_m} m</span>}
+                {s.closed_at && !s.proof_path && <span className="badge bg-amber-100 text-amber-900">No photograph</span>}
                 {s.proof_path && <Photo path={s.proof_path} label="Proof" at={s.proof_lat !== null && s.proof_lng !== null ? { lat: s.proof_lat, lng: s.proof_lng } : null} />}
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {canDelete && (
+        <div className="card p-4">
+          {/* An error from the delete shows here when the claim has no action bar above to show it in. */}
+          {error && !(canSubmit || canDecide) && <div className="mb-3"><Alert kind="error">{error}</Alert></div>}
+          {deleting ? (
+            <div className="space-y-2.5">
+              <p className="text-sm text-ink-800">
+                Delete <span className="font-mono font-semibold">{trip.code}</span>? Its legs, stops and photographs go with it, and its number is not used again. This cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <button type="button" className="btn-danger" onClick={deleteIt} disabled={remove.isPending}>
+                  {remove.isPending ? <Spinner className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />} Delete claim
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setDeleting(false)} disabled={remove.isPending}>Keep it</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-ink-500">{mine ? 'Started by mistake, or only a test?' : 'Removing a claim for good is the software administrator’s to do.'}</p>
+              <button type="button" className="btn-secondary" onClick={() => { setError(null); setDeleting(true) }}>
+                <Trash2 className="h-4 w-4 text-cyrixRed-600" /> Delete this claim
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

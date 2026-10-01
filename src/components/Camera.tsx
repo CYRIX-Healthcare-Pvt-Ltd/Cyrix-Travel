@@ -15,7 +15,12 @@ export interface Shot { blob: Blob; at: Point; url: string }
  * from the camera, a press freezes one frame, and the phone's location is
  * read at that same press — a photograph with no location is not accepted.
  */
-export default function Camera({ label, onShot }: { label: string; onShot: (shot: Shot | null) => void }) {
+export default function Camera({ label, onShot, optional = false }: {
+  label: string
+  onShot: (shot: Shot | null) => void
+  /** Photographs are switched off as a requirement (te_0006): one may still be taken, and none is asked for. */
+  optional?: boolean
+}) {
   const video = useRef<HTMLVideoElement>(null)
   const stream = useRef<MediaStream | null>(null)
   const [shot, setShot] = useState<Shot | null>(null)
@@ -68,8 +73,11 @@ export default function Camera({ label, onShot }: { label: string; onShot: (shot
 
   return (
     <div className="space-y-2">
-      <p className="label !mb-0">{label} <span className="text-cyrixRed-600">*</span></p>
-      {error && <Alert kind="error">{error}</Alert>}
+      <p className="label !mb-0">{label} {optional ? <span className="font-normal normal-case tracking-normal text-ink-400">— not required for now</span> : <span className="text-cyrixRed-600">*</span>}</p>
+      {/* With no camera to open, a required photograph is a dead end and says so; one that is not required only notes it. */}
+      {error && (optional
+        ? <Alert kind="info">No camera could be opened here. Photographs are not required at the moment, so you can go on without one.</Alert>
+        : <Alert kind="error">{error}</Alert>)}
       <div className="relative overflow-hidden rounded-xl border border-ink-200 bg-black">
         {shot
           ? <img src={shot.url} alt={label} className="max-h-72 w-full object-contain" />

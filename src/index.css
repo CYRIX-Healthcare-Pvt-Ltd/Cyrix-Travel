@@ -1537,7 +1537,8 @@
 
 .mode-on .mode-art[data-mode='bike'] .m-body { animation-duration: 0.4s; }
 .mode-on .mode-art[data-mode='bus'] .m-body { animation-duration: 0.64s; }
-.mode-on .mode-art[data-mode='train'] .m-body { animation-duration: 0.9s; }
+.mode-on .mode-art[data-mode='train'] .m-body,
+.mode-on .mode-art[data-mode='coach'] .m-body { animation-duration: 0.9s; }
 .mode-on .mode-art[data-mode='auto'] .m-body { animation-duration: 0.3s; }
 
 @keyframes mode-wheel {
@@ -1573,51 +1574,81 @@
 .mode-bare .m-rail { display: none; }
 
 /*
-  Start, pressed: the chosen vehicle sets off across the button.
+  Start, pressed: the chosen vehicle sets off, once.
 
-  While the phone's place is being read the button is a road — the vehicle
-  that was chosen rides it from one edge to the other, wheels turning, and
-  comes round again for as long as the wait lasts (the user, 1 Oct: "if i
-  selected bike and click start can the start animation do anything with
-  bike? something beautiful and eye catching"). It is the waiting indicator,
-  not an extra: a spinner said "wait", this says what is being started.
+  The button turns into a strip of country in the mode's own colour and the
+  vehicle rides in from the left to the middle of it. There it runs — hills
+  and clouds drifting by far off, trees and houses nearer, the road quickest
+  of all underneath — for as long as the phone takes to say where it is.
+  When it has, the vehicle rides out to the right and the trip is on the
+  road (components/StartRide.tsx says why it is this and not what it was).
 
-  The rider is as wide as the button, with the vehicle at its left edge, so
-  a move of its own width carries the vehicle exactly across whatever width
-  the button happens to be. Transform only.
+  It is the waiting indicator, not an extra: a spinner said "wait", this
+  says what is being started. One arrival, one departure; what repeats is
+  the country going past, which is what a journey looks like.
 
-  Reduced motion: no ride, the plain spinner and the word instead.
+  The rider is as wide as the button with the vehicle in its middle, so a
+  move of its own width carries the vehicle clear of either edge whatever
+  width the button happens to be — a train with its coaches included.
+  Transform only.
+
+  Reduced motion: none of it, the plain spinner and the word instead.
 */
 .start-run .start-rider {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   pointer-events: none;
-  --scene: rgb(var(--ink-950));
-  animation: start-ride 1.15s linear infinite;
+  animation: start-in 0.7s var(--ease-out) both;
 }
+/* Leaving is the one place a slow start is right: a vehicle pulls away, it does not vanish. */
+.start-off .start-rider {
+  animation: start-out 0.5s cubic-bezier(0.55, 0, 0.9, 0.45) both;
+}
+.start-run .start-far,
+.start-run .start-near {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 960px;
+  height: 48px;
+  pointer-events: none;
+}
+.start-run .start-far { animation: start-country 16s linear infinite; }
+.start-run .start-near { animation: start-country 5.5s linear infinite; }
 .start-run .start-road {
   position: absolute;
   left: 0;
   bottom: 0.2rem;
   width: calc(100% + 18px);
   height: 2px;
-  opacity: 0.35;
+  opacity: 0.4;
   pointer-events: none;
   background: repeating-linear-gradient(90deg, currentColor 0 10px, transparent 10px 18px);
-  animation: start-road 0.3s linear infinite;
+  animation: start-road 0.2s linear infinite;
 }
 .start-still { display: none; }
-@keyframes start-ride {
-  from { transform: translateX(-32%); }
+@keyframes start-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes start-out {
+  from { transform: translateX(0); }
   to { transform: translateX(100%); }
+}
+/* One stretch of country, so the strip joins itself as it comes round. */
+@keyframes start-country {
+  to { transform: translateX(-320px); }
 }
 @keyframes start-road {
   to { transform: translateX(-18px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .start-run .start-rider,
+  .start-run .start-far,
+  .start-run .start-near,
   .start-run .start-road { display: none; }
   .start-run .start-still {
     position: absolute;
