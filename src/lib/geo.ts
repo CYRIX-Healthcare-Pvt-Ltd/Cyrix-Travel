@@ -33,18 +33,23 @@ export function lineKm(a: Point, b: Point): number {
 }
 
 /**
- * Road kilometres between two points, from OpenStreetMap's routing (OSRM's
- * public server: free, no key). Null when it cannot be reached — the
- * database then pays on the straight line and marks the leg so the manager
- * sees which it was. The database also refuses a figure far off the
- * straight line, so this number is a claim, not the last word.
+ * Road kilometres along a run of points — a leg's start, each stop reached
+ * on it, its end — from OpenStreetMap's routing (OSRM's public server: free,
+ * no key). Through the stops, not past them: home to a hospital and home
+ * again begins and ends at the same place, and is twice the way there.
+ *
+ * Null when it cannot be reached — the database then pays on the straight
+ * line and marks the leg so the manager sees which it was. The database
+ * also refuses a figure far off the straight line through the same points,
+ * so this number is a claim, not the last word.
  */
-export async function roadKm(a: Point, b: Point): Promise<number | null> {
+export async function roadKm(points: Point[]): Promise<number | null> {
+  if (points.length < 2) return null
   try {
     const ctl = new AbortController()
     const timer = setTimeout(() => ctl.abort(), 12_000)
     const res = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`,
+      `https://router.project-osrm.org/route/v1/driving/${points.map(p => `${p.lng},${p.lat}`).join(';')}?overview=false`,
       { signal: ctl.signal },
     )
     clearTimeout(timer)
@@ -90,6 +95,10 @@ export async function placeName(p: Point): Promise<string | null> {
     return null
   }
 }
+
+/** The road through a run of points, drawn on the map of the service that measured it. */
+export const routeLink = (points: Point[]) =>
+  `https://map.project-osrm.org/?${points.map(p => `loc=${p.lat},${p.lng}`).join('&')}&hl=en&alt=0&srv=0`
 
 /** A point on OpenStreetMap, for the manager to see where a press was made. */
 export const mapLink = (p: Point) => `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=16/${p.lat}/${p.lng}`

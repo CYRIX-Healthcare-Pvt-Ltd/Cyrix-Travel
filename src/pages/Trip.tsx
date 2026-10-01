@@ -1,19 +1,20 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
-import { ArrowRightLeft, Check, ExternalLink, Flag, Home, LocateFixed, MapPin, MapPinCheck, MapPinned, Play } from 'lucide-react'
+import { ArrowRightLeft, BookmarkCheck, BookmarkPlus, Check, ExternalLink, Flag, Home, LocateFixed, MapPin, MapPinCheck, MapPinned, Play } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import IconChip from '@/components/IconChip'
 import ModeArt, { modeLook } from '@/components/ModeArt'
+import HomePlace from '@/components/HomePlace'
 import Camera, { type Shot } from '@/components/Camera'
-import { mapLink, placeName, whereAmI, type Fix } from '@/lib/geo'
+import { mapLink, placeName, whereAmI, type Fix, type Point } from '@/lib/geo'
 import { clockTime } from '@/lib/when'
 import { supabase } from '@/lib/supabase'
 import { useQuery } from '@tanstack/react-query'
 import {
-  STOP_KIND, km, rupees, uploadShot, useChangeMode, useCloseStop, useEnd, useHome, useModes, useReach, useStart, useTrip, useTrips,
-  type Leg, type Mode, type Stop, type StopKind,
+  STOP_KIND, km, placeAt, rupees, stopsOn, uploadShot, useChangeMode, useCloseStop, useEnd, useHome, useModes, usePlaces, useReach, useSavePlace, useStart, useTrip, useTrips,
+  type Leg, type Mode, type SavedPlace, type Stop, type StopKind,
 } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
 
@@ -73,7 +74,7 @@ function ModePicker({ modes, value, onChange }: { modes: Mode[]; value: string; 
 
 /** Where a trip may start from. Each has its own colour, so the two are told apart before they are read. */
 const START_FROM = [
-  { kind: 'home', label: 'Home', icon: Home, tint: 'text-teal-700', on: 'border-teal-400 bg-teal-100 text-teal-900 ring-1 ring-teal-400' },
+  { kind: 'home', label: 'Home', icon: Home, tint: 'text-cyan-700', on: 'border-cyan-400 bg-cyan-100 text-cyan-900 ring-1 ring-cyan-400' },
   { kind: 'new', label: 'A new place', icon: MapPin, tint: 'text-violet-700', on: 'border-violet-400 bg-violet-100 text-violet-900 ring-1 ring-violet-400' },
 ] as const
 
@@ -83,10 +84,80 @@ interface Mark { at: Fix; name: string | null; when: number }
 /** A mark older than this is read again at Start: a place marked a while ago is not where Start was pressed. */
 const MARK_KEEPS_MS = 5 * 60_000
 
+/** The least a start is seen to take, so the vehicle is seen setting off even when the phone answers at once. */
+const RIDE_MS = 900
+
+/**
+ * The place just marked: what it is called, when it was read and how
+ * closely, and — if it is somewhere this person starts from often — a way to
+ * save it under a name of their own (the user, 1 Oct: "in a new place also,
+ * we should have option to save this place, with name"). At a saved place it
+ * is called by that name instead of the map's.
+ */
+function MarkedPlace({ mark, saved, marking, busy, onAgain }: {
+  mark: Mark; saved: SavedPlace | null; marking: boolean; busy: boolean; onAgain: () => void
+}) {
+  const save = useSavePlace()
+  const [naming, setNaming] = useState(false)
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const keep = async () => {
+    setError(null)
+    if (name.trim().length < 2) { setError('Give the place a name.'); return }
+    try { await save.mutateAsync({ name, at: mark.at }); setNaming(false); setName('') }
+    catch (e) { setError(e instanceof Error ? e.message : 'The place was not saved.') }
+  }
+
+  return (
+    <div className="mt-2 rounded-xl border border-violet-200 bg-violet-50 p-3">
+      {/* The name has the whole width: a place is three or four words long, and beside a button it broke onto as many lines. */}
+      <div className="flex items-start gap-2.5">
+        {saved ? <BookmarkCheck className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" /> : <MapPinCheck className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" />}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-violet-900">{saved?.name ?? mark.name ?? `${mark.at.lat.toFixed(5)}, ${mark.at.lng.toFixed(5)}`}</p>
+          <p className="mt-0.5 text-xs text-ink-600">
+            {saved && 'Your saved place · '}Marked at {clockTime(mark.when)}{Number.isFinite(mark.at.accuracy) ? `, to about ${Math.max(1, Math.round(mark.at.accuracy))} m` : ''}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2.5 flex items-center justify-between gap-3 pl-[1.875rem]">
+        <a className="link-accent inline-flex items-center gap-1 text-xs text-violet-900 underline" href={mapLink(mark.at)} target="_blank" rel="noreferrer">
+          see on the map <ExternalLink className="h-3 w-3" />
+        </a>
+        <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={onAgain} disabled={marking || busy}>
+          {marking ? <Spinner className="h-3.5 w-3.5" /> : <LocateFixed className="h-3.5 w-3.5 text-violet-700" />} Mark again
+        </button>
+      </div>
+      {!saved && (naming ? (
+        <div className="mt-3 space-y-2 border-t border-violet-200 pt-3 pl-[1.875rem]">
+          <label className="block">
+            <span className="label">Name this place</span>
+            <input className="input" value={name} onChange={e => setName(e.target.value)} maxLength={60} placeholder="e.g. Office, Thrissur store" autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') keep() }} />
+          </label>
+          {error && <Alert kind="error">{error}</Alert>}
+          <div className="flex gap-2">
+            <button type="button" className="btn-primary !px-3 !py-1.5 text-xs" onClick={keep} disabled={save.isPending}>
+              {save.isPending ? <Spinner className="h-3.5 w-3.5" /> : <BookmarkPlus className="h-3.5 w-3.5" />} Save place
+            </button>
+            <button type="button" className="btn-secondary !px-3 !py-1.5 text-xs" onClick={() => { setNaming(false); setError(null) }} disabled={save.isPending}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="btn-press mt-2.5 ml-[1.875rem] inline-flex items-center gap-1.5 rounded-lg py-1 text-xs font-medium text-violet-900 underline" onClick={() => setNaming(true)}>
+          <BookmarkPlus className="h-3.5 w-3.5 text-violet-700" /> Save this place under a name
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function StartCard() {
   const { employee } = useAuth()
   const { data: modes } = useModes()
   const { data: home } = useHome(employee?.id)
+  const { data: places } = usePlaces()
   const start = useStart()
   const [kind, setKind] = useState<'home' | 'new'>('home')
   const [mark, setMark] = useState<Mark | null>(null)
@@ -108,16 +179,22 @@ function StartCard() {
   }
 
   const go = async () => {
+    if (busy) return
     setError(null)
     if (kind === 'new' && !mark) { setError('Mark your location first.'); return }
     if (!mode) { setError('Choose how you are travelling.'); return }
     setBusy(true)
+    // The vehicle is given time to be seen setting off — unless less motion has been asked for, when there is no ride to wait for.
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const ride = new Promise(done => setTimeout(done, still ? 0 : RIDE_MS))
     try {
       if (kind === 'new') {
-        const from = Date.now() - mark!.when > MARK_KEEPS_MS ? await readMark() : mark!
-        await start.mutateAsync({ kind, at: from.at, mode, note: from.name ?? undefined })
+        const [from] = await Promise.all([Date.now() - mark!.when > MARK_KEEPS_MS ? readMark() : mark!, ride])
+        // At a saved place the trip is recorded under the name its owner gave it; otherwise under the map's.
+        await start.mutateAsync({ kind, at: from.at, mode, note: placeAt(places ?? [], from.at)?.name ?? from.name ?? undefined })
       } else {
-        await start.mutateAsync({ kind, at: await whereAmI(), mode })
+        const [at] = await Promise.all([whereAmI(), ride])
+        await start.mutateAsync({ kind, at, mode })
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The trip did not start.')
@@ -142,30 +219,9 @@ function StartCard() {
             </button>
           ))}
         </div>
-        {kind === 'home' && (
-          <p className="mt-1.5 text-xs text-ink-500">{home ? 'Your home is saved. Where you are now is what is recorded.' : 'No home saved yet: where you press Start becomes your home.'}</p>
-        )}
+        {kind === 'home' && <HomePlace home={home} />}
         {kind === 'new' && (mark ? (
-          <div className="mt-2 rounded-xl border border-violet-200 bg-violet-50 p-3">
-            {/* The name has the whole width: a place is three or four words long, and beside a button it broke onto as many lines. */}
-            <div className="flex items-start gap-2.5">
-              <MapPinCheck className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-violet-900">{mark.name ?? `${mark.at.lat.toFixed(5)}, ${mark.at.lng.toFixed(5)}`}</p>
-                <p className="mt-0.5 text-xs text-ink-600">
-                  Marked at {clockTime(mark.when)}{Number.isFinite(mark.at.accuracy) ? `, to about ${Math.max(1, Math.round(mark.at.accuracy))} m` : ''}
-                </p>
-              </div>
-            </div>
-            <div className="mt-2.5 flex items-center justify-between gap-3 pl-[1.875rem]">
-              <a className="link-accent inline-flex items-center gap-1 text-xs text-violet-900 underline" href={mapLink(mark.at)} target="_blank" rel="noreferrer">
-                see on the map <ExternalLink className="h-3 w-3" />
-              </a>
-              <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={markHere} disabled={marking || busy}>
-                {marking ? <Spinner className="h-3.5 w-3.5" /> : <LocateFixed className="h-3.5 w-3.5 text-violet-700" />} Mark again
-              </button>
-            </div>
-          </div>
+          <MarkedPlace mark={mark} saved={placeAt(places ?? [], mark.at)} marking={marking} busy={busy} onAgain={markHere} />
         ) : (
           <>
             <button type="button" className="btn-secondary mt-2 w-full justify-center !py-3" onClick={markHere} disabled={marking}>
@@ -180,8 +236,20 @@ function StartCard() {
         <p className="label">Travelling by</p>
         <ModePicker modes={modes ?? []} value={mode} onChange={setMode} />
       </div>
-      <button type="button" className="btn-primary w-full justify-center !py-3 text-base" onClick={go} disabled={busy || marking}>
-        {busy ? <Spinner className="h-5 w-5" /> : <Play className="h-5 w-5" />} Start
+      {/* Not disabled while it works: a disabled button is dimmed, and the ride across it is the thing to be seen. go() ignores a second press. */}
+      <button type="button" aria-busy={busy} className={clsx('btn-primary relative w-full justify-center overflow-hidden !py-3 text-base', busy && 'start-run')} onClick={go} disabled={marking}>
+        {busy ? (
+          <>
+            <span className="sr-only">Starting…</span>
+            <span aria-hidden className="start-road" />
+            <span aria-hidden className="start-rider"><ModeArt mode={mode} bare moving className="w-20" /></span>
+            <span aria-hidden className="start-still"><Spinner className="h-5 w-5" /> Starting…</span>
+            {/* Keeps the button the height it was. */}
+            <span aria-hidden className="invisible inline-flex items-center gap-2"><Play className="h-5 w-5" /> Start</span>
+          </>
+        ) : (
+          <><Play className="h-5 w-5" /> Start</>
+        )}
       </button>
     </div>
   )
@@ -246,6 +314,7 @@ function Running({ tripId, code }: { tripId: string; code: string }) {
       ) : leg && (
         <LegEndForm
           tripId={tripId} leg={leg} mode={mode} modes={modes ?? []} ending={panel === 'end'}
+          via={stopsOn(leg, data.stops).map(s => ({ lat: s.lat, lng: s.lng }))}
           onCancel={() => setPanel(null)}
           onDone={() => { if (panel === 'end') navigate(`/claims/${tripId}`); else done('Mode changed. The last leg is closed with its distance.') }}
         />
@@ -379,7 +448,9 @@ function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void
       </h2>
       <p className="text-sm text-ink-600">
         {STOP_KIND[stop.kind].label}{stop.ticket_no ? ` · ticket ${stop.ticket_no}` : ''} · reached {clockTime(stop.reached_at)}.
-        When the work is done, close it with a photograph taken here.
+        {/* "I am here" read the phone's place; this is where to see that it did, and where. */}
+        {' '}Your location was read when you pressed I am here: <a className="link-accent underline" href={mapLink({ lat: stop.lat, lng: stop.lng })} target="_blank" rel="noreferrer">see it on the map</a>.
+        {' '}When the work is done, close it with a photograph taken here.
       </p>
       {error && <Alert kind="error">{error}</Alert>}
       <Camera label="Proof photograph" onShot={x => { setShot(x); if (x) setError(null) }} />
@@ -395,8 +466,11 @@ function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void
 }
 
 /** Ending a leg — by changing mode, or by ending the trip. A fare-paid leg gives its fare and the bill's photograph. */
-function LegEndForm({ tripId, leg, mode, modes, ending, onCancel, onDone }: {
-  tripId: string; leg: Leg; mode: Mode | undefined; modes: Mode[]; ending: boolean; onCancel: () => void; onDone: () => void
+function LegEndForm({ tripId, leg, mode, modes, ending, via = [], onCancel, onDone }: {
+  tripId: string; leg: Leg; mode: Mode | undefined; modes: Mode[]; ending: boolean
+  /** The stops made on this leg: its distance goes through them, not past them. */
+  via?: Point[]
+  onCancel: () => void; onDone: () => void
 }) {
   const change = useChangeMode()
   const end = useEnd()
@@ -419,7 +493,7 @@ function LegEndForm({ tripId, leg, mode, modes, ending, onCancel, onDone }: {
     try {
       const at = await whereAmI()
       const bill = onFare && shot ? { path: await uploadShot(tripId, 'bill', leg.seq + 100 * attempt.current++, shot.blob), at: shot.at } : null
-      const legEnd = { at, from: { lat: leg.from_lat, lng: leg.from_lng }, fare: onFare ? amount : null, bill }
+      const legEnd = { at, from: { lat: leg.from_lat, lng: leg.from_lng }, via, fare: onFare ? amount : null, bill }
       if (ending) await end.mutateAsync({ tripId, end: legEnd })
       else await change.mutateAsync({ tripId, mode: next, end: legEnd })
       onDone()
@@ -434,7 +508,7 @@ function LegEndForm({ tripId, leg, mode, modes, ending, onCancel, onDone }: {
         <IconChip icon={ending ? Flag : ArrowRightLeft} tone={ending ? 'red' : 'indigo'} /> {ending ? 'End trip' : 'Change mode'}
       </h2>
       <p className="text-sm text-ink-600">
-        This closes the {mode?.label.toLowerCase() ?? leg.mode} leg here{onFare ? ', on its fare.' : ', and works out its distance by road.'}
+        This closes the {mode?.label.toLowerCase() ?? leg.mode} leg here{onFare ? ', on its fare.' : via.length ? `, and works out its distance by road through the ${via.length === 1 ? 'stop' : `${via.length} stops`} you made.` : ', and works out its distance by road.'}
         {ending && ' After this the trip is totalled for you to check and submit.'}
       </p>
       {error && <Alert kind="error">{error}</Alert>}

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase, friendlyError } from '@/lib/supabase'
-import { roadKm, type Point } from '@/lib/geo'
+import { lineKm, roadKm, type Point } from '@/lib/geo'
 import type { Tone } from '@/lib/tones'
 
 export type TripStatus = 'open' | 'submitted' | 'approved' | 'returned'
@@ -161,11 +161,56 @@ export const useStart = () => useMove((a: { kind: 'home' | 'new'; at: Point; mod
 
 export const useSetHome = () => useMove((a: { at: Point }) => rpc('travel_set_home', { p_lat: a.at.lat, p_lng: a.at.lng }))
 
-/** What ends a leg: where, and for a fare-paid mode the fare and its bill. The road distance is worked out here. */
-export interface LegEnd { at: Point; from: Point; fare?: number | null; bill?: { path: string; at: Point } | null }
+/* ------------------------------------------------------------------ saved places */
+
+/** A place this person starts from often, under a name of their own (te_0005). */
+export interface SavedPlace extends Point { id: string; name: string; saved_at: string }
+
+/** How near a point must be to a saved place to be called by its name: the same 300 m a facility is given. */
+const PLACE_REACH_KM = 0.3
+
+export function usePlaces() {
+  return useQuery({
+    queryKey: ['travel', 'places'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('travel_places').select('id, name, lat, lng, saved_at').order('name')
+      if (error) throw new Error(friendlyError(error))
+      return data as SavedPlace[]
+    },
+  })
+}
+
+/**
+ * The saved place a point is at, if it is at one — the nearest within reach.
+ * A saved place only names where the phone is; it is never a way to start
+ * from somewhere the phone is not.
+ */
+export function placeAt(places: SavedPlace[], p: Point): SavedPlace | null {
+  let best: SavedPlace | null = null, near = PLACE_REACH_KM
+  for (const s of places) { const d = lineKm(s, p); if (d <= near) { best = s; near = d } }
+  return best
+}
+
+export const useSavePlace = () => useMove((a: { name: string; at: Point }) =>
+  rpc<string>('travel_save_place', { p_name: a.name, p_lat: a.at.lat, p_lng: a.at.lng }))
+
+export const useForgetPlace = () => useMove((a: { id: string }) => rpc('travel_forget_place', { p_id: a.id }))
+
+/** The stops reached on a leg, in the order they were reached: a stop belongs to the leg that was running when it was reached. */
+export const stopsOn = (leg: Leg, stops: Stop[]): Stop[] => {
+  const from = Date.parse(leg.from_at), to = leg.to_at ? Date.parse(leg.to_at) : Infinity
+  return stops.filter(s => { const at = Date.parse(s.reached_at); return at >= from && at <= to }).sort((a, b) => a.seq - b.seq)
+}
+
+/**
+ * What ends a leg: where, the stops it went through, and for a fare-paid
+ * mode the fare and its bill. The road distance is worked out here, from
+ * the start through each stop to the end (te_0004).
+ */
+export interface LegEnd { at: Point; from: Point; via?: Point[]; fare?: number | null; bill?: { path: string; at: Point } | null }
 const legArgs = async (e: LegEnd) => ({
   p_lat: e.at.lat, p_lng: e.at.lng,
-  p_road_km: await roadKm(e.from, e.at),
+  p_road_km: await roadKm([e.from, ...(e.via ?? []), e.at]),
   p_fare: e.fare ?? null,
   p_bill_path: e.bill?.path ?? null, p_bill_lat: e.bill?.at.lat ?? null, p_bill_lng: e.bill?.at.lng ?? null,
 })

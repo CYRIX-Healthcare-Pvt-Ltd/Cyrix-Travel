@@ -6,8 +6,10 @@ import clsx from 'clsx'
  *
  * A mode keeps its colour wherever it appears — the picker, the trip on the
  * road, a claim's legs, the rates — so it is known before its name is read.
- * The colours are a fifth of the wheel apart or more, except the bike's
- * orange and the auto's yellow, which are the colours those two are.
+ * The colours are ones that go by different names — orange, pink-purple,
+ * green, blue, yellow — and none is the cyan or the violet the two starting
+ * places use: a teal Home beside an emerald bus was two greens (the user,
+ * 1 Oct).
  *
  * The vehicles are drawn side-on in a 48 x 30 box, facing right, each in
  * three parts the stylesheet can move (index.css, "The mode a trip is on"):
@@ -43,9 +45,9 @@ const LOOK: Record<string, ModeLook> = {
     bar: 'bg-fuchsia-500', pill: 'bg-fuchsia-100 text-fuchsia-900',
   },
   bus: {
-    scene: '[--scene:rgb(var(--emerald-100))]', sceneOn: '[--scene:rgb(var(--emerald-200))]', art: 'text-emerald-700',
-    on: 'border-emerald-400 bg-emerald-100 text-emerald-900 ring-1 ring-emerald-400', tick: 'bg-emerald-700',
-    bar: 'bg-emerald-500', pill: 'bg-emerald-100 text-emerald-900',
+    scene: '[--scene:rgb(var(--green-100))]', sceneOn: '[--scene:rgb(var(--green-200))]', art: 'text-green-700',
+    on: 'border-green-400 bg-green-100 text-green-900 ring-1 ring-green-400', tick: 'bg-green-700',
+    bar: 'bg-green-500', pill: 'bg-green-100 text-green-900',
   },
   train: {
     scene: '[--scene:rgb(var(--blue-100))]', sceneOn: '[--scene:rgb(var(--blue-200))]', art: 'text-blue-700',
@@ -96,7 +98,7 @@ const Road = () => (
 /** The track: a rail that stays, and the sleepers that pass. */
 const Rails = () => (
   <>
-    <path d="M0 27H48" strokeWidth={1.1} opacity={0.55} />
+    <path className="m-rail" d="M0 27H48" strokeWidth={1.1} opacity={0.55} />
     <g className="m-ground m-ties" strokeWidth={1.1} opacity={0.5}>
       <path d="M-4 27v1.9M2 27v1.9M8 27v1.9M14 27v1.9M20 27v1.9M26 27v1.9M32 27v1.9M38 27v1.9M44 27v1.9M50 27v1.9" />
     </g>
@@ -200,17 +202,22 @@ const Plain = () => (
  * A mode's vehicle on a patch of its colour. `moving` runs it; `chosen`
  * deepens the patch, for when the tile around it has taken the colour too.
  * Give it a width — the height follows, 48 to 30.
+ *
+ * `bare` is the vehicle alone, for riding across something else: no patch,
+ * no ground of its own, and the line in whatever colour it is standing in.
+ * Whoever uses it says what is behind the wheels, by setting --scene.
  */
-export default function ModeArt({ mode, moving = false, chosen = false, className }: {
+export default function ModeArt({ mode, moving = false, chosen = false, bare = false, className }: {
   mode: string
   moving?: boolean
   chosen?: boolean
+  bare?: boolean
   className?: string
 }) {
   const look = modeLook(mode)
   const Art = ART[mode] ?? Plain
   return (
-    <span aria-hidden className={clsx('block shrink-0 overflow-hidden bg-[var(--scene)]', chosen ? look.sceneOn : look.scene, look.art, moving && 'mode-on', className)}>
+    <span aria-hidden className={clsx('block shrink-0', bare ? 'mode-bare' : ['overflow-hidden bg-[var(--scene)]', chosen ? look.sceneOn : look.scene, look.art], moving && 'mode-on', className)}>
       <svg className="mode-art block h-auto w-full" data-mode={mode} viewBox="0 0 48 30" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
         <Art />
       </svg>

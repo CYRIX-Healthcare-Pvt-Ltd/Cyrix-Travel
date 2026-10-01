@@ -13,8 +13,19 @@ same Supabase project and sign-in as KPI and Revive Lab.
   administrator.
 - **Distance** is the road distance between the points where the engineer
   pressed, from OpenStreetMap routing (OSRM's public server — free, no key).
-  The database works out the straight line itself and does not accept a road
-  distance far from it; such a leg is paid on the straight line and marked.
+  A leg is measured from its start, through each stop reached on it, to its
+  end — home to a hospital and home again is twice the way there. The
+  database works out the straight line through the same points itself and
+  does not accept a road distance far from it; such a leg is paid on the
+  straight line and marked.
+- **Home** is marked with a press, or saved the first time a trip starts
+  from home; it is shown on the Start card and on My places (behind the name
+  in the header), and is moved only by standing at the new place and
+  pressing.
+- **Saved places** are a person's own names for places they start from
+  often. A saved place names where the phone is — a marked point within
+  300 m of one is called by its name — and never stands in for being there:
+  no trip can start from the list.
 - **A new starting place is marked, not typed.** A press reads where the phone
   is, and OpenStreetMap's place search (Nominatim's public server — free, no
   key) says what the place is called. The point is what is recorded; the name

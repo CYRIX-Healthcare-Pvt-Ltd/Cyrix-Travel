@@ -1,5 +1,5 @@
 /** The platform's tones, as Revive Lab names them: literal classes, so Tailwind keeps them. */
-export type Tone = 'red' | 'amber' | 'sky' | 'indigo' | 'teal' | 'green' | 'violet' | 'orange' | 'rose' | 'slate' | 'blue'
+export type Tone = 'red' | 'amber' | 'sky' | 'indigo' | 'teal' | 'green' | 'violet' | 'orange' | 'rose' | 'slate' | 'blue' | 'cyan'
 
 /** Badge colours per tone, light and dark both — the tokens flip underneath. */
 export const TONE_CLASS: Record<Tone, string> = {
@@ -14,6 +14,7 @@ export const TONE_CLASS: Record<Tone, string> = {
   rose: 'bg-rose-100 text-rose-900',
   slate: 'bg-slate-100 text-slate-900',
   blue: 'bg-blue-100 text-blue-900',
+  cyan: 'bg-cyan-100 text-cyan-900',
 }
 
 /** An icon on a soft patch of its colour. */
@@ -29,6 +30,7 @@ export const TONE_SOFT: Record<Tone, string> = {
   rose: 'bg-rose-100 text-rose-700',
   slate: 'bg-slate-100 text-slate-700',
   blue: 'bg-blue-100 text-blue-700',
+  cyan: 'bg-cyan-100 text-cyan-700',
 }
 
 /** An icon in its colour on a plain ground. */
@@ -44,4 +46,5 @@ export const TONE_TEXT: Record<Tone, string> = {
   rose: 'text-rose-600',
   slate: 'text-slate-500',
   blue: 'text-blue-600',
+  cyan: 'text-cyan-600',
 }

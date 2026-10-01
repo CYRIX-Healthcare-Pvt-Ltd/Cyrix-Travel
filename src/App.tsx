@@ -12,6 +12,7 @@ const Trip   = lazyRoute(() => import('@/pages/Trip'))
 const Claims = lazyRoute(() => import('@/pages/Claims'))
 const Claim  = lazyRoute(() => import('@/pages/Claim'))
 const Rates  = lazyRoute(() => import('@/pages/Rates'))
+const Places = lazyRoute(() => import('@/pages/Places'))
 
 export default function App() {
   const { session, loading, hasAccess, isSwAdmin } = useAuth()
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="claims" element={<Claims />} />
           <Route path="claims/:id" element={<Claim />} />
           <Route path="approvals" element={<Claims team />} />
+          <Route path="places" element={<Places />} />
           <Route path="rates" element={isSwAdmin ? <Rates /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

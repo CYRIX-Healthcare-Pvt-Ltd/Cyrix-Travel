@@ -5,9 +5,9 @@ import { ArrowLeft, BadgeCheck, Camera as CameraIcon, ExternalLink, MapPin, Send
 import { Alert, EmptyState, PageLoader, Spinner } from '@/components/ui'
 import Lightbox from '@/components/Lightbox'
 import ModeArt from '@/components/ModeArt'
-import { mapLink } from '@/lib/geo'
+import { mapLink, routeLink } from '@/lib/geo'
 import { dateTime, clockTime } from '@/lib/when'
-import { STOP_KIND, km, rupees, statusLook, useDecide, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
+import { STOP_KIND, km, rupees, statusLook, stopsOn, useDecide, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
 
 /** One trip, laid out as it happened: its legs with distance and amount, its stops with their proof. */
@@ -122,9 +122,14 @@ export default function Claim() {
                   {clockTime(l.from_at)}{l.to_at ? ` to ${clockTime(l.to_at)}` : ' — running'}
                   {l.to_at && <> · {km(l.road_km)}{l.rate !== null ? ` × ${rupees(l.rate)}` : ' · actual fare'}</>}
                 </span>
-                {/* The road it was paid on: only a leg paid by the kilometre has one worth opening. */}
+                {/* A leg is measured through the stops made on it, so they are named: without them, home and back reads as no distance. */}
+                {stopsOn(l, stops).length > 0 && <span>through {stopsOn(l, stops).map(s => s.facility_name).join(', ')}</span>}
+                {/* The road it was paid on, through those stops: only a leg paid by the kilometre has one worth opening. */}
                 {l.rate !== null && l.to_lat !== null && l.to_lng !== null && (
-                  <a className="link-accent inline-flex items-center gap-1" href={`https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${l.from_lat},${l.from_lng};${l.to_lat},${l.to_lng}`} target="_blank" rel="noreferrer">route <ExternalLink className="h-3 w-3" /></a>
+                  <a className="link-accent inline-flex items-center gap-1" target="_blank" rel="noreferrer"
+                    href={routeLink([{ lat: l.from_lat, lng: l.from_lng }, ...stopsOn(l, stops).map(s => ({ lat: s.lat, lng: s.lng })), { lat: l.to_lat, lng: l.to_lng }])}>
+                    route <ExternalLink className="h-3 w-3" />
+                  </a>
                 )}
                 {l.km_source === 'line' && (
                   <span className="badge bg-cyrixRed-100 text-cyrixRed-900" title="The road distance could not be worked out, or was far from the straight line, so the straight line was paid">

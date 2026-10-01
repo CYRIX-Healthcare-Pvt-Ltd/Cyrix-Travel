@@ -1567,3 +1567,64 @@
   .mode-on .mode-art .m-ground,
   .mode-on .mode-art .m-wind { animation: none; }
 }
+
+/* The vehicle alone, without the ground it is usually drawn on. */
+.mode-bare .m-ground,
+.mode-bare .m-rail { display: none; }
+
+/*
+  Start, pressed: the chosen vehicle sets off across the button.
+
+  While the phone's place is being read the button is a road — the vehicle
+  that was chosen rides it from one edge to the other, wheels turning, and
+  comes round again for as long as the wait lasts (the user, 1 Oct: "if i
+  selected bike and click start can the start animation do anything with
+  bike? something beautiful and eye catching"). It is the waiting indicator,
+  not an extra: a spinner said "wait", this says what is being started.
+
+  The rider is as wide as the button, with the vehicle at its left edge, so
+  a move of its own width carries the vehicle exactly across whatever width
+  the button happens to be. Transform only.
+
+  Reduced motion: no ride, the plain spinner and the word instead.
+*/
+.start-run .start-rider {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  --scene: rgb(var(--ink-950));
+  animation: start-ride 1.15s linear infinite;
+}
+.start-run .start-road {
+  position: absolute;
+  left: 0;
+  bottom: 0.2rem;
+  width: calc(100% + 18px);
+  height: 2px;
+  opacity: 0.35;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg, currentColor 0 10px, transparent 10px 18px);
+  animation: start-road 0.3s linear infinite;
+}
+.start-still { display: none; }
+@keyframes start-ride {
+  from { transform: translateX(-32%); }
+  to { transform: translateX(100%); }
+}
+@keyframes start-road {
+  to { transform: translateX(-18px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .start-run .start-rider,
+  .start-run .start-road { display: none; }
+  .start-run .start-still {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+}
