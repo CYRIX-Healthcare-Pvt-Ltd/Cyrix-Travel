@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { IndianRupee } from 'lucide-react'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import IconChip from '@/components/IconChip'
+import ModeArt from '@/components/ModeArt'
 import { useModes, useSetRate, type Mode } from '@/lib/travel'
 
 /**
@@ -48,7 +49,9 @@ function RateRow({ m }: { m: Mode }) {
   return (
     <li className="space-y-2 px-4 py-3">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="w-28 text-sm font-medium text-ink-900">{m.label}</span>
+        <span className="flex w-36 items-center gap-2.5 text-sm font-medium text-ink-900">
+          <ModeArt mode={m.mode} className="w-10 rounded-md" /> {m.label}
+        </span>
         {m.per_km === null ? (
           <span className="text-sm text-ink-500">Paid on the actual fare, with a photograph of the bill</span>
         ) : (

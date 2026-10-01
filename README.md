@@ -15,6 +15,12 @@ same Supabase project and sign-in as KPI and Revive Lab.
   pressed, from OpenStreetMap routing (OSRM's public server — free, no key).
   The database works out the straight line itself and does not accept a road
   distance far from it; such a leg is paid on the straight line and marked.
+- **A new starting place is marked, not typed.** A press reads where the phone
+  is, and OpenStreetMap's place search (Nominatim's public server — free, no
+  key) says what the place is called. The point is what is recorded; the name
+  only says it in words, and a place that cannot be named is still marked.
+- **Each mode has its own colour and its own vehicle**, the same wherever it
+  appears; the one in force is drawn moving.
 - **Photographs are taken in the app**, never chosen from the phone, and each
   carries where it was taken.
 - **A facility's place is learned from the first visit**, once the manager

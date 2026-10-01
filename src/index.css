@@ -1506,3 +1506,64 @@
   .neon-card { animation: none; }
   .neon-card::before { animation: none; opacity: 0.6; }
 }
+
+/*
+  The mode a trip is on, moving.
+
+  Each way of travelling is drawn as its vehicle (components/ModeArt.tsx),
+  and the one in force runs: the wheels turn on their hubs, the body rides
+  on its springs, the road passes underneath and the air streaks behind
+  (the user, 1 Oct: "on selected mode, show mode animation ie if bike, show
+  it moving").
+
+  Only the chosen one moves. Five vehicles running at once is a fairground,
+  and the motion is what says which is chosen. Each keeps its own gait: a
+  bus is heavy on its springs, an auto putters, a train barely sways.
+
+  Transform and opacity only, so nothing is laid out again while it runs.
+  Reduced motion: everything stands still, and the colour and the tick
+  still say which is chosen.
+*/
+.mode-art .m-wheel { transform-origin: 0 0; }
+.mode-art .m-wind { opacity: 0; }
+
+.mode-on .mode-art .m-wheel { animation: mode-wheel 0.7s linear infinite; }
+.mode-on .mode-art .m-body { animation: mode-bob 0.46s ease-in-out infinite; }
+.mode-on .mode-art .m-ground { animation: mode-road 0.42s linear infinite; }
+.mode-on .mode-art .m-ties { animation: mode-ties 0.3s linear infinite; }
+.mode-on .mode-art .m-wind { animation: mode-wind 0.9s linear infinite; }
+.mode-on .mode-art .m-wind-2 { animation-delay: -0.3s; }
+.mode-on .mode-art .m-wind-3 { animation-delay: -0.6s; }
+
+.mode-on .mode-art[data-mode='bike'] .m-body { animation-duration: 0.4s; }
+.mode-on .mode-art[data-mode='bus'] .m-body { animation-duration: 0.64s; }
+.mode-on .mode-art[data-mode='train'] .m-body { animation-duration: 0.9s; }
+.mode-on .mode-art[data-mode='auto'] .m-body { animation-duration: 0.3s; }
+
+@keyframes mode-wheel {
+  to { transform: rotate(360deg); }
+}
+@keyframes mode-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-0.55px); }
+}
+/* One dash and its gap, so the road joins itself as it comes round. */
+@keyframes mode-road {
+  to { transform: translateX(-9px); }
+}
+/* One sleeper's spacing, for the same reason. */
+@keyframes mode-ties {
+  to { transform: translateX(-6px); }
+}
+@keyframes mode-wind {
+  0% { transform: translateX(5px); opacity: 0; }
+  35% { opacity: 0.85; }
+  100% { transform: translateX(-5px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-on .mode-art .m-wheel,
+  .mode-on .mode-art .m-body,
+  .mode-on .mode-art .m-ground,
+  .mode-on .mode-art .m-wind { animation: none; }
+}

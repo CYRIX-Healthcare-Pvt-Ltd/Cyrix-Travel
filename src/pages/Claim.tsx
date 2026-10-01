@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { ArrowLeft, BadgeCheck, Camera as CameraIcon, ExternalLink, MapPin, Send, TriangleAlert, Undo2 } from 'lucide-react'
 import { Alert, EmptyState, PageLoader, Spinner } from '@/components/ui'
 import Lightbox from '@/components/Lightbox'
+import ModeArt from '@/components/ModeArt'
 import { mapLink } from '@/lib/geo'
 import { dateTime, clockTime } from '@/lib/when'
 import { STOP_KIND, km, rupees, statusLook, useDecide, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
@@ -110,8 +111,10 @@ export default function Claim() {
           {legs.map(l => (
             <li key={l.id} className="px-4 py-3 text-sm">
               {/* The mode and what it pays on one line; how it got there underneath, free to wrap. */}
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="font-medium text-ink-900">{label(l.mode)}</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2.5 font-medium text-ink-900">
+                  <ModeArt mode={l.mode} className="w-10 rounded-md" /> {label(l.mode)}
+                </span>
                 <span className="font-semibold tabular-nums text-ink-900">{rupees(l.amount)}</span>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-ink-600">
