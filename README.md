@@ -11,10 +11,22 @@ same Supabase project and sign-in as KPI and Revive Lab.
   train and auto** on the actual fare, with a photograph of the bill. Rates
   are in `travel_modes` and changed on the Rates page by the software
   administrator.
+- **A ride runs from one place to the next.** Reaching a place ("I am here")
+  ends the ride that brought the engineer there; after the visit they start
+  again, or end the trip there. On screen a leg is a "ride" and a stop a
+  "visit": the words an engineer who has never seen the app understands.
+- **An arrival is looked at before it is recorded.** "I am here" reads the
+  phone's place and shows it on a small map (OpenStreetMap's tiles, no map
+  library) with a ring as wide as the phone's own doubt; a weak reading is
+  said to be one. Nothing is recorded until the engineer says yes, and they
+  can read again or back out.
+- **The engineer may give their own km** for a ride paid by the kilometre.
+  It is shown beside the distance worked out, to them and to the manager,
+  and is never what is paid on.
 - **Distance** is the road distance between the points where the engineer
   pressed, from OpenStreetMap routing (OSRM's public server — free, no key).
-  A leg is measured from its start, through each stop reached on it, to its
-  end — home to a hospital and home again is twice the way there. The
+  A leg made before rides ended at their stops is measured from its start,
+  through each stop reached on it, to its end. The
   database works out the straight line through the same points itself and
   does not accept a road distance far from it; such a leg is paid on the
   straight line and marked.

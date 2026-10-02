@@ -7,7 +7,7 @@ import ModeArt from '@/components/ModeArt'
 import { Spinner } from '@/components/ui'
 import { mapLink, placeName, routeLink, type Point } from '@/lib/geo'
 import { clockTime, gapLabel } from '@/lib/when'
-import { km, rupees, stopsOn, useShot, type Leg, type Stop } from '@/lib/travel'
+import { km, kmDiffers, rideEnds, rideLine, rupees, stopsOn, useClaimKm, useShot, type Leg, type Stop, type Trip } from '@/lib/travel'
 
 /**
  * One leg, opened from the day's list while the trip is still on the road:
@@ -18,14 +18,20 @@ import { km, rupees, stopsOn, useShot, type Leg, type Stop } from '@/lib/travel'
  * The same facts a claim's page lays out afterwards; here they are within
  * reach while the engineer can still see that a leg came out wrong.
  */
-export default function LegHistory({ leg, label, stops, onClose }: { leg: Leg; label: string; stops: Stop[]; onClose: () => void }) {
+export default function LegHistory({ leg, label, legs, stops, trip, onClose, editable = false }: {
+  leg: Leg; label: string; legs: Leg[]; stops: Stop[]; trip: Trip; onClose: () => void
+  /** The engineer's own trip, not yet with the manager: their km can be given or corrected here. */
+  editable?: boolean
+}) {
+  const line = rideLine(rideEnds(leg, legs, stops, trip))
   const from = { lat: leg.from_lat, lng: leg.from_lng }
   const to = leg.to_lat !== null && leg.to_lng !== null ? { lat: leg.to_lat, lng: leg.to_lng } : null
   const made = stopsOn(leg, stops)
   const took = leg.to_at ? Date.parse(leg.to_at) - Date.parse(leg.from_at) : null
 
   return (
-    <Dialog title={`${label} leg`} icon={<ModeArt mode={leg.mode} className="w-10 rounded-md" />} onClose={onClose}>
+    <Dialog title={`${label} ride`} icon={<ModeArt mode={leg.mode} className="w-10 rounded-md" />} onClose={onClose}>
+      {line && <p className="mt-1 text-sm font-medium text-ink-700">{line}</p>}
       <dl className="mt-4 space-y-3 text-sm">
         <Row term="Started"><When at={leg.from_at} /> <Place at={from} /></Row>
         {leg.to_at && to
@@ -42,6 +48,9 @@ export default function LegHistory({ leg, label, stops, onClose }: { leg: Leg; l
             )}
           </Row>
         )}
+        {leg.to_at && leg.rate !== null && (leg.claimed_km !== null || editable) && (
+          <Row term="Your km"><OwnKm leg={leg} editable={editable} /></Row>
+        )}
         {made.length > 0 && <Row term="Through">{made.map(s => s.facility_name).join(', ')}</Row>}
         {leg.to_at && (
           <Row term="Pays">
@@ -52,7 +61,7 @@ export default function LegHistory({ leg, label, stops, onClose }: { leg: Leg; l
         <Row term="Documents">
           {leg.bill_path
             ? <Bill path={leg.bill_path} label={`${label} bill`} at={leg.bill_lat !== null && leg.bill_lng !== null ? { lat: leg.bill_lat, lng: leg.bill_lng } : null} />
-            : <span className="text-ink-500">{leg.rate === null && leg.to_at ? 'No bill photograph' : 'None — this leg is paid by the kilometre'}</span>}
+            : <span className="text-ink-500">{leg.rate === null && leg.to_at ? 'No bill photo' : 'None — this ride is paid by the kilometre'}</span>}
         </Row>
       </dl>
       <button type="button" className="btn-secondary mt-5 w-full justify-center" onClick={onClose}>Close</button>
@@ -66,6 +75,43 @@ const Row = ({ term, children }: { term: string; children: ReactNode }) => (
     <dd className="min-w-0 flex-1 text-ink-800">{children}</dd>
   </div>
 )
+
+/**
+ * The engineer's own kilometres for the ride, beside the distance worked out
+ * (the user, 2 Oct: "show what km we got and what eng inputted, both"). It
+ * is a second figure for the manager to see; the ride is paid on the first.
+ */
+function OwnKm({ leg, editable }: { leg: Leg; editable: boolean }) {
+  const save = useClaimKm()
+  const [value, setValue] = useState(leg.claimed_km?.toString() ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const typed = value.trim() === '' ? null : Number(value)
+  const changed = typed !== leg.claimed_km
+
+  const keep = async () => {
+    setError(null)
+    if (typed !== null && (!Number.isFinite(typed) || typed <= 0 || typed > 2000)) { setError('Enter the km as a number.'); return }
+    try { await save.mutateAsync({ legId: leg.id, km: typed }) } catch (e) { setError(e instanceof Error ? e.message : 'That was not saved.') }
+  }
+
+  if (!editable) {
+    return <>{km(leg.claimed_km)} {kmDiffers(leg) && <span className="badge ml-1 bg-amber-100 text-amber-900">differs from the {km(leg.road_km)} worked out</span>}</>
+  }
+  return (
+    <span className="block space-y-1.5">
+      <span className="flex items-center gap-2">
+        <input className="input !w-24 !py-1.5 tabular-nums" inputMode="decimal" value={value} placeholder="e.g. 12.5" aria-label="Your km for this ride"
+          onChange={e => setValue(e.target.value.replace(/[^0-9.]/g, ''))} />
+        <span className="text-ink-500">km</span>
+        <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={keep} disabled={!changed || save.isPending}>
+          {save.isPending && <Spinner className="h-3.5 w-3.5" />} Save
+        </button>
+      </span>
+      <span className="block text-xs text-ink-500">From your odometer, if it differs. Your manager sees both; the ride is paid on the distance worked out.</span>
+      {error && <span className="block text-xs text-cyrixRed-700">{error}</span>}
+    </span>
+  )
+}
 
 const When = ({ at }: { at: string }) => <span className="font-medium tabular-nums text-ink-900">{clockTime(at)}</span>
 

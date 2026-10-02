@@ -43,7 +43,7 @@ export default function HomePlace({ home }: { home: (Point & { set_at: string })
           {busy ? <Spinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4 text-cyan-700" />}
           {busy ? 'Reading your location…' : 'Mark my home'}
         </button>
-        <p className="mt-1.5 text-xs text-ink-500">Press it while you are at home. If you do not, the first trip you start from home sets it.</p>
+        <p className="mt-1.5 text-xs text-ink-500">Optional. Press it only when you are at home.</p>
       </div>
     )
   }

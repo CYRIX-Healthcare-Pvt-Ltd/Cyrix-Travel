@@ -10,12 +10,14 @@ import ModeArt, { modeLook } from '@/components/ModeArt'
 import HomePlace from '@/components/HomePlace'
 import StartRide, { SwapRide } from '@/components/StartRide'
 import LegHistory from '@/components/LegHistory'
+import ConfirmPlace from '@/components/ConfirmPlace'
+import MiniMap from '@/components/MiniMap'
 import Camera, { type Shot } from '@/components/Camera'
 import { lineKm, mapLink, placeName, whereAmI, type Fix, type Point } from '@/lib/geo'
-import { clockTime } from '@/lib/when'
+import { clockTime, dayDate, localDay } from '@/lib/when'
 import {
-  STOP_KIND, km, placeAt, rupees, startTrip, stopsOn, tripName, uploadShot, useChangeMode, useCloseStop, useDeleteTrip, useEnd, useHome, useKnownFacilities, useModes, usePhotosRequired, usePlaces, useReach, useSavePlace, useTrip, useTrips,
-  type Leg, type Mode, type SavedPlace, type Stop, type StopKind,
+  STOP_KIND, km, placeAt, resumeTrip, rideEnds, rideLine, rupees, startTrip, stopsOn, tripName, uploadShot, useChangeMode, useClaimKm, useCloseStop, useDeleteTrip, useEnd, useHome, useKnownFacilities, useModes, usePhotosRequired, usePlaces, useReach, useSavePlace, useTrip, useTrips,
+  type Leg, type Mode, type SavedPlace, type Stop, type StopKind, type Trip as TripRecord,
 } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
 import { artOf } from '@/lib/modeArt'
@@ -126,6 +128,7 @@ function MarkedPlace({ mark, saved, marking, busy, onAgain }: {
           </p>
         </div>
       </div>
+      <MiniMap at={mark.at} accuracy={mark.at.accuracy} className="mt-2.5 !h-32" />
       <div className="mt-2.5 flex items-center justify-between gap-3 pl-[1.875rem]">
         <a className="link-accent inline-flex items-center gap-1 text-xs text-violet-900 underline" href={mapLink(mark.at)} target="_blank" rel="noreferrer">
           see on the map <ExternalLink className="h-3 w-3" />
@@ -172,6 +175,13 @@ function StartCard() {
   // The place is known and the trip is being made: the vehicle rides out.
   const [leaving, setLeaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /*
+   * The first Start from Home saves that place as the engineer's home — and
+   * Home is what is chosen when the screen opens. Somebody starting their
+   * first trip from the office, who presses Start without reading, would
+   * have the office saved as their home. So that one start asks first.
+   */
+  const [askHome, setAskHome] = useState(false)
 
   /** Reads where the phone is and what that place is called. Nothing is typed (the user, 1 Oct). */
   const readMark = async (): Promise<Mark> => {
@@ -185,11 +195,13 @@ function StartCard() {
     try { await readMark() } catch (e) { setError(e instanceof Error ? e.message : 'Your location could not be read.') } finally { setMarking(false) }
   }
 
-  const go = async () => {
+  const go = async (atHome = false) => {
     if (busy) return
     setError(null)
     if (kind === 'new' && !mark) { setError('Mark your location first.'); return }
     if (!mode) { setError('Choose how you are travelling.'); return }
+    if (kind === 'home' && home === null && !atHome) { setAskHome(true); return }
+    setAskHome(false)
     setBusy(true); setLeaving(false)
     // The vehicle is given time to be seen — unless less motion has been asked for, when there is no ride to wait for.
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -221,7 +233,7 @@ function StartCard() {
     <div className="card space-y-4 p-4 sm:p-5">
       <div>
         <h1 className="text-xl font-semibold text-ink-900">Start a trip</h1>
-        <p className="mt-0.5 text-sm text-ink-500">Press Start where you set off. Your location is read at each press, so the distance works itself out.</p>
+        <p className="mt-0.5 text-sm text-ink-500">Press Start when you begin travelling. Your location is read each time you press a button, and the distance is calculated for you.</p>
       </div>
       {error && <Alert kind="error">{error}</Alert>}
       <div>
@@ -253,7 +265,18 @@ function StartCard() {
         <ModePicker modes={modes ?? []} value={mode} onChange={setMode} />
       </div>
       {/* Not disabled while it works: a disabled button is dimmed, and the ride is the thing to be seen. go() ignores a second press. */}
-      <button type="button" aria-busy={busy} onClick={go} disabled={marking}
+      {askHome && !busy && (
+        <div className="space-y-3 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+          <p className="text-sm text-cyan-900">
+            <span className="font-semibold">Are you at home now?</span> You have no home saved yet, so starting from Home saves this place as your home.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary !py-2 text-sm" onClick={() => go(true)}>Yes, I am at home — start</button>
+            <button type="button" className="btn-secondary !py-2 text-sm" onClick={() => { setAskHome(false); setKind('new') }}>No, I am somewhere else</button>
+          </div>
+        </div>
+      )}
+      <button type="button" aria-busy={busy} onClick={() => go()} disabled={marking}
         className={clsx('relative w-full justify-center overflow-hidden !py-3 text-base',
           busy ? clsx('btn start-run border', modeLook(mode).on, modeLook(mode).scene, modeLook(mode).art, artOf(mode) === 'train' && 'on-rails', leaving && 'start-off') : 'btn-primary')}>
         {busy ? <StartRide mode={mode} /> : <><Play className="h-5 w-5" /> Start</>}
@@ -272,21 +295,33 @@ function Running({ tripId }: { tripId: string }) {
   const navigate = useNavigate()
 
   if (isLoading || !data) return <PageLoader />
+  // A leg runs only while the engineer travels: reaching a place ends it (te_0009), and they set off again after.
   const leg = data.legs.find(l => !l.to_at) ?? null
   const openStop = data.stops.find(s => !s.closed_at) ?? null
+  // Where they are when nothing is travelling: the stop they are at, or the one they last closed.
+  const lastStop = openStop ?? [...data.stops].sort((a, b) => b.seq - a.seq)[0] ?? null
+  const lastLeg = [...data.legs].sort((a, b) => b.seq - a.seq)[0] ?? null
   const mode = (modes ?? []).find(m => m.mode === leg?.mode)
   const look = modeLook(leg?.mode)
   const done = (msg: string) => { setPanel(null); setNotice(msg) }
+  // Started on an earlier day and still not ended: almost always End trip was forgotten.
+  const stale = localDay(data.trip.started_at) < localDay()
 
   return (
     <div className="space-y-4">
+      {stale && (
+        <Alert kind="warning" title={`This trip was started on ${dayDate(data.trip.started_at, false)} and was never ended`}>
+          If you forgot to end it, end it now and say so to your manager — the last ride will be measured to where you are today. If it was a mistake, cancel it below.
+        </Alert>
+      )}
       <div className="card overflow-hidden">
-        <div aria-hidden className={clsx('h-1', look.bar)} />
+        <div aria-hidden className={clsx('h-1', leg ? look.bar : 'bg-ink-300')} />
         <div className="flex items-center justify-between gap-3 p-4">
           <div className="min-w-0">
             {/* No number here: a trip is numbered when its claim is submitted, so one cancelled uses none. */}
             <p className="flex flex-wrap items-baseline gap-x-2 text-lg font-semibold text-ink-900">
-              On the road
+              {/* On the road while a leg runs; at the place while it does not (the user, 2 Oct: "reached means now he is not in vehicle"). */}
+              {leg ? 'On the road' : `At ${lastStop?.facility_name ?? 'a visit'}`}
               {/* What the legs closed so far come to (the user, 1 Oct: "show the total sum also"). The leg being travelled joins it when it is closed. */}
               <span className="tabular-nums">· {rupees(data.trip.total_amount)}</span>
               <span className="text-sm font-normal text-ink-500">so far</span>
@@ -294,20 +329,22 @@ function Running({ tripId }: { tripId: string }) {
             <p className="text-sm text-ink-500">since {clockTime(data.trip.started_at)} · {km(data.trip.total_km)}</p>
           </div>
           {leg && (
-            <span className={clsx('flex shrink-0 items-center gap-2 rounded-xl py-1 pl-1 pr-3 text-sm font-medium', look.pill)}>
-              {/* It runs while they travel and stands while they are at a stop: a vehicle moving beside "At GH Thrissur" would be saying something untrue. */}
+            <span data-running={leg.mode} className={clsx('flex shrink-0 items-center gap-2 rounded-xl py-1 pl-1 pr-3 text-sm font-medium', look.pill)}>
+              {/* It stands only on a trip from before te_0009 whose leg ran on through a stop; a leg made now is always moving. */}
               <ModeArt mode={leg.mode} moving={!openStop} chosen className="w-14 rounded-lg" />
               {mode?.label ?? leg.mode}
             </span>
           )}
         </div>
-        <Journey legs={data.legs} stops={data.stops} modes={modes ?? []} />
+        <Journey legs={data.legs} stops={data.stops} modes={modes ?? []} trip={data.trip} />
       </div>
 
       {notice && <Alert kind="success">{notice}</Alert>}
 
       {openStop ? (
         <CloseStop stop={openStop} onDone={msg => done(msg)} />
+      ) : !leg ? (
+        <SetOff tripId={tripId} place={lastStop?.facility_name ?? null} came={lastLeg?.mode ?? null} modes={modes ?? []} onEnded={() => navigate(`/claims/${tripId}`)} />
       ) : panel === null ? (
         <div className="grid gap-2">
           <button type="button" className="btn-primary w-full justify-center !py-3 text-base" onClick={() => { setNotice(null); setPanel('reach') }}>
@@ -321,18 +358,102 @@ function Running({ tripId }: { tripId: string }) {
               <Flag className="h-4 w-4 text-cyrixRed-600" /> End trip
             </button>
           </div>
+          {/* Which of the three, and when: an engineer new to it does not know that Reached is for a place and Change mode is not. */}
+          <ul className="space-y-0.5 px-1 pt-1 text-xs text-ink-500">
+            <li><span className="font-medium text-ink-700">Reached</span> — you have arrived at a hospital, a store or a meeting.</li>
+            <li><span className="font-medium text-ink-700">Change mode</span> — you are switching vehicle on the way, bike to bus.</li>
+            <li><span className="font-medium text-ink-700">End trip</span> — you are home, or done travelling for the day.</li>
+          </ul>
         </div>
       ) : panel === 'reach' ? (
-        <ReachForm tripId={tripId} onCancel={() => setPanel(null)} onDone={() => done('Reached. Close the stop with its photograph when the work is done.')} />
-      ) : leg && (
+        <ReachForm tripId={tripId} leg={leg} mode={mode} stops={data.stops} onCancel={() => setPanel(null)}
+          onDone={() => done(`You have reached. Your ${(mode?.label ?? leg.mode).toLowerCase()} ride ends here. When the work is done, finish the visit below.`)} />
+      ) : (
         <LegEndForm
           tripId={tripId} leg={leg} mode={mode} modes={modes ?? []} ending={panel === 'end'}
           via={stopsOn(leg, data.stops).map(s => ({ lat: s.lat, lng: s.lng }))}
           onCancel={() => setPanel(null)}
-          onDone={() => { if (panel === 'end') navigate(`/claims/${tripId}`); else done('Mode changed. The last leg is closed with its distance.') }}
+          onDone={() => { if (panel === 'end') navigate(`/claims/${tripId}`); else done('Mode changed. The last ride is saved with its distance.') }}
         />
       )}
       <CancelTrip tripId={tripId} />
+    </div>
+  )
+}
+
+/**
+ * After a stop is closed: the engineer is at the place and nothing is
+ * travelling. They set off again — the next leg, from where they are, by
+ * the mode they choose, which is the one they came on until they say
+ * otherwise — or end the trip here if this was the last place (the user,
+ * 2 Oct: "so after activity he can start again isnt?").
+ *
+ * Set off is Start again: the same button, the same vehicle riding out.
+ */
+function SetOff({ tripId, place, came, modes, onEnded }: {
+  tripId: string; place: string | null; came: string | null; modes: Mode[]; onEnded: () => void
+}) {
+  const qc = useQueryClient()
+  const end = useEnd()
+  const [mode, setMode] = useState(came && modes.some(m => m.mode === came && m.is_active) ? came : '')
+  const [busy, setBusy] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const [ending, setEnding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const go = async () => {
+    if (busy || ending) return
+    setError(null)
+    if (!mode) { setError('Choose how you are travelling.'); return }
+    setBusy(true); setLeaving(false)
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const wait = (ms: number) => new Promise(done => setTimeout(done, still ? 0 : ms))
+    const ride = wait(RIDE_MS)
+    try {
+      const [at] = await Promise.all([whereAmI(), ride])
+      await resumeTrip({ tripId, at, mode })
+      setLeaving(true)
+      await wait(LEAVE_MS)
+      await qc.invalidateQueries({ queryKey: ['travel'] })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That did not go through.')
+      setBusy(false); setLeaving(false)
+    }
+  }
+
+  const finish = async () => {
+    if (busy || ending) return
+    setError(null); setEnding(true)
+    try {
+      const at = await whereAmI()
+      // No leg is running, so there is none to measure: the trip simply ends where the phone is.
+      await end.mutateAsync({ tripId, end: { at, from: at } })
+      onEnded()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The trip did not end.')
+      setEnding(false)
+    }
+  }
+
+  return (
+    <div className="card space-y-4 p-4 sm:p-5">
+      <div>
+        <h2 className="text-base font-semibold text-ink-900">Leaving{place ? ` ${place}` : ''}?</h2>
+        <p className="mt-0.5 text-sm text-ink-500">Choose how you are travelling next and press Start again. If this was your last place for the day, end the trip here.</p>
+      </div>
+      {error && <Alert kind="error">{error}</Alert>}
+      <div>
+        <p className="label">Travelling next by</p>
+        <ModePicker modes={modes} value={mode} onChange={setMode} />
+      </div>
+      <button type="button" aria-busy={busy} onClick={go} disabled={ending}
+        className={clsx('relative w-full justify-center overflow-hidden !py-3 text-base',
+          busy ? clsx('btn start-run border', modeLook(mode).on, modeLook(mode).scene, modeLook(mode).art, artOf(mode) === 'train' && 'on-rails', leaving && 'start-off') : 'btn-primary')}>
+        {busy ? <StartRide mode={mode} /> : <><Play className="h-5 w-5" /> Start again</>}
+      </button>
+      <button type="button" className="btn-secondary w-full justify-center !py-3" onClick={finish} disabled={busy || ending}>
+        {ending ? <Spinner className="h-4 w-4" /> : <Flag className="h-4 w-4 text-cyrixRed-600" />} End the trip here
+      </button>
     </div>
   )
 }
@@ -366,7 +487,7 @@ function CancelTrip({ tripId }: { tripId: string }) {
     <div className="card space-y-2.5 p-4">
       {error && <Alert kind="error">{error}</Alert>}
       <p className="text-sm text-ink-800">
-        Cancel this trip? It is deleted with its legs, stops and photographs, and nothing is claimed for it. It has taken no claim number. This cannot be undone.
+        Cancel this trip? It is deleted with its rides, visits and photos, and nothing is claimed for it. This cannot be undone.
       </p>
       <div className="flex gap-2">
         <button type="button" className="btn-danger" onClick={go} disabled={remove.isPending}>
@@ -386,51 +507,104 @@ function CancelTrip({ tripId }: { tripId: string }) {
  * 2 Oct: "can we add each mode start n end time? … add a document icon also
  * and on click each mode, small history").
  */
-function Journey({ legs, stops, modes }: { legs: Leg[]; stops: Stop[]; modes: Mode[] }) {
+function Journey({ legs, stops, modes, trip }: { legs: Leg[]; stops: Stop[]; modes: Mode[]; trip: TripRecord }) {
   const label = (m: string) => modes.find(x => x.mode === m)?.label ?? m
   const closed = legs.filter(l => l.to_at)
   // Held by its id, so the history shows the leg as it is now if the list refreshes under it.
   const [openId, setOpenId] = useState<string | null>(null)
   const open = legs.find(l => l.id === openId) ?? null
   if (closed.length === 0 && stops.length === 0) return null
+  // One line of the day in the order it went: a leg to a place, the stop there, the leg on from it. A leg and
+  // the stop it ended at share a moment, and the leg comes first — the journey, then the arrival.
+  const day = [
+    ...closed.map(l => ({ at: Date.parse(l.from_at), leg: l, stop: null as Stop | null })),
+    ...stops.map(s => ({ at: Date.parse(s.reached_at), leg: null as Leg | null, stop: s })),
+  ].sort((a, b) => a.at - b.at || (a.leg ? -1 : 1))
   return (
     <>
       <ul className="divide-y divide-ink-100 border-t border-ink-200 text-sm">
-        {closed.map(l => (
+        {day.map(({ leg: l, stop: s }) => l ? (
           <li key={l.id}>
-            <button type="button" onClick={() => setOpenId(l.id)} aria-label={`${label(l.mode)} leg, ${clockTime(l.from_at)} to ${clockTime(l.to_at!)}: open its history`}
+            <button type="button" onClick={() => setOpenId(l.id)} aria-label={`${label(l.mode)} ride, ${clockTime(l.from_at)} to ${clockTime(l.to_at!)}: open its details`}
               className="btn-press flex w-full items-center gap-2.5 px-4 py-2 text-left hover:bg-ink-50">
               <ModeArt mode={l.mode} className="w-9 rounded-md" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-ink-700">{label(l.mode)} <span className="text-ink-400">· {km(l.road_km)}</span></span>
-                <span className="block text-xs tabular-nums text-ink-500">{clockTime(l.from_at)} – {clockTime(l.to_at!)}</span>
+                <span className="block truncate text-ink-700">
+                  {label(l.mode)} <span className="text-ink-400">· {km(l.road_km)}</span>
+                  {/* Their own figure beside the one worked out, where they gave one. */}
+                  {l.claimed_km !== null && <span className="text-ink-400"> · yours {km(l.claimed_km)}</span>}
+                </span>
+                <span className="block truncate text-xs tabular-nums text-ink-500">
+                  {clockTime(l.from_at)} – {clockTime(l.to_at!)}{rideLine(rideEnds(l, legs, stops, trip)) ? ` · ${rideLine(rideEnds(l, legs, stops, trip))}` : ''}
+                </span>
               </span>
-              {l.bill_path && <FileText className="h-4 w-4 shrink-0 text-ink-400" aria-label="Has a bill photograph" />}
+              {l.bill_path && <FileText className="h-4 w-4 shrink-0 text-ink-400" aria-label="Has a bill photo" />}
               <span className="shrink-0 tabular-nums font-medium text-ink-900">{rupees(l.amount)}</span>
               <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-300" />
             </button>
           </li>
-        ))}
-        {stops.map(s => (
+        ) : s && (
           <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2">
             <span className="min-w-0 truncate text-ink-700">
               <span className={clsx('badge mr-2', TONE_CLASS[STOP_KIND[s.kind].tone])}>{STOP_KIND[s.kind].label}</span>
               {s.facility_name}{s.ticket_no ? ` · ${s.ticket_no}` : ''}
             </span>
             <span className="flex shrink-0 items-center gap-2">
-              {s.proof_path && <FileText className="h-4 w-4 text-ink-400" aria-label="Has a proof photograph" />}
-              <span className={clsx('text-xs', s.closed_at ? 'text-green-700' : 'text-amber-700')}>{s.closed_at ? 'Closed' : 'Open'}</span>
+              {s.proof_path && <FileText className="h-4 w-4 text-ink-400" aria-label="Has a photo" />}
+              <span className={clsx('text-xs', s.closed_at ? 'text-green-700' : 'text-amber-700')}>{s.closed_at ? 'Done' : 'In progress'}</span>
             </span>
           </li>
         ))}
       </ul>
-      {open && <LegHistory leg={open} label={label(open.mode)} stops={stops} onClose={() => setOpenId(null)} />}
+      {open && <LegHistory leg={open} label={label(open.mode)} legs={legs} stops={stops} trip={trip} editable onClose={() => setOpenId(null)} />}
     </>
   )
 }
 
-function ReachForm({ tripId, onCancel, onDone }: { tripId: string; onCancel: () => void; onDone: () => void }) {
+/**
+ * The engineer's own kilometres for the ride that is ending — optional, and
+ * only for a ride paid by the kilometre. It is kept beside the distance the
+ * map works out and shown with it; it does not change what is paid.
+ */
+function OwnKmField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="label">Your km <span className="font-normal normal-case tracking-normal text-ink-400">— optional</span></span>
+      <input className="input" inputMode="decimal" value={value} onChange={e => onChange(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 12.5" />
+      <span className="mt-1.5 block text-xs text-ink-500">From your odometer, if you want it noted. The distance is still calculated for you, and your manager sees both.</span>
+    </label>
+  )
+}
+
+/** What was typed for "Your km": a number, nothing, or not a distance at all. */
+function readOwnKm(typed: string): { km: number | null; bad: boolean } {
+  if (!typed.trim()) return { km: null, bad: false }
+  const n = Number(typed)
+  return Number.isFinite(n) && n > 0 && n <= 2000 ? { km: n, bad: false } : { km: null, bad: true }
+}
+
+function ReachForm({ tripId, leg: legNow, mode: modeNow, stops, onCancel, onDone }: {
+  tripId: string; leg: Leg; mode: Mode | undefined; stops: Stop[]; onCancel: () => void; onDone: () => void
+}) {
   const reach = useReach()
+  const required = usePhotosRequired()
+  // The leg this arrival ends, held: once it is closed the trip has no running leg, and this form is still on screen for a moment.
+  const [{ leg, mode }] = useState({ leg: legNow, mode: modeNow })
+  // A ride paid on its fare ends here, so its fare and its bill are given here.
+  const onFare = !!mode && mode.per_km === null
+  const [fare, setFare] = useState('')
+  const [shot, setShot] = useState<Shot | null>(null)
+  const attempt = useRef(0)
+  const claim = useClaimKm()
+  const [own, setOwn] = useState('')
+  /*
+   * The place the phone read at "I am here", held while it is shown on the
+   * map and asked about. Nothing is recorded until the engineer says yes:
+   * a reading on a weak signal can be far out, and an arrival cannot be
+   * taken back (the user, 2 Oct: "in im here, do we have a confirmation pop?").
+   */
+  const [fix, setFix] = useState<{ at: Fix; when: number } | null>(null)
+  const [reading, setReading] = useState(false)
   const [kind, setKind] = useState<StopKind>('ticket')
   const [facility, setFacility] = useState('')
   const [ticketNo, setTicketNo] = useState('')
@@ -461,16 +635,47 @@ function ReachForm({ tripId, onCancel, onDone }: { tripId: string; onCancel: () 
   }, [here, known, places])
   useEffect(() => { if (offered && !typed.current) setFacility(offered) }, [offered])
 
+  /** What the form needs before a place is worth reading: said one thing at a time. */
+  const missing = (): string | null => {
+    if (facility.trim().length < 2) return 'Enter the facility, or the place, you have reached.'
+    if (kind === 'ticket' && !ticketNo.trim()) return 'Enter the ticket ID you came for.'
+    const amount = Number(fare)
+    if (onFare && (!fare.trim() || !Number.isFinite(amount) || amount < 0)) return `Enter the ${mode!.label.toLowerCase()} fare.`
+    if (onFare && !shot && required) return `Take a photo of the ${mode!.label.toLowerCase()} bill.`
+    if (readOwnKm(onFare ? '' : own).bad) return 'Enter your km as a number, or leave it empty.'
+    return null
+  }
+
+  /** Reads where the phone is and shows it; nothing is recorded yet. */
+  const read = async () => {
+    setError(null); setReading(true)
+    try { setFix({ at: await whereAmI(), when: Date.now() }) }
+    catch (e) { setFix(null); setError(e instanceof Error ? e.message : 'Your location could not be read.') }
+    finally { setReading(false) }
+  }
+  const ask = () => { const why = missing(); if (why) { setError(why); return } void read() }
+
+  /** "Yes, I am here": the place that was shown is the place that is recorded. */
   const go = async () => {
-    setError(null)
-    if (facility.trim().length < 2) { setError('Enter the facility, or the place, you have reached.'); return }
-    if (kind === 'ticket' && !ticketNo.trim()) { setError('Enter the ticket ID you came for.'); return }
-    setBusy(true)
+    if (!fix || busy) return
+    // Looked at a while ago is not where the phone is now: read again and show that instead.
+    if (Date.now() - fix.when > 3 * 60_000) { await read(); return }
+    const why = missing()
+    if (why) { setFix(null); setError(why); return }
+    const amount = Number(fare), mine = readOwnKm(onFare ? '' : own), at = fix.at
+    setError(null); setBusy(true)
     try {
-      const at = await whereAmI()
-      await reach.mutateAsync({ tripId, kind, facility, ticketNo: kind === 'ticket' ? ticketNo : undefined, at })
+      const bill = onFare && shot ? { path: await uploadShot(tripId, 'bill', leg.seq + 100 * attempt.current++, shot.blob), at: shot.at } : null
+      await reach.mutateAsync({
+        tripId, kind, facility, ticketNo: kind === 'ticket' ? ticketNo : undefined, at,
+        end: { at, from: { lat: leg.from_lat, lng: leg.from_lng }, via: stopsOn(leg, stops).map(s => ({ lat: s.lat, lng: s.lng })), fare: onFare ? amount : null, bill },
+      })
+      // The ride is closed; their own figure goes on it. If that does not go through the arrival still stands, and the figure can be given from the ride's details.
+      if (mine.km !== null) await claim.mutateAsync({ legId: leg.id, km: mine.km }).catch(() => {})
       onDone()
     } catch (e) {
+      // Back to the form, where the reason can be read and put right.
+      setFix(null)
       setError(e instanceof Error ? e.message : 'That did not go through.')
     } finally { setBusy(false) }
   }
@@ -478,9 +683,12 @@ function ReachForm({ tripId, onCancel, onDone }: { tripId: string; onCancel: () 
   return (
     <div className="card space-y-3 p-4">
       <h2 className="flex items-center gap-2.5 text-sm font-semibold text-ink-800"><IconChip icon={MapPinned} tone="indigo" /> Reached</h2>
+      <p className="text-sm text-ink-600">
+        Your {mode?.label.toLowerCase() ?? leg.mode} ride ends here{onFare ? ', and is paid on its fare.' : ', and its distance is calculated.'} You start again after the visit.
+      </p>
       {error && <Alert kind="error">{error}</Alert>}
       <div>
-        <p className="label">This stop is for</p>
+        <p className="label">This visit is for</p>
         <div className="grid grid-cols-2 gap-2">
           {(Object.keys(STOP_KIND) as StopKind[]).map(k => (
             <button key={k} type="button" aria-pressed={kind === k} onClick={() => setKind(k)}
@@ -505,12 +713,23 @@ function ReachForm({ tripId, onCancel, onDone }: { tripId: string; onCancel: () 
           <input className="input font-mono" value={ticketNo} onChange={e => setTicketNo(e.target.value)} maxLength={60} placeholder="e.g. 285716" />
         </label>
       )}
+      {onFare && (
+        <>
+          <label className="block">
+            <span className="label">{mode!.label} fare (₹) <span className="text-cyrixRed-600">*</span></span>
+            <input className="input" inputMode="decimal" value={fare} onChange={e => setFare(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 150" />
+          </label>
+          <Camera label={`${mode!.label} bill`} optional={!required} onShot={x => { setShot(x); if (x) setError(null) }} />
+        </>
+      )}
+      {!onFare && <OwnKmField value={own} onChange={setOwn} />}
       <div className="flex gap-2">
-        <button type="button" className="btn-primary flex-1 justify-center" onClick={go} disabled={busy}>
-          {busy ? <Spinner className="h-4 w-4" /> : <MapPinned className="h-4 w-4" />} I am here
+        <button type="button" className="btn-primary flex-1 justify-center" onClick={ask} disabled={busy || reading}>
+          {reading ? <Spinner className="h-4 w-4" /> : <MapPinned className="h-4 w-4" />} {reading && !fix ? 'Reading your location…' : 'I am here'}
         </button>
-        <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
+      {fix && <ConfirmPlace fix={fix.at} busy={busy} reading={reading} onYes={go} onAgain={read} onCancel={() => { if (!busy) setFix(null) }} />}
     </div>
   )
 }
@@ -525,17 +744,17 @@ function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void
   const attempt = useRef(0)
 
   const go = async () => {
-    if (!shot && required) { setError('Take the proof photograph first.'); return }
+    if (!shot && required) { setError('Take the photo first.'); return }
     setBusy(true); setError(null)
     try {
       // With a photograph, the stop is closed where it was taken; without one (while none is required), where the phone is now.
       const path = shot ? await uploadShot(stop.trip_id, 'proof', stop.seq + 100 * attempt.current++, shot.blob) : null
       const out = await close.mutateAsync({ stopId: stop.id, proofPath: path, at: shot ? shot.at : await whereAmI(), note })
       onDone(out.flagged
-        ? `Closed. The photograph was taken ${out.distance_m} m from ${stop.facility_name}'s recorded place, so your manager will see it marked.`
+        ? `Visit finished. The photo was taken ${out.distance_m} m from ${stop.facility_name}'s saved location, so your manager will see it marked.`
         : out.facility_status === 'pending'
-          ? `Closed. This is the first visit recorded at ${stop.facility_name}: its place is set once your manager approves.`
-          : 'Closed.')
+          ? `Visit finished. This is the first visit recorded at ${stop.facility_name}: its location is saved once your manager approves.`
+          : 'Visit finished.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That did not go through.')
     } finally { setBusy(false) }
@@ -549,17 +768,19 @@ function CloseStop({ stop, onDone }: { stop: Stop; onDone: (msg: string) => void
       <p className="text-sm text-ink-600">
         {STOP_KIND[stop.kind].label}{stop.ticket_no ? ` · ticket ${stop.ticket_no}` : ''} · reached {clockTime(stop.reached_at)}.
         {/* "I am here" read the phone's place; this is where to see that it did, and where. */}
-        {' '}Your location was read when you pressed I am here: <a className="link-accent underline" href={mapLink({ lat: stop.lat, lng: stop.lng })} target="_blank" rel="noreferrer">see it on the map</a>.
-        {' '}When the work is done, close it with a photograph taken here.
+        {' '}Your location was read when you pressed I am here (<a className="link-accent underline" href={mapLink({ lat: stop.lat, lng: stop.lng })} target="_blank" rel="noreferrer">see it on the map</a>).
+        {' '}When your work is done, take a photo here and press Finish this visit.
       </p>
       {error && <Alert kind="error">{error}</Alert>}
-      <Camera label="Proof photograph" optional={!required} onShot={x => { setShot(x); if (x) setError(null) }} />
+      <Camera label="Photo of the visit" optional={!required} onShot={x => { setShot(x); if (x) setError(null) }} />
+      {/* What to point the camera at: asked by everybody the first time. */}
+      <p className="!mt-1.5 text-xs text-ink-500">Take it at the place — for example the service report, or the equipment you worked on.</p>
       <label className="block">
         <span className="label">Note</span>
         <input className="input" value={note} onChange={e => setNote(e.target.value)} maxLength={500} placeholder="What was done — optional" />
       </label>
       <button type="button" className="btn-primary w-full justify-center" onClick={go} disabled={busy || (required && !shot)}>
-        {busy ? <Spinner className="h-4 w-4" /> : <Flag className="h-4 w-4" />} Close this stop
+        {busy ? <Spinner className="h-4 w-4" /> : <Check className="h-4 w-4" />} Finish this visit
       </button>
     </div>
   )
@@ -585,6 +806,8 @@ function LegEndForm({ tripId, leg: legNow, mode: modeNow, modes, ending, via = [
   const [next, setNext] = useState('')
   const [fare, setFare] = useState('')
   const [shot, setShot] = useState<Shot | null>(null)
+  const claim = useClaimKm()
+  const [own, setOwn] = useState('')
   const [busy, setBusy] = useState(false)
   // The change is made: the new vehicle rides out.
   const [leaving, setLeaving] = useState(false)
@@ -600,8 +823,12 @@ function LegEndForm({ tripId, leg: legNow, mode: modeNow, modes, ending, via = [
     if (!ending && next === leg.mode) { setError('That is the mode you are already on.'); return }
     const amount = Number(fare)
     if (onFare && (!fare.trim() || !Number.isFinite(amount) || amount < 0)) { setError(`Enter the ${mode!.label.toLowerCase()} fare.`); return }
-    if (onFare && !shot && required) { setError(`Take a photograph of the ${mode!.label.toLowerCase()} bill.`); return }
+    if (onFare && !shot && required) { setError(`Take a photo of the ${mode!.label.toLowerCase()} bill.`); return }
     if (busy) return
+    const mine = readOwnKm(onFare ? '' : own)
+    if (mine.bad) { setError('Enter your km as a number, or leave it empty.'); return }
+    // Their own figure goes on the ride once it is closed; if that does not go through, the ride still stands.
+    const saveOwn = async () => { if (mine.km !== null) await claim.mutateAsync({ legId: leg.id, km: mine.km }).catch(() => {}) }
     setBusy(true); setLeaving(false)
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const wait = (ms: number) => new Promise(done => setTimeout(done, still ? 0 : ms))
@@ -611,9 +838,9 @@ function LegEndForm({ tripId, leg: legNow, mode: modeNow, modes, ending, via = [
       const at = await whereAmI()
       const bill = onFare && shot ? { path: await uploadShot(tripId, 'bill', leg.seq + 100 * attempt.current++, shot.blob), at: shot.at } : null
       const legEnd = { at, from: { lat: leg.from_lat, lng: leg.from_lng }, via, fare: onFare ? amount : null, bill }
-      if (ending) await end.mutateAsync({ tripId, end: legEnd })
+      if (ending) { await end.mutateAsync({ tripId, end: legEnd }); await saveOwn() }
       else {
-        await Promise.all([change.mutateAsync({ tripId, mode: next, end: legEnd }), seen])
+        await Promise.all([change.mutateAsync({ tripId, mode: next, end: legEnd }).then(saveOwn), seen])
         setLeaving(true)
         await wait(LEAVE_MS)
       }
@@ -629,8 +856,8 @@ function LegEndForm({ tripId, leg: legNow, mode: modeNow, modes, ending, via = [
         <IconChip icon={ending ? Flag : ArrowRightLeft} tone={ending ? 'red' : 'indigo'} /> {ending ? 'End trip' : 'Change mode'}
       </h2>
       <p className="text-sm text-ink-600">
-        This closes the {mode?.label.toLowerCase() ?? leg.mode} leg here{onFare ? ', on its fare.' : via.length ? `, and works out its distance by road through the ${via.length === 1 ? 'stop' : `${via.length} stops`} you made.` : ', and works out its distance by road.'}
-        {ending && ' After this the trip is totalled for you to check and submit.'}
+        Your {mode?.label.toLowerCase() ?? leg.mode} ride ends here{onFare ? ', and is paid on its fare.' : ', and its distance is calculated.'}
+        {ending && ' Then you check the total and submit the claim.'}
       </p>
       {error && <Alert kind="error">{error}</Alert>}
       {onFare && (
@@ -642,6 +869,7 @@ function LegEndForm({ tripId, leg: legNow, mode: modeNow, modes, ending, via = [
           <Camera label={`${mode!.label} bill`} optional={!required} onShot={x => { setShot(x); if (x) setError(null) }} />
         </>
       )}
+      {!onFare && <OwnKmField value={own} onChange={setOwn} />}
       {!ending && (
         <div>
           <p className="label">Travelling next by</p>

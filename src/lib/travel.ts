@@ -16,6 +16,8 @@ export interface Leg {
   to_lat: number | null; to_lng: number | null; to_at: string | null
   road_km: number | null; line_km: number | null; km_source: 'route' | 'line' | null
   rate: number | null; fare: number | null; amount: number
+  /** The engineer's own figure for a ride paid by the kilometre (te_0010): shown beside road_km, never paid on. */
+  claimed_km: number | null
   bill_path: string | null; bill_lat: number | null; bill_lng: number | null; bill_at: string | null
 }
 
@@ -55,6 +57,34 @@ export function statusLook(t: { status: TripStatus; ended_at: string | null }): 
   if (t.status === 'submitted') return { label: 'With the manager', tone: 'indigo' }
   if (t.status === 'approved') return { label: 'Approved', tone: 'green' }
   return { label: 'Sent back', tone: 'rose' }
+}
+
+/**
+ * Where a ride began and where it ended, in words — "Home", "GH Thrissur".
+ *
+ * Since te_0009 a ride runs from one place to the next, so it can say so:
+ * it began at the trip's start or at the visit the engineer left, and ended
+ * at the visit it reached or where the trip ended. A side with no name is
+ * a change of vehicle on the way, and is left null.
+ */
+export function rideEnds(leg: Leg, legs: Leg[], stops: Stop[], trip: Pick<Trip, 'start_kind' | 'start_note' | 'ended_at'>): { from: string | null; to: string | null } {
+  // A ride and the visit it ended at are made in one moment by the database: the same instant, to the microsecond.
+  // A second's grace and no more — a wider one would take the next visit, minutes later in life but not in a test, for this one.
+  const same = (a: string | null, b: string | null) => !!a && !!b && Math.abs(Date.parse(a) - Date.parse(b)) < 1000
+  const before = legs.filter(l => l.seq < leg.seq).sort((a, b) => b.seq - a.seq)[0]
+  const after = legs.some(l => l.seq > leg.seq)
+  const from = !before
+    ? (trip.start_kind === 'home' ? 'Home' : trip.start_note ?? 'Start')
+    : stops.find(s => same(s.reached_at, before.to_at))?.facility_name ?? null
+  const to = stops.find(s => same(s.reached_at, leg.to_at))?.facility_name
+    ?? (!after && leg.to_at && same(trip.ended_at, leg.to_at) ? 'End of trip' : null)
+  return { from, to }
+}
+
+/** "Home → GH Thrissur"; a side that is a change of vehicle reads "on the way". Nothing when neither side has a name. */
+export function rideLine(ends: { from: string | null; to: string | null }): string | null {
+  if (!ends.from && !ends.to) return null
+  return `${ends.from ?? 'on the way'} → ${ends.to ?? 'on the way'}`
 }
 
 /**
@@ -132,7 +162,7 @@ export function useTrip(id: string | undefined) {
       if (!trip.data) return null
       return {
         trip: num(trip.data as Trip, ['total_km', 'total_amount']),
-        legs: (legs.data as Leg[]).map(l => num(l, ['road_km', 'line_km', 'rate', 'fare', 'amount'])),
+        legs: (legs.data as Leg[]).map(l => num(l, ['road_km', 'line_km', 'rate', 'fare', 'amount', 'claimed_km'])),
         stops: stops.data as Stop[],
       }
     },
@@ -215,10 +245,15 @@ export const useSavePlace = () => useMove((a: { name: string; at: Point }) =>
 
 export const useForgetPlace = () => useMove((a: { id: string }) => rpc('travel_forget_place', { p_id: a.id }))
 
-/** The stops reached on a leg, in the order they were reached: a stop belongs to the leg that was running when it was reached. */
+/**
+ * The stops a leg went through on its way: reached after it began and before
+ * it ended. Since te_0009 reaching a place ends the leg, so a leg made now
+ * goes through none — the stop is where it ends, which is not "through".
+ * This is for trips made before that, whose legs ran on past their stops.
+ */
 export const stopsOn = (leg: Leg, stops: Stop[]): Stop[] => {
   const from = Date.parse(leg.from_at), to = leg.to_at ? Date.parse(leg.to_at) : Infinity
-  return stops.filter(s => { const at = Date.parse(s.reached_at); return at >= from && at <= to }).sort((a, b) => a.seq - b.seq)
+  return stops.filter(s => { const at = Date.parse(s.reached_at); return at >= from && at < to }).sort((a, b) => a.seq - b.seq)
 }
 
 /**
@@ -240,13 +275,40 @@ export const useChangeMode = () => useMove(async (a: { tripId: string; mode: str
 export const useEnd = () => useMove(async (a: { tripId: string; end: LegEnd }) =>
   rpc('travel_end', { p_trip_id: a.tripId, ...(await legArgs(a.end)) }))
 
-export const useReach = () => useMove((a: { tripId: string; kind: StopKind; facility: string; ticketNo?: string; at: Point; note?: string }) =>
-  rpc<string>('travel_reach', { p_trip_id: a.tripId, p_kind: a.kind, p_facility: a.facility, p_ticket_no: a.ticketNo || null, p_lat: a.at.lat, p_lng: a.at.lng, p_note: a.note || null }))
+/**
+ * Reaching a place. It ends the leg that brought the engineer there (te_0009),
+ * so it carries what ending a leg does: the road distance, and for a fare-paid
+ * ride its fare and bill.
+ */
+export const useReach = () => useMove(async (a: { tripId: string; kind: StopKind; facility: string; ticketNo?: string; at: Point; note?: string; end?: LegEnd | null }) =>
+  rpc<string>('travel_reach', {
+    ...(a.end ? await legArgs(a.end) : {}),
+    p_trip_id: a.tripId, p_kind: a.kind, p_facility: a.facility, p_ticket_no: a.ticketNo || null, p_lat: a.at.lat, p_lng: a.at.lng, p_note: a.note || null,
+  }))
+
+/**
+ * Setting off again after a stop: the next leg, from where the phone is, by
+ * the mode chosen. On its own, refreshing nothing, for the same reason as
+ * startTrip: the vehicle rides out before the screen changes.
+ */
+export const resumeTrip = (a: { tripId: string; at: Point; mode: string }) =>
+  rpc('travel_resume', { p_trip_id: a.tripId, p_lat: a.at.lat, p_lng: a.at.lng, p_mode: a.mode })
 
 export const useCloseStop = () => useMove((a: { stopId: string; proofPath: string | null; at: Point; note?: string }) =>
   rpc<{ flagged: boolean; distance_m: number | null; facility_status: string }>('travel_close_stop', { p_stop_id: a.stopId, p_proof_path: a.proofPath, p_lat: a.at.lat, p_lng: a.at.lng, p_note: a.note || null }))
 
 /** Submits a claim, and answers with the number it was given (or already had, for one sent back). */
+/** The engineer's own kilometres for one of their rides; null takes the figure away. */
+export const useClaimKm = () => useMove((a: { legId: string; km: number | null }) => rpc('travel_claim_km', { p_leg_id: a.legId, p_km: a.km }))
+
+/**
+ * Does the engineer's figure differ enough from the one worked out to point
+ * at? More than half a kilometre and more than a tenth: an odometer and a
+ * map never agree to the metre, and a flag on every ride is a flag on none.
+ */
+export const kmDiffers = (l: { road_km: number | null; claimed_km: number | null }) =>
+  l.claimed_km !== null && l.road_km !== null && Math.abs(l.claimed_km - l.road_km) > Math.max(0.5, l.road_km * 0.1)
+
 export const useSubmit = () => useMove((a: { tripId: string }) => rpc<string | null>('travel_submit', { p_trip_id: a.tripId }))
 
 export const useDecide = () => useMove((a: { tripId: string; approve: boolean; note?: string }) =>

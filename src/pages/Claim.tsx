@@ -9,7 +9,7 @@ import Dialog from '@/components/Dialog'
 import ModeArt from '@/components/ModeArt'
 import { mapLink, routeLink } from '@/lib/geo'
 import { dateTime, clockTime } from '@/lib/when'
-import { STOP_KIND, km, rupees, statusLook, stopsOn, tripName, useDecide, useDeleteTrip, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
+import { STOP_KIND, km, kmDiffers, rideEnds, rideLine, rupees, statusLook, stopsOn, tripName, useDecide, useDeleteTrip, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
 import { TONE_CLASS } from '@/lib/tones'
 
 /** One trip, laid out as it happened: its legs with distance and amount, its stops with their proof. */
@@ -142,22 +142,34 @@ export default function Claim() {
       )}
 
       <div className="card overflow-hidden">
-        <h2 className="border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-sm font-semibold text-ink-800">Legs</h2>
+        <h2 className="border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-sm font-semibold text-ink-800">Rides</h2>
         <ul className="divide-y divide-ink-100">
           {legs.map(l => (
             <li key={l.id} className="px-4 py-3 text-sm">
               {/* The mode and what it pays on one line; how it got there underneath, free to wrap. */}
               <div className="flex items-center justify-between gap-3">
                 <span className="flex min-w-0 items-center gap-2.5 font-medium text-ink-900">
-                  <ModeArt mode={l.mode} className="w-10 rounded-md" /> {label(l.mode)}
+                  <ModeArt mode={l.mode} className="w-10 rounded-md" />
+                  {/* The mode, and where the ride went: "Home → GH Thrissur". */}
+                  <span className="min-w-0">
+                    {label(l.mode)}
+                    {rideLine(rideEnds(l, legs, stops, trip)) && <span className="block truncate text-xs font-normal text-ink-500">{rideLine(rideEnds(l, legs, stops, trip))}</span>}
+                  </span>
                 </span>
                 <span className="font-semibold tabular-nums text-ink-900">{rupees(l.amount)}</span>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-ink-600">
                 <span>
-                  {clockTime(l.from_at)}{l.to_at ? ` to ${clockTime(l.to_at)}` : ' — running'}
+                  {clockTime(l.from_at)}{l.to_at ? ` to ${clockTime(l.to_at)}` : ' — still travelling'}
                   {l.to_at && <> · {km(l.road_km)}{l.rate !== null ? ` × ${rupees(l.rate)}` : ' · actual fare'}</>}
                 </span>
+                {/* The engineer's own figure, beside the one worked out: both are shown, and it is pointed at when they are far apart. */}
+                {l.claimed_km !== null && (
+                  <span className={clsx('badge', kmDiffers(l) ? 'bg-amber-100 text-amber-900' : 'bg-ink-100 text-ink-700')}
+                    title="Entered by the engineer. The ride is paid on the distance worked out.">
+                    {kmDiffers(l) && <TriangleAlert className="mr-1 h-3.5 w-3.5" />} engineer’s km: {km(l.claimed_km)}
+                  </span>
+                )}
                 {/* A leg is measured through the stops made on it, so they are named: without them, home and back reads as no distance. */}
                 {stopsOn(l, stops).length > 0 && <span>through {stopsOn(l, stops).map(s => s.facility_name).join(', ')}</span>}
                 {/* The road it was paid on, through those stops: only a leg paid by the kilometre has one worth opening. */}
@@ -172,7 +184,7 @@ export default function Claim() {
                     <TriangleAlert className="mr-1 h-3.5 w-3.5" /> straight-line distance
                   </span>
                 )}
-                {l.to_at && l.rate === null && !l.bill_path && <span className="badge bg-amber-100 text-amber-900">No bill photograph</span>}
+                {l.to_at && l.rate === null && !l.bill_path && <span className="badge bg-amber-100 text-amber-900">No bill photo</span>}
                 {l.bill_path && <Photo path={l.bill_path} label="Bill" at={l.bill_lat !== null && l.bill_lng !== null ? { lat: l.bill_lat, lng: l.bill_lng } : null} />}
               </div>
             </li>
@@ -181,8 +193,8 @@ export default function Claim() {
       </div>
 
       <div className="card overflow-hidden">
-        <h2 className="border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-sm font-semibold text-ink-800">Stops</h2>
-        {stops.length === 0 ? <p className="p-4 text-sm text-ink-500">No stop was recorded on this trip.</p> : (
+        <h2 className="border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-sm font-semibold text-ink-800">Visits</h2>
+        {stops.length === 0 ? <p className="p-4 text-sm text-ink-500">No visit was recorded on this trip.</p> : (
           <ul className="divide-y divide-ink-100">
             {stops.map(s => (
               <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
@@ -190,15 +202,15 @@ export default function Claim() {
                 <span className="min-w-0 flex-1 text-ink-800">
                   {s.facility_name}{s.ticket_no && <span className="ml-2 font-mono text-ink-500">ticket {s.ticket_no}</span>}
                   <span className="block text-xs text-ink-500">
-                    Reached {clockTime(s.reached_at)}{s.closed_at ? `, closed ${clockTime(s.closed_at)}` : ' — not closed'}{s.note ? ` · ${s.note}` : ''}
+                    Reached {clockTime(s.reached_at)}{s.closed_at ? `, finished ${clockTime(s.closed_at)}` : ' — not finished'}{s.note ? ` · ${s.note}` : ''}
                   </span>
                 </span>
                 {s.flagged && (
                   <span className="badge bg-cyrixRed-100 text-cyrixRed-900"><TriangleAlert className="mr-1 h-3.5 w-3.5" /> {s.distance_m} m from the facility</span>
                 )}
-                {s.closed_at && s.distance_m === null && <span className="badge bg-amber-100 text-amber-900">First visit — sets the facility’s place</span>}
+                {s.closed_at && s.distance_m === null && <span className="badge bg-amber-100 text-amber-900">First visit here — its location is saved when approved</span>}
                 {s.closed_at && s.distance_m !== null && !s.flagged && <span className="badge bg-green-100 text-green-900">At the facility · {s.distance_m} m</span>}
-                {s.closed_at && !s.proof_path && <span className="badge bg-amber-100 text-amber-900">No photograph</span>}
+                {s.closed_at && !s.proof_path && <span className="badge bg-amber-100 text-amber-900">No photo</span>}
                 {s.proof_path && <Photo path={s.proof_path} label="Proof" at={s.proof_lat !== null && s.proof_lng !== null ? { lat: s.proof_lat, lng: s.proof_lng } : null} />}
               </li>
             ))}
@@ -213,7 +225,7 @@ export default function Claim() {
           {deleting ? (
             <div className="space-y-2.5">
               <p className="text-sm text-ink-800">
-                Delete {trip.code ? <span className="font-mono font-semibold">{trip.code}</span> : 'this trip'}? Its legs, stops and photographs go with it{trip.code ? ', and its number is not used again' : ''}. This cannot be undone.
+                Delete {trip.code ? <span className="font-mono font-semibold">{trip.code}</span> : 'this trip'}? Its rides, visits and photos go with it{trip.code ? ', and its number is not used again' : ''}. This cannot be undone.
               </p>
               <div className="flex gap-2">
                 <button type="button" className="btn-danger" onClick={deleteIt} disabled={remove.isPending}>

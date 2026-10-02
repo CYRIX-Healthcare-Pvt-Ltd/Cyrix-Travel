@@ -76,7 +76,7 @@ export default function Camera({ label, onShot, optional = false }: {
       <p className="label !mb-0">{label} {optional ? <span className="font-normal normal-case tracking-normal text-ink-400">— not required for now</span> : <span className="text-cyrixRed-600">*</span>}</p>
       {/* With no camera to open, a required photograph is a dead end and says so; one that is not required only notes it. */}
       {error && (optional
-        ? <Alert kind="info">No camera could be opened here. Photographs are not required at the moment, so you can go on without one.</Alert>
+        ? <Alert kind="info">No camera could be opened here. Photos are not required at the moment, so you can go on without one.</Alert>
         : <Alert kind="error">{error}</Alert>)}
       <div className="relative overflow-hidden rounded-xl border border-ink-200 bg-black">
         {shot
@@ -90,7 +90,7 @@ export default function Camera({ label, onShot, optional = false }: {
         </div>
       ) : (
         <button type="button" className="btn-primary w-full justify-center" onClick={take} disabled={busy || !live}>
-          {busy ? <Spinner className="h-4 w-4" /> : <CameraIcon className="h-4 w-4" />} Take photograph
+          {busy ? <Spinner className="h-4 w-4" /> : <CameraIcon className="h-4 w-4" />} Take photo
         </button>
       )}
     </div>
