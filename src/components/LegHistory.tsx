@@ -10,18 +10,23 @@ import { clockTime, gapLabel } from '@/lib/when'
 import { km, kmDiffers, rideEnds, rideLine, rupees, stopsOn, useClaimKm, useShot, type Leg, type Stop, type Trip } from '@/lib/travel'
 
 /**
- * One leg, opened from the day's list while the trip is still on the road:
- * when it began and ended and where, how far it was and what it pays, the
- * stops made on it, and its bill if it has one (the user, 2 Oct: "on click
- * each mode, small history with start n from time, location, documents").
+ * One leg, opened by pressing it: when it began and ended and where, how
+ * far it was and what it pays, the stops made on it, and its bill if it
+ * has one (the user, 2 Oct: "on click each mode, small history with start n
+ * from time, location, documents").
  *
- * The same facts a claim's page lays out afterwards; here they are within
- * reach while the engineer can still see that a leg came out wrong.
+ * It opens from the day's list while the trip is still on the road, where
+ * the engineer can still see that a leg came out wrong; and from the
+ * claim's page afterwards, for the engineer and for the manager deciding
+ * it (the user, 2 Oct: "on the claim, if i click auto / bus, can i see the
+ * history? like we have in earlier stages?").
  */
-export default function LegHistory({ leg, label, legs, stops, trip, onClose, editable = false }: {
+export default function LegHistory({ leg, label, legs, stops, trip, onClose, editable = false, theirs = false }: {
   leg: Leg; label: string; legs: Leg[]; stops: Stop[]; trip: Trip; onClose: () => void
   /** The engineer's own trip, not yet with the manager: their km can be given or corrected here. */
   editable?: boolean
+  /** Somebody else's claim is being read — a manager's view: the engineer's figure is called theirs, not "yours". */
+  theirs?: boolean
 }) {
   const line = rideLine(rideEnds(leg, legs, stops, trip))
   const from = { lat: leg.from_lat, lng: leg.from_lng }
@@ -49,7 +54,7 @@ export default function LegHistory({ leg, label, legs, stops, trip, onClose, edi
           </Row>
         )}
         {leg.to_at && leg.rate !== null && (leg.claimed_km !== null || editable) && (
-          <Row term="Your km"><OwnKm leg={leg} editable={editable} /></Row>
+          <Row term={theirs ? 'Engineer’s km' : 'Your km'}><OwnKm leg={leg} editable={editable} /></Row>
         )}
         {made.length > 0 && <Row term="Through">{made.map(s => s.facility_name).join(', ')}</Row>}
         {leg.to_at && (

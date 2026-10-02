@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { ArrowLeft, BadgeCheck, Camera as CameraIcon, ExternalLink, MapPin, Send, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Camera as CameraIcon, ChevronRight, ExternalLink, MapPin, Send, Trash2, TriangleAlert, Undo2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Alert, EmptyState, PageLoader, Spinner } from '@/components/ui'
 import Lightbox from '@/components/Lightbox'
 import Dialog from '@/components/Dialog'
 import ModeArt from '@/components/ModeArt'
+import LegHistory from '@/components/LegHistory'
 import { mapLink, routeLink } from '@/lib/geo'
 import { dateTime, clockTime } from '@/lib/when'
 import { STOP_KIND, km, kmDiffers, rideEnds, rideLine, rupees, statusLook, stopsOn, tripName, useDecide, useDeleteTrip, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
@@ -31,6 +32,8 @@ export default function Claim() {
   const [returning, setReturning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  // The ride whose details are open, held by its id so they show the ride as it is now if the claim refreshes under them.
+  const [openId, setOpenId] = useState<string | null>(null)
 
   if (isLoading) return <PageLoader />
   if (!data) return <EmptyState icon={MapPin} title="That trip is not here">It may belong to somebody outside your team.</EmptyState>
@@ -43,6 +46,7 @@ export default function Claim() {
   const canDecide = !!row?.can_decide && trip.status === 'submitted'
   // Its engineer while the manager does not hold it, or the software administrator: the database's own rule (te_0006), shown here so the button is only offered where it will work.
   const canDelete = isSwAdmin || (mine && (trip.status === 'open' || trip.status === 'returned'))
+  const openLeg = legs.find(l => l.id === openId) ?? null
   const deleteIt = async () => {
     setError(null)
     try { await remove.mutateAsync({ tripId: trip.id }); navigate(back, { replace: true }) }
@@ -145,9 +149,18 @@ export default function Claim() {
         <h2 className="border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-sm font-semibold text-ink-800">Rides</h2>
         <ul className="divide-y divide-ink-100">
           {legs.map(l => (
-            <li key={l.id} className="px-4 py-3 text-sm">
+            /*
+              The whole ride opens its details, as it does in the running
+              trip's list. The button is the top line, and its own area is
+              stretched over the row, so a press anywhere on the ride opens
+              it; the route, the bill and its pin sit above that and go on
+              doing what they do. No press-scale here: a transform on the
+              button would shrink that area to the button while it is held.
+            */
+            <li key={l.id} className="relative px-4 py-3 text-sm transition-colors hover:bg-ink-50 active:bg-ink-100">
               {/* The mode and what it pays on one line; how it got there underneath, free to wrap. */}
-              <div className="flex items-center justify-between gap-3">
+              <button type="button" onClick={() => setOpenId(l.id)} aria-label={`${label(l.mode)} ride, ${rupees(l.amount)}: open its details`}
+                className="flex w-full items-center justify-between gap-3 text-left after:absolute after:inset-0">
                 <span className="flex min-w-0 items-center gap-2.5 font-medium text-ink-900">
                   <ModeArt mode={l.mode} className="w-10 rounded-md" />
                   {/* The mode, and where the ride went: "Home → GH Thrissur". */}
@@ -156,8 +169,11 @@ export default function Claim() {
                     {rideLine(rideEnds(l, legs, stops, trip)) && <span className="block truncate text-xs font-normal text-ink-500">{rideLine(rideEnds(l, legs, stops, trip))}</span>}
                   </span>
                 </span>
-                <span className="font-semibold tabular-nums text-ink-900">{rupees(l.amount)}</span>
-              </div>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="font-semibold tabular-nums text-ink-900">{rupees(l.amount)}</span>
+                  <ChevronRight aria-hidden className="h-4 w-4 text-ink-300" />
+                </span>
+              </button>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-ink-600">
                 <span>
                   {clockTime(l.from_at)}{l.to_at ? ` to ${clockTime(l.to_at)}` : ' — still travelling'}
@@ -174,7 +190,7 @@ export default function Claim() {
                 {stopsOn(l, stops).length > 0 && <span>through {stopsOn(l, stops).map(s => s.facility_name).join(', ')}</span>}
                 {/* The road it was paid on, through those stops: only a leg paid by the kilometre has one worth opening. */}
                 {l.rate !== null && l.to_lat !== null && l.to_lng !== null && (
-                  <a className="link-accent inline-flex items-center gap-1" target="_blank" rel="noreferrer"
+                  <a className="link-accent relative z-10 inline-flex items-center gap-1" target="_blank" rel="noreferrer"
                     href={routeLink([{ lat: l.from_lat, lng: l.from_lng }, ...stopsOn(l, stops).map(s => ({ lat: s.lat, lng: s.lng })), { lat: l.to_lat, lng: l.to_lng }])}>
                     route <ExternalLink className="h-3 w-3" />
                   </a>
@@ -191,6 +207,12 @@ export default function Claim() {
           ))}
         </ul>
       </div>
+
+      {/* Its own km can be given or corrected there by the engineer while the claim is still theirs to send; a manager reads it. */}
+      {openLeg && (
+        <LegHistory leg={openLeg} label={label(openLeg.mode)} legs={legs} stops={stops} trip={trip} theirs={!mine}
+          editable={mine && (trip.status === 'open' || trip.status === 'returned')} onClose={() => setOpenId(null)} />
+      )}
 
       <div className="card overflow-hidden">
         <h2 className="border-b border-ink-200 bg-ink-50 px-4 py-2.5 text-sm font-semibold text-ink-800">Visits</h2>
@@ -253,7 +275,7 @@ function Photo({ path, label, at }: { path: string; label: string; at: { lat: nu
   const { data: url } = useShot(path)
   const [open, setOpen] = useState(false)
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="relative z-10 inline-flex items-center gap-2">
       <button type="button" className="btn-secondary !px-2.5 !py-1 text-xs" onClick={() => setOpen(true)} disabled={!url}>
         <CameraIcon className="h-3.5 w-3.5" /> {label}
       </button>

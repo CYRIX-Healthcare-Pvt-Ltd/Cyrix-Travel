@@ -30,6 +30,9 @@ same Supabase project and sign-in as KPI and Revive Lab.
   database works out the straight line through the same points itself and
   does not accept a road distance far from it; such a leg is paid on the
   straight line and marked.
+- **A ride opens its details when pressed**: when and where it began and
+  ended, how far, what it pays, its bill. In the running trip's list, and
+  on the claim's page for the engineer and for the manager deciding it.
 - **Coming home is End trip, not a visit.** The Reached form says so, and
   says it first when the phone is at the saved home. A trip ended within
   300 m of that home is marked by the database (`ended_home`, te_0011), so
