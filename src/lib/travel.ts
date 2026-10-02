@@ -33,6 +33,8 @@ export interface Trip {
   id: string; code: string | null; employee_id: string; status: TripStatus
   start_kind: 'home' | 'new'; start_lat: number; start_lng: number; start_note: string | null; started_at: string
   end_lat: number | null; end_lng: number | null; ended_at: string | null
+  /** Ended within 300 m of the engineer's saved home (te_0011): the database says so, since a manager cannot read that home. */
+  ended_home?: boolean
   total_km: number; total_amount: number
   submitted_at: string | null; decided_at: string | null; decision_note: string | null
 }
@@ -64,10 +66,11 @@ export function statusLook(t: { status: TripStatus; ended_at: string | null }): 
  *
  * Since te_0009 a ride runs from one place to the next, so it can say so:
  * it began at the trip's start or at the visit the engineer left, and ended
- * at the visit it reached or where the trip ended. A side with no name is
- * a change of vehicle on the way, and is left null.
+ * at the visit it reached or where the trip ended — "Home" when the trip
+ * was ended at the engineer's home. A side with no name is a change of
+ * vehicle on the way, and is left null.
  */
-export function rideEnds(leg: Leg, legs: Leg[], stops: Stop[], trip: Pick<Trip, 'start_kind' | 'start_note' | 'ended_at'>): { from: string | null; to: string | null } {
+export function rideEnds(leg: Leg, legs: Leg[], stops: Stop[], trip: Pick<Trip, 'start_kind' | 'start_note' | 'ended_at' | 'ended_home'>): { from: string | null; to: string | null } {
   // A ride and the visit it ended at are made in one moment by the database: the same instant, to the microsecond.
   // A second's grace and no more — a wider one would take the next visit, minutes later in life but not in a test, for this one.
   const same = (a: string | null, b: string | null) => !!a && !!b && Math.abs(Date.parse(a) - Date.parse(b)) < 1000
@@ -77,7 +80,7 @@ export function rideEnds(leg: Leg, legs: Leg[], stops: Stop[], trip: Pick<Trip, 
     ? (trip.start_kind === 'home' ? 'Home' : trip.start_note ?? 'Start')
     : stops.find(s => same(s.reached_at, before.to_at))?.facility_name ?? null
   const to = stops.find(s => same(s.reached_at, leg.to_at))?.facility_name
-    ?? (!after && leg.to_at && same(trip.ended_at, leg.to_at) ? 'End of trip' : null)
+    ?? (!after && leg.to_at && same(trip.ended_at, leg.to_at) ? (trip.ended_home ? 'Home' : 'End of trip') : null)
   return { from, to }
 }
 

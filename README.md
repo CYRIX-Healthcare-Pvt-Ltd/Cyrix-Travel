@@ -30,6 +30,11 @@ same Supabase project and sign-in as KPI and Revive Lab.
   database works out the straight line through the same points itself and
   does not accept a road distance far from it; such a leg is paid on the
   straight line and marked.
+- **Coming home is End trip, not a visit.** The Reached form says so, and
+  says it first when the phone is at the saved home. A trip ended within
+  300 m of that home is marked by the database (`ended_home`, te_0011), so
+  its last ride reads "→ Home" to the engineer and to the manager, who
+  cannot read the home itself.
 - **Home** is marked with a press, or saved the first time a trip starts
   from home; it is shown on the Start card and on My places (behind the name
   in the header), and is moved only by standing at the new place and

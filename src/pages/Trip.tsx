@@ -88,11 +88,22 @@ interface Mark { at: Fix; name: string | null; when: number }
 /** A mark older than this is read again at Start: a place marked a while ago is not where Start was pressed. */
 const MARK_KEEPS_MS = 5 * 60_000
 
-/** The least a start is seen to take, so the vehicle is seen arriving even when the phone answers at once; and how long it takes to ride out. */
-const RIDE_MS = 900
-const LEAVE_MS = 450
-/** The least a change of mode is seen to take: the walk across, and the new vehicle seen to start. */
-const SWAP_MS = 1500
+/*
+ * The least a start is seen to take, so the vehicle is seen arriving even
+ * when the phone answers at once; and how long it takes to ride out. Then
+ * the least a change of mode is seen to take: the walk across, and the new
+ * vehicle seen to start.
+ *
+ * Each of the two is half a second shorter than it first was — Start 0.85s
+ * from 1.35s, a change 1.45s from 1.95s, the ride out counted in both (the
+ * user, 2 Oct: "start n change mode animation reduce by 0.5 secs"). They
+ * are floors: a phone slow to say where it is keeps the vehicle on the
+ * button for as long as it takes. The motion in index.css is timed to fit
+ * inside them, and is changed with them.
+ */
+const RIDE_MS = 550
+const LEAVE_MS = 300
+const SWAP_MS = 1150
 
 /**
  * The place just marked: what it is called, when it was read and how
@@ -366,7 +377,7 @@ function Running({ tripId }: { tripId: string }) {
           </ul>
         </div>
       ) : panel === 'reach' ? (
-        <ReachForm tripId={tripId} leg={leg} mode={mode} stops={data.stops} onCancel={() => setPanel(null)}
+        <ReachForm tripId={tripId} leg={leg} mode={mode} stops={data.stops} onCancel={() => setPanel(null)} onEndInstead={() => setPanel('end')}
           onDone={() => done(`You have reached. Your ${(mode?.label ?? leg.mode).toLowerCase()} ride ends here. When the work is done, finish the visit below.`)} />
       ) : (
         <LegEndForm
@@ -583,10 +594,14 @@ function readOwnKm(typed: string): { km: number | null; bad: boolean } {
   return Number.isFinite(n) && n > 0 && n <= 2000 ? { km: n, bad: false } : { km: null, bad: true }
 }
 
-function ReachForm({ tripId, leg: legNow, mode: modeNow, stops, onCancel, onDone }: {
+function ReachForm({ tripId, leg: legNow, mode: modeNow, stops, onCancel, onDone, onEndInstead }: {
   tripId: string; leg: Leg; mode: Mode | undefined; stops: Stop[]; onCancel: () => void; onDone: () => void
+  /** Home, or done for the day: there is no visit to record, and End trip is the form for it. */
+  onEndInstead: () => void
 }) {
   const reach = useReach()
+  const { employee } = useAuth()
+  const { data: home } = useHome(employee?.id)
   const required = usePhotosRequired()
   // The leg this arrival ends, held: once it is closed the trip has no running leg, and this form is still on screen for a moment.
   const [{ leg, mode }] = useState({ leg: legNow, mode: modeNow })
@@ -634,6 +649,8 @@ function ReachForm({ tripId, leg: legNow, mode: modeNow, stops, onCancel, onDone
     return best ?? placeAt(places ?? [], here)?.name ?? null
   }, [here, known, places])
   useEffect(() => { if (offered && !typed.current) setFacility(offered) }, [offered])
+  // The same 300 m a saved place answers to: within it, the phone is at home.
+  const atHome = !!here && !!home && lineKm(home, here) <= 0.3
 
   /** What the form needs before a place is worth reading: said one thing at a time. */
   const missing = (): string | null => {
@@ -686,6 +703,34 @@ function ReachForm({ tripId, leg: legNow, mode: modeNow, stops, onCancel, onDone
       <p className="text-sm text-ink-600">
         Your {mode?.label.toLowerCase() ?? leg.mode} ride ends here{onFare ? ', and is paid on its fare.' : ', and its distance is calculated.'} You start again after the visit.
       </p>
+      {/*
+        Arriving home is not a visit, and this form has nothing for it: the
+        day ends with End trip (the user, 2 Oct, home again by auto and in
+        this form: "what if return to home or last destination to close the
+        trip?"). Said plainly when the phone is at the saved home, quietly
+        otherwise.
+      */}
+      {atHome ? (
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+          <div className="flex items-start gap-2.5">
+            <Home className="mt-0.5 h-5 w-5 shrink-0 text-cyan-700" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-cyan-900">You are at home</p>
+              <p className="mt-0.5 text-xs text-ink-600">Back for the day? Home is not a visit, so there is nothing to fill in here. End the trip instead.</p>
+            </div>
+          </div>
+          <button type="button" className="btn-secondary mt-2.5 w-full justify-center" onClick={onEndInstead} disabled={busy}>
+            <Flag className="h-4 w-4 text-cyrixRed-600" /> End trip
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-ink-500">Back home, or done for the day? That is not a visit.</p>
+          <button type="button" className="btn-secondary shrink-0 !px-2.5 !py-1.5 text-xs" onClick={onEndInstead} disabled={busy}>
+            <Flag className="h-3.5 w-3.5 text-cyrixRed-600" /> End trip instead
+          </button>
+        </div>
+      )}
       {error && <Alert kind="error">{error}</Alert>}
       <div>
         <p className="label">This visit is for</p>

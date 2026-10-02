@@ -1604,11 +1604,11 @@
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  animation: start-in 0.7s var(--ease-out) both;
+  animation: start-in 0.45s var(--ease-out) both;
 }
 /* Leaving is the one place a slow start is right: a vehicle pulls away, it does not vanish. */
 .start-off .start-rider {
-  animation: start-out 0.5s cubic-bezier(0.55, 0, 0.9, 0.45) both;
+  animation: start-out 0.32s cubic-bezier(0.55, 0, 0.9, 0.45) both;
 }
 .start-run .start-far,
 .start-run .start-near {
@@ -1663,18 +1663,21 @@
   The same strip of country, in the colour of the mode being changed to. The
   vehicle the engineer came on stands at the left in its own colour, the next
   one waits ahead, and a figure walks from the one to the other
-  (components/StartRide.tsx, SwapRide). For that first 0.9s nothing else
+  (components/StartRide.tsx, SwapRide). For that first 0.7s nothing else
   moves: the road is still because nobody is travelling. Then everything
   starts together — the new vehicle's wheels, the road, the country — and the
   old one slides back out of sight, left behind. When the change is made the
   new vehicle rides out, as it does from Start.
 
-  One delay, 0.9s, on everything that waits for the walk; it is the only
-  number that has to agree.
+  One delay, 0.7s, on everything that waits for the walk; it is the only
+  number that has to agree. It was 0.9s: the walk, the start after it and
+  the ride out were shortened by half a second between them, with Start's
+  (Trip.tsx, SWAP_MS and LEAVE_MS). The stride is quicker by the same
+  share, so the figure takes as many steps over the same ground.
 */
 .swap-run .start-far,
 .swap-run .start-near,
-.swap-run .start-road { animation-delay: 0.9s; }
+.swap-run .start-road { animation-delay: 0.7s; }
 .swap-run .swap-old {
   position: absolute;
   left: 6%;
@@ -1683,7 +1686,7 @@
   display: flex;
   align-items: center;
   pointer-events: none;
-  animation: swap-left-behind 1.3s cubic-bezier(0.5, 0, 0.9, 0.5) 0.9s both;
+  animation: swap-left-behind 1s cubic-bezier(0.5, 0, 0.9, 0.5) 0.7s both;
 }
 .swap-run .swap-new {
   position: absolute;
@@ -1703,23 +1706,23 @@
   display: flex;
   align-items: center;
   pointer-events: none;
-  animation: swap-left-behind 2.2s cubic-bezier(0.5, 0, 0.9, 0.5) 0.9s both;
+  animation: swap-left-behind 1.65s cubic-bezier(0.5, 0, 0.9, 0.5) 0.7s both;
 }
 .swap-run .swap-stop > span { aspect-ratio: 48 / 30; }
 .swap-run .swap-new .mode-art .m-wheel,
 .swap-run .swap-new .mode-art .m-body,
-.swap-run .swap-new .mode-art .m-wind { animation-delay: 0.9s; }
+.swap-run .swap-new .mode-art .m-wind { animation-delay: 0.7s; }
 /* The figure that walked over is the rider: nobody is on the bike until the walk ends there. */
-.swap-run .swap-new .mode-art .m-rider { opacity: 0; animation: swap-mount 0.12s linear 0.82s both; }
-.swap-run .swap-new .mode-art .m-wind-2 { animation-delay: 1.2s; }
-.swap-run .swap-new .mode-art .m-wind-3 { animation-delay: 1.5s; }
-.swap-run.start-off .swap-new { animation: swap-go 0.5s cubic-bezier(0.55, 0, 0.9, 0.45) both; }
+.swap-run .swap-new .mode-art .m-rider { opacity: 0; animation: swap-mount 0.12s linear 0.62s both; }
+.swap-run .swap-new .mode-art .m-wind-2 { animation-delay: 1s; }
+.swap-run .swap-new .mode-art .m-wind-3 { animation-delay: 1.3s; }
+.swap-run.start-off .swap-new { animation: swap-go 0.32s cubic-bezier(0.55, 0, 0.9, 0.45) both; }
 /* As wide as the button with the figure standing a third of the way along, so a move of a share of its own width is a walk of that share of the button. */
 .swap-run .swap-walker {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  animation: swap-walk 0.9s linear both;
+  animation: swap-walk 0.7s linear both;
 }
 .swap-run .swap-walker svg {
   position: absolute;
@@ -1729,7 +1732,7 @@
   height: 1.6rem;
 }
 .swap-walker .swap-leg-a,
-.swap-walker .swap-leg-b { transform-origin: 6px 15px; animation: swap-step 0.28s ease-in-out infinite alternate; }
+.swap-walker .swap-leg-b { transform-origin: 6px 15px; animation: swap-step 0.22s ease-in-out infinite alternate; }
 .swap-walker .swap-leg-b { animation-direction: alternate-reverse; }
 @keyframes swap-walk {
   from { transform: translateX(0); opacity: 1; }
