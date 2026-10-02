@@ -74,7 +74,8 @@ export default function LegHistory({ leg, label, legs, stops, trip, onClose, edi
   )
 }
 
-const Row = ({ term, children }: { term: string; children: ReactNode }) => (
+/** One line of the details: what it is, then what it was. Shared with a visit's (StopHistory). */
+export const Row = ({ term, children }: { term: string; children: ReactNode }) => (
   <div className="flex gap-3">
     <dt className="w-24 shrink-0 pt-0.5 text-xs font-semibold uppercase tracking-label text-ink-500">{term}</dt>
     <dd className="min-w-0 flex-1 text-ink-800">{children}</dd>
@@ -118,10 +119,10 @@ function OwnKm({ leg, editable }: { leg: Leg; editable: boolean }) {
   )
 }
 
-const When = ({ at }: { at: string }) => <span className="font-medium tabular-nums text-ink-900">{clockTime(at)}</span>
+export const When = ({ at }: { at: string }) => <span className="font-medium tabular-nums text-ink-900">{clockTime(at)}</span>
 
 /** Where a press was made: what the place is called, once the map has said, and a link to it. */
-function Place({ at }: { at: Point }) {
+export function Place({ at }: { at: Point }) {
   // Outside "travel": every move refreshes that, and a place does not need naming again each time.
   const { data: name, isLoading } = useQuery({ queryKey: ['place', at.lat, at.lng], staleTime: Infinity, queryFn: () => placeName(at) })
   return (
@@ -132,8 +133,8 @@ function Place({ at }: { at: Point }) {
   )
 }
 
-/** The bill, small; a press opens it over the page. */
-function Bill({ path, label, at }: { path: string; label: string; at: Point | null }) {
+/** The bill — or a visit's photo — small; a press opens it over the page. */
+export function Bill({ path, label, at }: { path: string; label: string; at: Point | null }) {
   const { data: url } = useShot(path)
   const [open, setOpen] = useState(false)
   return (

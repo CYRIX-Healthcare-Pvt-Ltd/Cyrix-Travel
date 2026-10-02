@@ -33,6 +33,9 @@ same Supabase project and sign-in as KPI and Revive Lab.
 - **A ride opens its details when pressed**: when and where it began and
   ended, how far, what it pays, its bill. In the running trip's list, and
   on the claim's page for the engineer and for the manager deciding it.
+  **A visit does the same**: when it was reached and finished and where,
+  how long it took, how far from the facility's saved location it was
+  finished, the note, the photo.
 - **Coming home is End trip, not a visit.** The Reached form says so, and
   says it first when the phone is at the saved home. A trip ended within
   300 m of that home is marked by the database (`ended_home`, te_0011), so

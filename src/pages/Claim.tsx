@@ -8,6 +8,7 @@ import Lightbox from '@/components/Lightbox'
 import Dialog from '@/components/Dialog'
 import ModeArt from '@/components/ModeArt'
 import LegHistory from '@/components/LegHistory'
+import StopHistory from '@/components/StopHistory'
 import { mapLink, routeLink } from '@/lib/geo'
 import { dateTime, clockTime } from '@/lib/when'
 import { STOP_KIND, km, kmDiffers, rideEnds, rideLine, rupees, statusLook, stopsOn, tripName, useDecide, useDeleteTrip, useModes, useShot, useSubmit, useTrip, useTrips } from '@/lib/travel'
@@ -34,6 +35,8 @@ export default function Claim() {
   const [done, setDone] = useState<string | null>(null)
   // The ride whose details are open, held by its id so they show the ride as it is now if the claim refreshes under them.
   const [openId, setOpenId] = useState<string | null>(null)
+  // And the visit, the same way.
+  const [shownStopId, setShownStopId] = useState<string | null>(null)
 
   if (isLoading) return <PageLoader />
   if (!data) return <EmptyState icon={MapPin} title="That trip is not here">It may belong to somebody outside your team.</EmptyState>
@@ -47,6 +50,7 @@ export default function Claim() {
   // Its engineer while the manager does not hold it, or the software administrator: the database's own rule (te_0006), shown here so the button is only offered where it will work.
   const canDelete = isSwAdmin || (mine && (trip.status === 'open' || trip.status === 'returned'))
   const openLeg = legs.find(l => l.id === openId) ?? null
+  const shownStop = stops.find(s => s.id === shownStopId) ?? null
   const deleteIt = async () => {
     setError(null)
     try { await remove.mutateAsync({ tripId: trip.id }); navigate(back, { replace: true }) }
@@ -219,26 +223,42 @@ export default function Claim() {
         {stops.length === 0 ? <p className="p-4 text-sm text-ink-500">No visit was recorded on this trip.</p> : (
           <ul className="divide-y divide-ink-100">
             {stops.map(s => (
-              <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
-                <span className={clsx('badge', TONE_CLASS[STOP_KIND[s.kind].tone])}>{STOP_KIND[s.kind].label}</span>
-                <span className="min-w-0 flex-1 text-ink-800">
-                  {s.facility_name}{s.ticket_no && <span className="ml-2 font-mono text-ink-500">ticket {s.ticket_no}</span>}
-                  <span className="block text-xs text-ink-500">
-                    Reached {clockTime(s.reached_at)}{s.closed_at ? `, finished ${clockTime(s.closed_at)}` : ' — not finished'}{s.note ? ` · ${s.note}` : ''}
+              /*
+                A visit opens its details when pressed, as a ride does (the
+                user, 2 Oct: "do same for visits also"), and is laid out the
+                same way for it: the top line is the button, stretched over
+                the row; what was found about the visit, and its photo, sit
+                underneath, the photo above the button's reach.
+              */
+              <li key={s.id} className="relative px-4 py-3 text-sm transition-colors hover:bg-ink-50 active:bg-ink-100">
+                <button type="button" onClick={() => setShownStopId(s.id)} aria-label={`${STOP_KIND[s.kind].label} at ${s.facility_name}: open its details`}
+                  className="flex w-full items-center gap-3 text-left after:absolute after:inset-0">
+                  <span className={clsx('badge shrink-0', TONE_CLASS[STOP_KIND[s.kind].tone])}>{STOP_KIND[s.kind].label}</span>
+                  <span className="min-w-0 flex-1 text-ink-800">
+                    {s.facility_name}{s.ticket_no && <span className="ml-2 font-mono text-ink-500">ticket {s.ticket_no}</span>}
+                    <span className="block text-xs text-ink-500">
+                      Reached {clockTime(s.reached_at)}{s.closed_at ? `, finished ${clockTime(s.closed_at)}` : ' — not finished'}{s.note ? ` · ${s.note}` : ''}
+                    </span>
                   </span>
-                </span>
-                {s.flagged && (
-                  <span className="badge bg-cyrixRed-100 text-cyrixRed-900"><TriangleAlert className="mr-1 h-3.5 w-3.5" /> {s.distance_m} m from the facility</span>
+                  <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-300" />
+                </button>
+                {(s.closed_at || s.proof_path) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    {s.flagged && (
+                      <span className="badge bg-cyrixRed-100 text-cyrixRed-900"><TriangleAlert className="mr-1 h-3.5 w-3.5" /> {s.distance_m} m from the facility</span>
+                    )}
+                    {s.closed_at && s.distance_m === null && <span className="badge bg-amber-100 text-amber-900">First visit here — its location is saved when approved</span>}
+                    {s.closed_at && s.distance_m !== null && !s.flagged && <span className="badge bg-green-100 text-green-900">At the facility · {s.distance_m} m</span>}
+                    {s.closed_at && !s.proof_path && <span className="badge bg-amber-100 text-amber-900">No photo</span>}
+                    {s.proof_path && <Photo path={s.proof_path} label="Proof" at={s.proof_lat !== null && s.proof_lng !== null ? { lat: s.proof_lat, lng: s.proof_lng } : null} />}
+                  </div>
                 )}
-                {s.closed_at && s.distance_m === null && <span className="badge bg-amber-100 text-amber-900">First visit here — its location is saved when approved</span>}
-                {s.closed_at && s.distance_m !== null && !s.flagged && <span className="badge bg-green-100 text-green-900">At the facility · {s.distance_m} m</span>}
-                {s.closed_at && !s.proof_path && <span className="badge bg-amber-100 text-amber-900">No photo</span>}
-                {s.proof_path && <Photo path={s.proof_path} label="Proof" at={s.proof_lat !== null && s.proof_lng !== null ? { lat: s.proof_lat, lng: s.proof_lng } : null} />}
               </li>
             ))}
           </ul>
         )}
       </div>
+      {shownStop && <StopHistory stop={shownStop} onClose={() => setShownStopId(null)} />}
 
       {canDelete && (
         <div className="card p-4">

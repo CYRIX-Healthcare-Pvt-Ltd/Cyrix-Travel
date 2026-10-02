@@ -10,6 +10,7 @@ import ModeArt, { modeLook } from '@/components/ModeArt'
 import HomePlace from '@/components/HomePlace'
 import StartRide, { SwapRide } from '@/components/StartRide'
 import LegHistory from '@/components/LegHistory'
+import StopHistory from '@/components/StopHistory'
 import ConfirmPlace from '@/components/ConfirmPlace'
 import MiniMap from '@/components/MiniMap'
 import Camera, { type Shot } from '@/components/Camera'
@@ -516,7 +517,9 @@ function CancelTrip({ tripId }: { tripId: string }) {
  * A leg says when it ran, shows a paper if it has a bill, and opens its
  * history when pressed — times, places, distance, documents (the user,
  * 2 Oct: "can we add each mode start n end time? … add a document icon also
- * and on click each mode, small history").
+ * and on click each mode, small history"). A stop opens its own the same
+ * way: when it was reached and finished, where, and its photo (the user,
+ * 2 Oct: "do same for visits also").
  */
 function Journey({ legs, stops, modes, trip }: { legs: Leg[]; stops: Stop[]; modes: Mode[]; trip: TripRecord }) {
   const label = (m: string) => modes.find(x => x.mode === m)?.label ?? m
@@ -524,6 +527,8 @@ function Journey({ legs, stops, modes, trip }: { legs: Leg[]; stops: Stop[]; mod
   // Held by its id, so the history shows the leg as it is now if the list refreshes under it.
   const [openId, setOpenId] = useState<string | null>(null)
   const open = legs.find(l => l.id === openId) ?? null
+  const [shownStopId, setShownStopId] = useState<string | null>(null)
+  const shownStop = stops.find(s => s.id === shownStopId) ?? null
   if (closed.length === 0 && stops.length === 0) return null
   // One line of the day in the order it went: a leg to a place, the stop there, the leg on from it. A leg and
   // the stop it ended at share a moment, and the leg comes first — the journey, then the arrival.
@@ -555,19 +560,24 @@ function Journey({ legs, stops, modes, trip }: { legs: Leg[]; stops: Stop[]; mod
             </button>
           </li>
         ) : s && (
-          <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2">
-            <span className="min-w-0 truncate text-ink-700">
-              <span className={clsx('badge mr-2', TONE_CLASS[STOP_KIND[s.kind].tone])}>{STOP_KIND[s.kind].label}</span>
-              {s.facility_name}{s.ticket_no ? ` · ${s.ticket_no}` : ''}
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              {s.proof_path && <FileText className="h-4 w-4 text-ink-400" aria-label="Has a photo" />}
-              <span className={clsx('text-xs', s.closed_at ? 'text-green-700' : 'text-amber-700')}>{s.closed_at ? 'Done' : 'In progress'}</span>
-            </span>
+          <li key={s.id}>
+            <button type="button" onClick={() => setShownStopId(s.id)} aria-label={`${STOP_KIND[s.kind].label} at ${s.facility_name}: open its details`}
+              className="btn-press flex w-full items-center justify-between gap-3 px-4 py-2 text-left hover:bg-ink-50">
+              <span className="min-w-0 truncate text-ink-700">
+                <span className={clsx('badge mr-2', TONE_CLASS[STOP_KIND[s.kind].tone])}>{STOP_KIND[s.kind].label}</span>
+                {s.facility_name}{s.ticket_no ? ` · ${s.ticket_no}` : ''}
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {s.proof_path && <FileText className="h-4 w-4 text-ink-400" aria-label="Has a photo" />}
+                <span className={clsx('text-xs', s.closed_at ? 'text-green-700' : 'text-amber-700')}>{s.closed_at ? 'Done' : 'In progress'}</span>
+                <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-300" />
+              </span>
+            </button>
           </li>
         ))}
       </ul>
       {open && <LegHistory leg={open} label={label(open.mode)} legs={legs} stops={stops} trip={trip} editable onClose={() => setOpenId(null)} />}
+      {shownStop && <StopHistory stop={shownStop} onClose={() => setShownStopId(null)} />}
     </>
   )
 }
