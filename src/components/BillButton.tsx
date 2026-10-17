@@ -4,6 +4,7 @@ import { Spinner } from '@/components/ui'
 import { billUrl, readBill, uploadBill, money, type Bill } from '@/lib/claims'
 import { supabase } from '@/lib/supabase'
 import BillView from '@/components/BillView'
+import { useAsk } from '@/components/Ask'
 
 /*
   The bills on one ride, hotel night or expense. Attaching reads the amount off a photo with the
@@ -22,6 +23,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
   onChange: () => void
 }) {
   const input = useRef<HTMLInputElement>(null)
+  const ask = useAsk()
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const mine = bills.filter(b => b.owner_id === ownerId)
@@ -36,7 +38,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       setBusy('Attaching…')
       await uploadBill(claimId, kind, ownerId, f, read)
       onChange()
-    } catch (e) { setErr((e as Error).message); if (compact) alert((e as Error).message) } finally { setBusy(null) }
+    } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Bill not attached', (e as Error).message) } finally { setBusy(null) }
   }
   // Opened in the app, never in another tab (the user, 17 Oct).
   const [viewing, setViewing] = useState<{ url: string; name: string } | null>(null)

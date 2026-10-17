@@ -1,4 +1,5 @@
 import { startSessionGuard } from './lib/sessionGuard'
+import { AskProvider } from '@/components/Ask'
 import { startIdleSignOut } from './lib/idleSignOut'
 import { supabase } from './lib/supabase'
 import React from 'react'
@@ -40,7 +41,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         {/* The portal owns app.cyrix.in; this app owns /travel beneath it. */}
         <BrowserRouter basename="/travel">
           <AuthProvider>
+            <AskProvider>
             <App />
+            </AskProvider>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

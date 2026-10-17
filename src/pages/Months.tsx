@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { CalendarPlus, ChevronRight, ReceiptText, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { STATUS, money, monthName, rpc, useMyClaims } from '@/lib/claims'
 
@@ -14,6 +15,7 @@ export default function Months() {
   const nav = useNavigate()
   const { data, isLoading, error } = useMyClaims()
   const qc = useQueryClient()
+  const ask = useAsk()
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const now = new Date()
@@ -39,7 +41,7 @@ export default function Months() {
   }
   // Deleting a claim (the user, 17 Oct): at once while it is a draft; once sent, the manager approves (claim page).
   const remove = async (id: string, label: string) => {
-    if (!confirm(`Delete the ${label} claim and everything on it?`)) return
+    if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${label} claim and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
     setErr(null)
     try {
       const paths = await rpc<string[]>('te_delete_claim', { p_claim: id })

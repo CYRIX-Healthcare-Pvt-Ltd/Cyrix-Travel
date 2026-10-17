@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useAsk } from '@/components/Ask'
 import { ArrowLeft, BedDouble, Check, CornerUpLeft, FileSpreadsheet, Map as MapIcon, Pencil, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
 import DayEditor, { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
@@ -24,6 +25,7 @@ export default function ClaimPage() {
   const act = useClaimAction()
   const nav = useNavigate()
   const { isAdmin } = useAuth()
+  const ask = useAsk()
   const [editing, setEditing] = useState<Day | null>(null)
   const [map, setMap] = useState<{ days: Day[]; title: string } | null>(null)
   const [note, setNote] = useState('')
@@ -105,7 +107,7 @@ export default function ClaimPage() {
           {c.is_manager && (
             <>
               <button type="button" className="btn-primary bg-cyrixRed-600" onClick={async () => {
-                if (!confirm(`Delete ${c.name}'s ${monthName(c.month)} claim?`)) return
+                if (!(await ask.confirm({ title: 'Approve the deletion?', body: `${c.name}'s ${monthName(c.month)} claim and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
                 try { const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]; if (paths?.length) await supabase.storage.from('te-bills').remove(paths); nav('/approvals') } catch (e) { setFail((e as Error).message) }
               }}>Approve deletion</button>
               <button type="button" className="btn-secondary" onClick={() => void run('te_keep_claim', { p_claim: c.id }, 'Kept. The claim carries on.')}>Keep the claim</button>
@@ -133,7 +135,7 @@ export default function ClaimPage() {
             <DayCard key={d.id} d={d} data={data} tripDay={g.length > 1 ? `Trip day ${i + 1} of ${g.length}` : null} tol={tol} over={over}
               onEdit={() => setEditing(d)} onMap={() => setMap({ days: [d], title: `${dayName(d.day)}${d.place ? ' · ' + d.place : ''}` })}
               onMapDays={(days, title) => setMap({ days, title })}
-              onDelete={() => { if (confirm(`Remove ${dayName(d.day)} from the claim?`)) void run('te_delete_day', { p_day: d.id }, 'Day removed.') }}
+              onDelete={async () => { if (await ask.confirm({ title: `Remove ${dayName(d.day)}?`, body: 'The day, its rides, tickets, expenses and bills come off the claim.', yes: 'Remove day', danger: true })) void run('te_delete_day', { p_day: d.id }, 'Day removed.') }}
               onBills={() => void refetch()} />
           ))}
         </div>
@@ -150,7 +152,7 @@ export default function ClaimPage() {
           }}><Plus className="h-4 w-4" /> Add a day</button>
           {lastDay && <button type="button" className="btn-secondary" onClick={() => continueFrom(lastDay)}>Continue from {dayName(lastDay.day)}</button>}
           <button type="button" className="btn-primary" disabled={act.isPending || !data.days.length}
-            onClick={() => { if (confirm('Send this month\'s claim to your manager? You cannot change it after, unless it is sent back.')) void run('te_submit', { p_claim: c.id }, 'Sent.') }}>
+            onClick={async () => { if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless it is sent back.', yes: 'Submit' })) void run('te_submit', { p_claim: c.id }, 'Sent.') }}>
             {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Submit to manager
           </button>
         </div>
@@ -172,7 +174,7 @@ export default function ClaimPage() {
       <div className="flex flex-wrap justify-end gap-2">
         {((c.mine && c.status === 'draft') || (isAdmin && c.status !== 'paid')) && (
           <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
-            if (!confirm(`Delete the ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it?`)) return
+            if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
             try {
               const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]
               if (paths?.length) await supabase.storage.from('te-bills').remove(paths)
@@ -181,8 +183,8 @@ export default function ClaimPage() {
           }}><Trash2 className="h-4 w-4" /> Delete claim</button>
         )}
         {c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'paid' && (
-          <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={() => {
-            const reason = prompt('Why should this claim be deleted? Your manager approves it.')
+          <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
+            const reason = await ask.prompt({ title: 'Request deletion', body: 'This claim is already sent, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
             if (reason && reason.trim()) void run('te_request_delete', { p_claim: c.id, p_reason: reason }, 'Asked your manager to delete it.')
           }}><Trash2 className="h-4 w-4" /> Request deletion</button>
         )}
@@ -225,6 +227,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const [open, setOpen] = useState(false)
+  // A ticket sits under the ride that arrives at its hospital (the user, 17 Oct: "move the ticket under the hospital name").
+  const rideOf = (t: Day['tickets'][number]) => t.place ? d.rides.find(r => (r.to_name ?? '').toLowerCase().includes(t.place!.toLowerCase().split(',')[0].trim())) : undefined
+  const loose = d.tickets.filter(t => !rideOf(t))
   const billed = new Set(data.bills.map(b => b.owner_id))
   const missing = d.rides.filter(r => needsBill('ride', r, over, rule) && !billed.has(r.id)).length
     + (d.hotel && !d.room_by && !billed.has(d.hotel.id) ? 1 : 0)
@@ -276,10 +281,19 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-ink-200 text-teal-600 hover:bg-ink-100" title="This ride on the map" aria-label="This ride on the map"
                     onClick={() => onMapDays([{ ...d, rides: [r] }], `${short(r.from_name)} → ${short(r.to_name)}`)}><MapIcon className="h-3.5 w-3.5" /></button>
                 )}
+                {d.tickets.filter(t => rideOf(t)?.id === r.id).map(t => {
+                  const earlier = (t as typeof t & { earlier?: Array<{ day: string }> }).earlier ?? []
+                  return (
+                    <span key={t.id} className="flex w-full items-center gap-1.5 pl-6 text-xs text-sky-700">
+                      <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
+                      {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
+                    </span>
+                  )
+                })}
               </div>
             )
           })}
-          {d.tickets.map(t => {
+          {loose.map(t => {
             const earlier = (t as typeof t & { earlier?: Array<{ day: string; name: string; mine: boolean }> }).earlier ?? []
             return (
               <div key={t.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
