@@ -104,6 +104,14 @@ export const monthName = (iso: string) => `${MON[Number(iso.slice(5, 7)) - 1]}-$
 export const claimName = (iso: string, part?: number | null) => (part && part > 1 ? `${monthName(iso)} · part ${part}` : monthName(iso))
 /** Today as YYYY-MM-DD, on the phone's own calendar. */
 export const todayIso = () => new Date().toLocaleDateString('en-CA')
+/** "15 Oct", "15–17 Oct", "30 Sep – 2 Oct" — the days a claim covers (the user, 17 Oct). */
+export function dayRange(first: string | null, last: string | null) {
+  if (!first) return 'No days yet'
+  const f = new Date(first + 'T00:00:00'), l = new Date((last ?? first) + 'T00:00:00')
+  const dm = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  if (first === (last ?? first)) return dm(f)
+  return f.getMonth() === l.getMonth() ? `${f.getDate()}–${dm(l)}` : `${dm(f)} – ${dm(l)}`
+}
 export const dayName = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 export const newId = () => crypto.randomUUID()
@@ -258,7 +266,7 @@ const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
 }
 export const useMyClaims = () => useQuery({
   queryKey: ['te_my_claims'],
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number }>>('te_my_claims'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number }>>('te_my_claims'),
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
@@ -266,7 +274,7 @@ export const useClaim = (id: string | undefined) => useQuery({
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean }>>('te_inbox'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number }>>('te_inbox'),
 })
 export function useClaimAction() {
   const qc = useQueryClient()

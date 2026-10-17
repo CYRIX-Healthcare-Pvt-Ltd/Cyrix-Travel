@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
-import { STATUS, claimName, money, monthName, rpc, todayIso, useMyClaims } from '@/lib/claims'
+import { STATUS, claimName, dayRange, km, money, monthName, rpc, todayIso, useMyClaims } from '@/lib/claims'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
 
@@ -79,8 +79,11 @@ export default function Months() {
             return (
               <Link key={c.id} to={`/claim/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-ink-100/60">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-ink-900">{claimName(c.month, c.part)} {c.number && <span className="ml-1 text-xs text-ink-500">{c.number}</span>}</p>
-                  <p className="text-xs text-ink-500">{c.days} day{c.days === 1 ? '' : 's'}</p>
+                  <p className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-base font-bold text-ink-900">{c.number ?? 'Not sent yet'}</span>
+                    <span className="text-sm text-ink-500">{claimName(c.month, c.part)}</span>
+                  </p>
+                  <p className="text-xs text-ink-600">{dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
                 </div>
                 <span className={`badge ${s.tone}`}>{s.label}</span>
                 <span className="w-24 text-right font-semibold text-ink-900">{money(c.total)}</span>
