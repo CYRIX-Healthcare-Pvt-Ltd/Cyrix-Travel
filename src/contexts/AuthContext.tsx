@@ -23,6 +23,10 @@ interface AuthState {
   employee: Employee | null
   /** The software administrator: sets the rates. */
   isSwAdmin: boolean
+  /** SW Admin or ACC_ADMIN: keep the travel policy, the coordinators and the Travel Desk (te_0012). */
+  isAdmin: boolean
+  /** The Travel Desk: the last check, advances and payment. */
+  isDesk: boolean
   /** May open the module: given it in SW Admin. */
   hasAccess: boolean
   loading: boolean
@@ -36,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [isSwAdmin, setIsSwAdmin] = useState(false)
+  const [roles, setRoles] = useState<string[]>([])
   const [hasAccess, setHasAccess] = useState(false)
   const [loading, setLoading] = useState(true)
   /** Whose screen this is, to tell a new person from the same one coming back. */
@@ -43,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const load = useCallback(async (uid: string | undefined) => {
     if (!uid) {
-      setEmployee(null); setIsSwAdmin(false); setHasAccess(false)
+      setEmployee(null); setIsSwAdmin(false); setRoles([]); setHasAccess(false)
       return
     }
     // Filtered to this person explicitly: the employees policy also shows
@@ -58,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (me) {
       const { data: roles } = await supabase.from('user_roles').select('role').eq('employee_id', me.id)
       setIsSwAdmin((roles ?? []).some(r => r.role === 'sw_admin' || r.role === 'super_admin'))
+      setRoles((roles ?? []).map(r => r.role as string))
     } else setIsSwAdmin(false)
   }, [])
 
@@ -73,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (!s) {
         signedInAs.current = null
-        qc.clear(); setSession(null); setEmployee(null); setIsSwAdmin(false); setHasAccess(false)
+        qc.clear(); setSession(null); setEmployee(null); setIsSwAdmin(false); setRoles([]); setHasAccess(false)
         return
       }
       // The same person, back — the tab came into view, or the camera gave
@@ -117,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [qc])
 
   return (
-    <AuthContext.Provider value={{ session, employee, isSwAdmin, hasAccess, loading, signOut }}>
+    <AuthContext.Provider value={{ session, employee, isSwAdmin, isAdmin: isSwAdmin || roles.includes('acc_admin'), isDesk: roles.includes('travel_desk'), hasAccess, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   )

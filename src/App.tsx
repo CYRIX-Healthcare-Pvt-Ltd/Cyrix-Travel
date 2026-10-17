@@ -8,14 +8,13 @@ import Shell from '@/components/Shell'
 import { Logo } from '@/components/Logo'
 import { lazyRoute } from '@/lib/lazyRoute'
 
-const Trip   = lazyRoute(() => import('@/pages/Trip'))
-const Claims = lazyRoute(() => import('@/pages/Claims'))
-const Claim  = lazyRoute(() => import('@/pages/Claim'))
-const Rates  = lazyRoute(() => import('@/pages/Rates'))
-const Places = lazyRoute(() => import('@/pages/Places'))
+const Months  = lazyRoute(() => import('@/pages/Months'))
+const Claim   = lazyRoute(() => import('@/pages/ClaimPage'))
+const Inbox   = lazyRoute(() => import('@/pages/Inbox'))
+const TeAdmin = lazyRoute(() => import('@/pages/TeAdmin'))
 
 export default function App() {
-  const { session, loading, hasAccess, isSwAdmin } = useAuth()
+  const { session, loading, hasAccess, isAdmin } = useAuth()
 
   if (loading) return <PageLoader />
   if (!session) return <SignInElsewhere />
@@ -25,12 +24,10 @@ export default function App() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route element={<Shell />}>
-          <Route index element={<Trip />} />
-          <Route path="claims" element={<Claims />} />
-          <Route path="claims/:id" element={<Claim />} />
-          <Route path="approvals" element={<Claims team />} />
-          <Route path="places" element={<Places />} />
-          <Route path="rates" element={isSwAdmin ? <Rates /> : <Navigate to="/" replace />} />
+          <Route index element={<Months />} />
+          <Route path="claim/:id" element={<Claim />} />
+          <Route path="approvals" element={<Inbox />} />
+          <Route path="policy" element={isAdmin ? <TeAdmin /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

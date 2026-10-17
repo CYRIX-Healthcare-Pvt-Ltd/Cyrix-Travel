@@ -1,0 +1,274 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Bike, Bus, Car, CarTaxiFront, Plane, TrainFront, TramFront, Truck, type LucideIcon } from 'lucide-react'
+import { supabase, friendlyError } from './supabase'
+
+/*
+  The month's claim by the day (te_0012; the user, 17 Oct 2026): the expense reimbursement Excel
+  and the 2026 travel policy, as screens. A day holds its rides, tickets, one DA, a hotel night
+  and other expenses, each with its bills.
+*/
+
+export type ModeCode = 'bike' | 'car' | 'bus' | 'train' | 'metro' | 'auto' | 'taxi' | 'flight'
+
+/*
+  One colour per mode, never two alike (the user, 17 Oct: "avoid look alike colors for modes"),
+  the same in the chips, the drawn route and the map. Red is the hospitals' pins, so no mode is red.
+*/
+export const MODES: Record<ModeCode, { label: string; color: string; bg: string; fg: string; icon: LucideIcon; perKm: boolean }> = {
+  bike:   { label: 'Bike', color: '#EF9F27', bg: '#FEF3C7', fg: '#78350F', icon: Bike, perKm: true },
+  car:    { label: 'Car', color: '#2563EB', bg: '#DBEAFE', fg: '#1E3A8A', icon: Car, perKm: true },
+  bus:    { label: 'Bus', color: '#16A34A', bg: '#DCFCE7', fg: '#14532D', icon: Bus, perKm: false },
+  train:  { label: 'Train', color: '#7C3AED', bg: '#EDE9FE', fg: '#4C1D95', icon: TrainFront, perKm: false },
+  metro:  { label: 'Metro', color: '#06B6D4', bg: '#CFFAFE', fg: '#164E63', icon: TramFront, perKm: false },
+  auto:   { label: 'Auto', color: '#DB2777', bg: '#FCE7F3', fg: '#831843', icon: Truck, perKm: false },
+  taxi:   { label: 'Uber / Taxi', color: '#374151', bg: '#E5E7EB', fg: '#111827', icon: CarTaxiFront, perKm: false },
+  flight: { label: 'Flight', color: '#92400E', bg: '#FDE7D3', fg: '#7C2D12', icon: Plane, perKm: false },
+}
+export const MODE_ORDER: ModeCode[] = ['bike', 'car', 'bus', 'train', 'metro', 'auto', 'taxi', 'flight']
+
+export const DA_KINDS = [
+  { code: 'none', label: 'No DA' },
+  { code: 'in_district', label: 'In district' },
+  { code: 'out_district', label: 'Out of district' },
+  { code: 'out_state', label: 'Out of state' },
+  { code: 'out_state_stay', label: 'Out of state, staying' },
+] as const
+export type DaKind = typeof DA_KINDS[number]['code']
+
+export const EXPENSE_CATEGORIES = ['Courier', 'Printing & stationery', 'Tools', 'Toll', 'Client meal', 'Team meal', 'Phone', 'Spare purchase', 'Other']
+
+export const STATUS: Record<string, { label: string; tone: string }> = {
+  draft: { label: 'Draft', tone: 'bg-slate-100 text-slate-900' },
+  with_manager: { label: 'With manager', tone: 'bg-amber-100 text-amber-900' },
+  with_coordinator: { label: 'With coordinator', tone: 'bg-violet-100 text-violet-900' },
+  with_desk: { label: 'With Travel Desk', tone: 'bg-sky-100 text-sky-900' },
+  approved: { label: 'Approved', tone: 'bg-green-100 text-green-900' },
+  paid: { label: 'Paid', tone: 'bg-teal-100 text-teal-900' },
+  returned: { label: 'Sent back', tone: 'bg-cyrixRed-100 text-cyrixRed-900' },
+}
+
+export interface Ride {
+  id: string; mode: ModeCode
+  from_name: string | null; from_lat: number | null; from_lng: number | null
+  to_name: string | null; to_lat: number | null; to_lng: number | null
+  claimed_km: number | null; map_km: number | null; fare: number | null; amount?: number; note?: string | null
+}
+export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null }
+export interface Hotel {
+  id: string; name: string | null; amount: number; occupancy: 'single' | 'double'; metro: boolean
+  shared_ecode?: string | null; shared_name?: string | null
+}
+export interface Expense { id: string; category: string; description: string | null; amount: number }
+export interface Day {
+  id: string; day: string; place: string | null; district: string | null; purpose: string | null
+  da_kind: DaKind; da_amount: number; continues_day: string | null; remarks: string | null
+  rides: Ride[]; tickets: Ticket[]; hotel: Hotel | null; expenses: Expense[]
+  room_by?: { name: string; ecode: string; amount: number; number: string | null } | null
+}
+export interface Bill {
+  id: string; owner_kind: 'ride' | 'hotel' | 'expense'; owner_id: string; path: string; name: string | null
+  ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
+}
+export interface Rule {
+  grade: string; da_in_district: number; da_out_district: number; da_out_state: number; da_out_state_stay: number
+  hotel_in_single: number; hotel_in_double: number; hotel_out_single: number; hotel_out_double: number
+  bike_rate: number | null; bike_km_month: number | null; car_rate: number | null; car_km_month: number | null
+  flight: boolean; taxi: boolean
+}
+export interface ClaimData {
+  claim: {
+    id: string; employee_id: string; month: string; status: string; number: string | null
+    grade: string | null; designation: string | null; base_location: string | null; project: string | null; mobile: string | null
+    submitted_at: string | null; late_pct: number; advance: number
+    manager_note: string | null; coordinator_note: string | null; desk_note: string | null
+    return_note: string | null; returned_at: string | null
+    name: string; ecode: string; manager: string | null; coordinator: string | null
+    mine: boolean; can_edit: boolean; can_decide: boolean; is_desk: boolean; is_manager: boolean
+    delete_requested_at: string | null; delete_reason: string | null
+  }
+  rule: Rule
+  days: Day[]
+  bills: Bill[]
+  km_month: { bike: number; car: number; auto: number }
+  policy: Record<string, number | number[]>
+  purposes: string[]
+  office_purposes: string[]
+}
+
+export const money = (n: number | null | undefined) =>
+  n == null ? '—' : '₹' + Math.round(n).toLocaleString('en-IN')
+export const km = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n * 10) / 10} km`)
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+export const monthName = (iso: string) => `${MON[Number(iso.slice(5, 7)) - 1]}-${iso.slice(2, 4)}`
+export const dayName = (iso: string) =>
+  new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+export const newId = () => crypto.randomUUID()
+
+/** What a ride is paid: km x the grade's rate on a bike or a car, else its fare. As the database works it out. */
+export function rideAmount(r: Pick<Ride, 'mode' | 'claimed_km' | 'fare'>, rule: Rule | undefined) {
+  if (r.mode === 'bike') return (r.claimed_km ?? 0) * (rule?.bike_rate ?? 5)
+  if (r.mode === 'car') return (r.claimed_km ?? 0) * (rule?.car_rate ?? 11)
+  return r.fare ?? 0
+}
+export function dayTotal(d: Day, rule: Rule | undefined) {
+  return d.rides.reduce((t, r) => t + rideAmount(r, rule), 0) + (d.da_amount ?? 0) + (d.hotel?.amount ?? 0)
+    + d.expenses.reduce((t, x) => t + (x.amount ?? 0), 0)
+}
+export function daFor(rule: Rule | undefined, kind: DaKind, purpose: string | null, office: string[]) {
+  if (!rule || (purpose && office.includes(purpose))) return 0
+  return kind === 'in_district' ? rule.da_in_district : kind === 'out_district' ? rule.da_out_district
+    : kind === 'out_state' ? rule.da_out_state : kind === 'out_state_stay' ? rule.da_out_state_stay : 0
+}
+/** The hotel limit for the night: grade, single or double, in or out of state, +20% in a metropolitan city. */
+export function hotelLimit(rule: Rule | undefined, h: Pick<Hotel, 'occupancy' | 'metro'>, outOfState: boolean, metroPct: number) {
+  if (!rule) return null
+  const base = outOfState
+    ? (h.occupancy === 'double' ? rule.hotel_out_double : rule.hotel_out_single)
+    : (h.occupancy === 'double' ? rule.hotel_in_double : rule.hotel_in_single)
+  return h.metro ? Math.round(base * (1 + metroPct / 100)) : base
+}
+/** Claimed km more than the map's road km plus the tolerance (10%, set by the admins). */
+export function kmOver(r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: number) {
+  if (r.claimed_km == null || r.map_km == null) return null
+  const allowed = r.map_km * (1 + tolerance / 100)
+  return { allowed, over: r.claimed_km > allowed + 0.05 ? r.claimed_km - allowed : 0 }
+}
+/** Whether this ride, hotel or expense needs a bill under the policy. */
+export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel | Expense, over: number, rule?: Rule) {
+  if (kind === 'hotel') return true
+  if (kind === 'ride') {
+    const r = item as Ride
+    return r.mode === 'bus' || r.mode === 'train' || r.mode === 'flight' || rideAmount(r, rule) > over
+  }
+  const x = item as Expense
+  return x.amount > over || ['Courier', 'Toll', 'Client meal', 'Team meal'].includes(x.category)
+}
+
+// ---------------------------------------------------------------- maps
+export interface Place { name: string; lat: number; lng: number }
+
+/** Road km between two places, from the free OSRM router on OpenStreetMap (the same as the trip module used). */
+export async function roadKm(a: Place, b: Place): Promise<{ km: number; line: [number, number][] } | null> {
+  try {
+    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`)
+    const j = await r.json()
+    const route = j.routes?.[0]
+    if (!route) return null
+    return { km: Math.round((route.distance / 1000) * 10) / 10, line: route.geometry.coordinates.map(([x, y]: [number, number]) => [y, x]) }
+  } catch { return null }
+}
+
+/** Places by name, from OpenStreetMap's search, kept to India. */
+export async function searchPlaces(q: string): Promise<Place[]> {
+  if (q.trim().length < 3) return []
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&limit=6&q=${encodeURIComponent(q)}`, { headers: { 'Accept-Language': 'en' } })
+    const j = await r.json() as Array<{ display_name: string; lat: string; lon: string; name?: string }>
+    return j.map(p => ({ name: shortName(p.display_name), lat: Number(p.lat), lng: Number(p.lon) }))
+  } catch { return [] }
+}
+export async function nameOf(lat: number, lng: number): Promise<string> {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
+    const j = await r.json() as { display_name?: string }
+    return j.display_name ? shortName(j.display_name) : `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+  } catch { return `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
+}
+const shortName = (s: string) => s.split(',').slice(0, 3).map(x => x.trim()).join(', ')
+
+// ---------------------------------------------------------------- bills
+export async function sha256(file: Blob) {
+  const buf = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+/** A 64-bit picture fingerprint (difference hash): the same bill photographed again comes out nearly the same. */
+export async function dhash(file: Blob): Promise<string | null> {
+  if (!file.type.startsWith('image/')) return null
+  try {
+    const img = await createImageBitmap(file)
+    const c = document.createElement('canvas'); c.width = 9; c.height = 8
+    const g = c.getContext('2d')!; g.drawImage(img, 0, 0, 9, 8)
+    const px = g.getImageData(0, 0, 9, 8).data
+    let bits = 0n
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+      const i = (y * 9 + x) * 4, j = i + 4
+      const a = px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11
+      const b = px[j] * 0.3 + px[j + 1] * 0.59 + px[j + 2] * 0.11
+      bits = (bits << 1n) | (a > b ? 1n : 0n)
+    }
+    // As a signed 64-bit number, which is what Postgres's bigint holds.
+    return BigInt.asIntN(64, bits).toString()
+  } catch { return null }
+}
+/*
+  The amount, date and bill number read off a bill photo with the free reader in the phone
+  (Tesseract; the user, 17 Oct). It is a guess the person checks: the largest money-looking figure
+  near "total", else the largest one.
+*/
+export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null }> {
+  if (!file.type.startsWith('image/')) return { amount: null, date: null, billno: null }
+  const { recognize } = await import('tesseract.js')
+  const { data } = await recognize(file, 'eng')
+  const text = data.text.replace(/[Oo](?=\d)/g, '0')
+  const lines = text.split('\n')
+  const nums = (s: string) => [...s.matchAll(/(?:₹|rs\.?|inr)?\s*(\d{1,6}(?:[.,]\d{1,2})?)/gi)].map(m => Number(m[1].replace(',', '.'))).filter(n => n > 0 && n < 200000)
+  let amount: number | null = null
+  for (const l of lines) if (/total|amount|amt|fare|net|paid/i.test(l)) { const n = nums(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
+  if (amount == null) { const all = nums(text).filter(n => n >= 5); if (all.length) amount = Math.max(...all) }
+  const dm = text.match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/)
+  let date: string | null = null
+  if (dm) {
+    const y = dm[3].length === 2 ? '20' + dm[3] : dm[3]
+    const d = new Date(`${y}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}T00:00:00`)
+    if (!isNaN(d.getTime())) date = d.toISOString().slice(0, 10)
+  }
+  const bm = text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
+  return { amount, date, billno: bm ? bm[1] : null }
+}
+
+/** A bill into the private bucket, then recorded; the same file twice is refused by the database. */
+export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null }) {
+  const [hash, ph] = await Promise.all([sha256(file), dhash(file)])
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+  const path = `${claimId}/${newId()}.${ext}`
+  const { data: dupe } = await supabase.rpc('te_bill_used', { p_sha256: hash })
+  if (dupe) throw new Error(`Same bill as ${dupe}`)
+  const { error: up } = await supabase.storage.from('te-bills').upload(path, file, { contentType: file.type || 'application/octet-stream' })
+  if (up) throw new Error(friendlyError(up))
+  const { error } = await supabase.rpc('te_add_bill', {
+    p_claim: claimId, p_kind: kind, p_owner: ownerId, p_path: path, p_name: file.name, p_sha256: hash,
+    p_phash: ph, p_amount: read.amount, p_date: read.date, p_billno: read.billno,
+  })
+  if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
+}
+export async function billUrl(path: string) {
+  const { data } = await supabase.storage.from('te-bills').createSignedUrl(path, 600)
+  return data?.signedUrl ?? null
+}
+
+// ---------------------------------------------------------------- data
+const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
+  const { data, error } = await supabase.rpc(fn, args)
+  if (error) throw new Error(friendlyError(error))
+  return data as T
+}
+export const useMyClaims = () => useQuery({
+  queryKey: ['te_my_claims'],
+  queryFn: () => rpc<Array<{ id: string; month: string; status: string; number: string | null; total: number; days: number }>>('te_my_claims'),
+})
+export const useClaim = (id: string | undefined) => useQuery({
+  queryKey: ['te_claim', id], enabled: !!id,
+  queryFn: () => rpc<ClaimData>('te_claim', { p_claim: id }),
+})
+export const useInbox = (enabled = true) => useQuery({
+  queryKey: ['te_inbox'], enabled,
+  queryFn: () => rpc<Array<{ id: string; month: string; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean }>>('te_inbox'),
+})
+export function useClaimAction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ fn, args }: { fn: string; args: Record<string, unknown> }) => rpc<unknown>(fn, args),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['te_claim'] }); void qc.invalidateQueries({ queryKey: ['te_my_claims'] }); void qc.invalidateQueries({ queryKey: ['te_inbox'] }) },
+  })
+}
+export { rpc }

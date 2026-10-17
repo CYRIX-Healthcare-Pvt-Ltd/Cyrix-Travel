@@ -1,8 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
-import { ClipboardCheck, Grid2x2, IndianRupee, LogOut, Navigation, ReceiptText } from 'lucide-react'
+import { ClipboardCheck, Grid2x2, LogOut, Navigation, ReceiptText, Settings2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useTrips } from '@/lib/travel'
+import { useInbox } from '@/lib/claims'
 import { TONE_TEXT, type Tone } from '@/lib/tones'
 import { Logo } from '@/components/Logo'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -13,17 +13,16 @@ import Avatar from '@/components/Avatar'
  * part, as in every module: the chrome is common and only the tabs differ.
  */
 export default function Shell() {
-  const { employee, isSwAdmin, signOut } = useAuth()
-  const { data: trips } = useTrips()
-  // Claims of other people's that wait on this person's decision.
-  const waiting = (trips ?? []).filter(t => t.can_decide && t.status === 'submitted').length
-  const manages = (trips ?? []).some(t => t.can_decide)
+  const { employee, isAdmin, isDesk, signOut } = useAuth()
+  const { data: inbox } = useInbox()
+  // Claims of other people's that wait on this person: as manager, coordinator or Travel Desk.
+  const waiting = (inbox ?? []).filter(c => c.waiting).length
+  const manages = (inbox ?? []).length > 0 || isDesk
 
   const items: Array<{ to: string; label: string; short: string; icon: typeof Navigation; tone: Tone; end?: boolean; badge?: number }> = [
-    { to: '/', label: 'Trip', short: 'Trip', icon: Navigation, tone: 'sky', end: true },
-    { to: '/claims', label: 'My claims', short: 'Claims', icon: ReceiptText, tone: 'amber' },
-    ...(manages || isSwAdmin ? [{ to: '/approvals', label: 'Approvals', short: 'Approve', icon: ClipboardCheck, tone: 'green' as Tone, badge: waiting }] : []),
-    ...(isSwAdmin ? [{ to: '/rates', label: 'Rates', short: 'Rates', icon: IndianRupee, tone: 'violet' as Tone }] : []),
+    { to: '/', label: 'My claims', short: 'Claims', icon: ReceiptText, tone: 'amber', end: true },
+    ...(manages || isAdmin ? [{ to: '/approvals', label: 'Approvals', short: 'Approve', icon: ClipboardCheck, tone: 'green' as Tone, badge: waiting }] : []),
+    ...(isAdmin ? [{ to: '/policy', label: 'Travel policy', short: 'Policy', icon: Settings2, tone: 'violet' as Tone }] : []),
   ]
 
   const handleSignOut = async () => {
@@ -55,14 +54,14 @@ export default function Shell() {
             </nav>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
-            {/* The name is the way to what is this person's own here: their home and their saved places. */}
-            <NavLink to="/places" className="nav-profile flex items-center gap-3 rounded-lg py-1 pl-2 pr-1" aria-label="My places" title="My places">
+            {/* Who is signed in. */}
+            <div className="nav-profile flex items-center gap-3 rounded-lg py-1 pl-2 pr-1">
               <span className="hidden text-right lg:block">
                 <span className="block text-sm font-medium leading-tight text-ink-900">{employee?.full_name}</span>
                 <span className="block text-xs leading-tight text-ink-500">{employee?.ecode}</span>
               </span>
               <Avatar name={employee?.full_name} src={employee?.avatar} size="header" />
-            </NavLink>
+            </div>
             <ThemeToggle />
             <button onClick={handleSignOut} className="btn-icon" aria-label="Sign out" title="Sign out">
               <LogOut className="h-4.5 w-4.5 text-cyrixRed-600" />
