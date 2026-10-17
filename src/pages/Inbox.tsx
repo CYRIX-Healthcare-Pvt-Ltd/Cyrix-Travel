@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ChevronRight, ClipboardCheck } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
-import { STATUS, money, monthName, useInbox } from '@/lib/claims'
+import { STATUS, claimName, money, useInbox } from '@/lib/claims'
 
 /** Claims waiting on this person — manager, coordinator or Travel Desk — and the ones they passed on. */
 export default function Inbox() {
@@ -14,7 +14,7 @@ export default function Inbox() {
       <Link to={`/claim/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-ink-100/60">
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">{c.name} <span className="text-xs text-ink-500">{c.ecode}</span></p>
-          <p className="text-xs text-ink-500">{monthName(c.month)}{c.number ? ` · ${c.number}` : ''}</p>
+          <p className="text-xs text-ink-500">{claimName(c.month, c.part)}{c.number ? ` · ${c.number}` : ''}</p>
         </div>
         <span className={`badge ${s.tone}`}>{s.label}</span>
         <span className="w-24 text-right font-semibold text-ink-900">{money(c.total)}</span>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
@@ -10,7 +10,7 @@ import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, MODES, STATUS, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, rideAmount,
+  DA_KINDS, MODES, STATUS, claimName, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -24,6 +24,7 @@ export default function ClaimPage() {
   const { data, isLoading, error, refetch } = useClaim(id)
   const act = useClaimAction()
   const nav = useNavigate()
+  const [search, setSearch] = useSearchParams()
   const { isAdmin } = useAuth()
   const ask = useAsk()
   const [editing, setEditing] = useState<Day | null>(null)
@@ -43,6 +44,12 @@ export default function ClaimPage() {
     return out
   }, [data])
 
+  // Arriving from "Add a day" with its date: open that day once.
+  const want = search.get('add')
+  if (want && data && !editing) {
+    const have = data.days.find(d => d.day === want)
+    window.setTimeout(() => { setEditing(have ?? blankDay(want)); setSearch({}, { replace: true }) }, 0)
+  }
   if (isLoading) return <PageLoader />
   if (error || !data) return <Alert kind="error">{(error as Error)?.message ?? 'That claim could not be opened.'}</Alert>
   const c = data.claim, rule = data.rule
@@ -78,7 +85,7 @@ export default function ClaimPage() {
       <div className="card flex flex-wrap items-start justify-between gap-4 p-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-lg font-semibold text-ink-900">{monthName(c.month)} claim</h1>
+            <h1 className="text-lg font-semibold text-ink-900">{claimName(c.month, c.part)} claim</h1>
             <span className={`badge ${status.tone}`}>{status.label}</span>
             {c.number && <span className="badge bg-ink-100 text-ink-700">{c.number}</span>}
           </div>
@@ -146,7 +153,7 @@ export default function ClaimPage() {
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-secondary" onClick={() => {
             const used = new Set(data.days.map(d => d.day))
-            const today = new Date().toLocaleDateString('en-CA')
+            const today = todayIso()
             const start = today.slice(0, 7) === c.month.slice(0, 7) ? today : c.month.slice(0, 8) + '01'
             setEditing(blankDay(used.has(start) ? '' : start))
           }}><Plus className="h-4 w-4" /> Add a day</button>

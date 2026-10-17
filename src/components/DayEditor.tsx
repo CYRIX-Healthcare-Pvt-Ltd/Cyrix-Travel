@@ -44,7 +44,10 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   const setRide = (id: string, p: Partial<Ride>) => setD(x => ({ ...x, rides: x.rides.map(r => (r.id === id ? { ...r, ...p } : r)) }))
   const refresh = () => void qc.invalidateQueries({ queryKey: ['te_claim', c.id] })
   const firstDay = c.month.slice(0, 8) + '01'
-  const lastDay = new Date(new Date(c.month + 'T00:00:00').getFullYear(), new Date(c.month + 'T00:00:00').getMonth() + 1, 0).toLocaleDateString('en-CA')
+  const monthEnd = new Date(new Date(c.month + 'T00:00:00').getFullYear(), new Date(c.month + 'T00:00:00').getMonth() + 1, 0).toLocaleDateString('en-CA')
+  // Never a future date (the user, 17 Oct).
+  const today = new Date().toLocaleDateString('en-CA')
+  const lastDay = monthEnd < today ? monthEnd : today
 
   useEffect(() => {
     if (!employee) return
@@ -86,6 +89,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   const save = async () => {
     setErr(null)
     if (!d.day) { setErr('Choose the date'); return }
+    if (d.day > lastDay) { setErr('A future date cannot be claimed'); return }
     for (const r of d.rides) {
       if (r.from_lat == null || r.to_lat == null) { setErr('Pick the from and to place of every ride on the map'); return }
       if (MODES[r.mode].perKm && !r.claimed_km) { setErr(`Type the km for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
