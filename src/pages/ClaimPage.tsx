@@ -294,7 +294,6 @@ function Header({ data }: { data: ClaimData; onSaved?: () => void }) {
   return (
     <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-500">
       <span>Project: <b className="font-medium text-ink-800">{c.project || '—'}</b></span>
-      <span>Base: <b className="font-medium text-ink-800">{c.base_location || '—'}</b></span>
     </p>
   )
 }

@@ -33,6 +33,7 @@ export default function PlacePicker({ title, start, quick, onPick, onClose, askN
   const [q, setQ] = useState('')
   const [found, setFound] = useState<Place[]>([])
   const [busy, setBusy] = useState(false)
+  const [none, setNone] = useState(false)
   const [picked, setPicked] = useState<Place | null>(start ?? null)
   const [err, setErr] = useState<string | null>(null)
   useBackCloses(onClose)
@@ -71,8 +72,13 @@ export default function PlacePicker({ title, start, quick, onPick, onClose, askN
   }, [])
 
   useEffect(() => {
-    if (q.trim().length < 3) { setFound([]); return }
-    const t = window.setTimeout(async () => { setBusy(true); setFound(await searchPlaces(q)); setBusy(false) }, 450)
+    if (q.trim().length < 3) { setFound([]); setNone(false); return }
+    const t = window.setTimeout(async () => {
+      setBusy(true)
+      const c = mapRef.current?.getCenter()
+      const res = await searchPlaces(q, c && mapRef.current!.getZoom() >= 9 ? { lat: c.lat, lng: c.lng } : undefined)
+      setFound(res); setNone(res.length === 0); setBusy(false)
+    }, 400)
     return () => window.clearTimeout(t)
   }, [q])
 
@@ -109,6 +115,7 @@ export default function PlacePicker({ title, start, quick, onPick, onClose, askN
           <input className="input pl-9" value={q} onChange={e => setQ(e.target.value)} placeholder="Search a hospital, bus stand or place" />
           {busy && <Spinner className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />}
         </div>
+        {none && !busy && <p className="text-sm text-ink-500">No match. Try another spelling, or tap the place on the map.</p>}
         {found.length > 0 && (
           <div className="max-h-40 overflow-y-auto rounded-xl border border-ink-200">
             {found.map((p, i) => (

@@ -35,7 +35,6 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   // The claim's details, kept in the form with everything else (the user, 17 Oct).
   const [hdr, setHdr] = useState({ project: data.claim.project ?? '', base: data.claim.base_location ?? '', mobile: data.claim.mobile ?? '' })
   const [projects, setProjects] = useState<string[]>([])
-  const [pickingBase, setPickingBase] = useState(false)
   useEffect(() => { void supabase.rpc('te_projects').then(({ data: p }) => setProjects(((p ?? []) as Array<{ label: string }>).map(x => x.label))) }, [])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -134,33 +133,27 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       </div>
       <div className="card">
         <div className="space-y-5 px-4 py-4">
-          <div className="grid gap-3 border-b border-ink-100 pb-4 sm:grid-cols-3">
+          <div className="grid gap-3 border-b border-ink-100 pb-4 sm:grid-cols-2">
             <label className="block"><span className="label">Project</span>
-              <select className="input mt-1" value={hdr.project} onChange={e => setHdr({ ...hdr, project: e.target.value })}>
+              <select className="input mt-1 h-11" value={hdr.project} onChange={e => setHdr({ ...hdr, project: e.target.value })}>
                 <option value="">Choose…</option>
                 {[...new Set([...projects, ...(hdr.project ? [hdr.project] : [])])].map(x => <option key={x}>{x}</option>)}
               </select></label>
-            <label className="block sm:col-span-2"><span className="label">Base location</span>
-              <span className="relative mt-1 block">
-                <input className="input pr-10" value={hdr.base} onChange={e => setHdr({ ...hdr, base: e.target.value })} placeholder="Your base" />
-                <button type="button" className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-cyrixRed-600 hover:bg-ink-100"
-                  title="Find on the map" aria-label="Base location on the map" onClick={() => setPickingBase(true)}><MapPin className="h-4 w-4" /></button>
-              </span></label>
           </div>
           {d.continues_day && <p className="rounded-lg bg-violet-100 px-3 py-2 text-sm text-violet-900">Continues the trip of {new Date(d.continues_day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="block"><span className="label">Date</span>
-              <input type="date" className="input mt-1" min={firstDay} max={lastDay} value={d.day} onChange={e => set({ day: e.target.value })} /></label>
+              <input type="date" className="input mt-1 h-11" min={firstDay} max={lastDay} value={d.day} onChange={e => set({ day: e.target.value })} /></label>
             <label className="block"><span className="label">Hospital / place</span>
               <span className="relative mt-1 block">
-                <input className="input pr-10" value={d.place ?? ''} onChange={e => set({ place: e.target.value })} placeholder="Hospital name" />
+                <input className="input h-11 pr-10" value={d.place ?? ''} onChange={e => set({ place: e.target.value })} placeholder="Hospital name" />
                 <button type="button" className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-cyrixRed-600 hover:bg-ink-100"
                   title="Find on the map" aria-label="Find on the map" onClick={() => setPickingPlace(true)}><MapPin className="h-4 w-4" /></button>
               </span></label>
             <label className="block"><span className="label">District</span>
-              <input className="input mt-1" value={d.district ?? ''} onChange={e => set({ district: e.target.value })} placeholder="District" /></label>
+              <input className="input mt-1 h-11" value={d.district ?? ''} onChange={e => set({ district: e.target.value })} placeholder="District" /></label>
             <label className="block"><span className="label">Purpose</span>
-              <select className="input mt-1" value={d.purpose ?? ''} onChange={e => set({ purpose: e.target.value || null })}>
+              <select className="input mt-1 h-11" value={d.purpose ?? ''} onChange={e => set({ purpose: e.target.value || null })}>
                 <option value="">Choose…</option>
                 {data.purposes.map(p => <option key={p}>{p}</option>)}
               </select></label>
@@ -372,11 +365,6 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
             <button type="button" className="btn-primary h-11 px-6 text-base" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save day</button>
           </div>
         </div>
-      {pickingBase && (
-        <PlacePicker title="Base location" start={null} quick={quick}
-          onPick={p => { setPickingBase(false); setHdr(h => ({ ...h, base: p.name.split(',')[0] })) }}
-          onClose={() => setPickingBase(false)} />
-      )}
       {pickingPlace && (
         <PlacePicker title="Hospital / place" start={null} quick={quick}
           onPick={async p => {

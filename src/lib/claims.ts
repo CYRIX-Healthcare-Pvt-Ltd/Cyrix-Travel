@@ -174,9 +174,24 @@ export async function roadKm(a: Place, b: Place): Promise<{ km: number; line: [n
   } catch { return null }
 }
 
-/** Places by name, from OpenStreetMap's search, kept to India. */
-export async function searchPlaces(q: string): Promise<Place[]> {
+/*
+  Places by name, kept to India. Photon first: it forgives spelling (the user, 17 Oct: "anjumana
+  temple" finds nothing in Nominatim, where the map spells it Anchumana), and it prefers places near
+  where the map is looking. Nominatim when Photon is down or finds nothing.
+*/
+export async function searchPlaces(q: string, near?: { lat: number; lng: number }): Promise<Place[]> {
   if (q.trim().length < 3) return []
+  try {
+    const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : '&lat=10.0&lon=76.3'
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lang=en${bias}`)
+    const j = await r.json() as { features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+    const out = j.features.filter(f => (f.properties.countrycode ?? '').toUpperCase() === 'IN').map(f => {
+      const p = f.properties
+      const where = [p.street && p.street !== p.name ? p.street : null, p.city ?? p.district ?? p.county, p.state].filter(Boolean)
+      return { name: [p.name ?? p.street, ...where].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
+    }).filter(x => x.name)
+    if (out.length) return out.slice(0, 8)
+  } catch { /* fall through to Nominatim */ }
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&limit=6&q=${encodeURIComponent(q)}`, { headers: { 'Accept-Language': 'en' } })
     const j = await r.json() as Array<{ display_name: string; lat: string; lon: string; name?: string }>
