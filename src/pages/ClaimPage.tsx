@@ -7,6 +7,8 @@ import { ArrowLeft, BedDouble, Check, CornerUpLeft, FileSpreadsheet, Map as MapI
 import DayEditor, { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
+import Dialog from '@/components/Dialog'
+import MonthCalendar from '@/components/MonthCalendar'
 import BillButton from '@/components/BillButton'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
@@ -30,6 +32,8 @@ export default function ClaimPage() {
   const [editing, setEditing] = useState<Day | null>(null)
   const [map, setMap] = useState<{ days: Day[]; title: string } | null>(null)
   const [note, setNote] = useState('')
+  const [picking, setPicking] = useState(false)
+  const [pickDay, setPickDay] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
 
@@ -60,6 +64,29 @@ export default function ClaimPage() {
   const tol = Number(data.policy.km_tolerance_pct ?? 10)
   const over = Number(data.policy.bill_over ?? 300)
   const lastDay = data.days[data.days.length - 1]
+  const monthLast = (() => { const d = new Date(c.month + 'T00:00:00'); const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString('en-CA'); return end < todayIso() ? end : todayIso() })()
+  // Delete / request deletion / Excel: one row with the person's buttons (the user, 17 Oct).
+  const tail = (
+    <>
+          {((c.mine && c.status === 'draft') || (isAdmin && c.status !== 'paid')) && (
+            <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
+              if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
+              try {
+                const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]
+                if (paths?.length) await supabase.storage.from('te-bills').remove(paths)
+                nav(c.mine ? '/' : '/approvals')
+              } catch (e) { setFail((e as Error).message) }
+            }}><Trash2 className="h-4 w-4" /> Delete claim</button>
+          )}
+          {c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'paid' && (
+            <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
+              const reason = await ask.prompt({ title: 'Request deletion', body: 'This claim is already sent, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
+              if (reason && reason.trim()) void run('te_request_delete', { p_claim: c.id, p_reason: reason }, 'Asked your manager to delete it.')
+            }}><Trash2 className="h-4 w-4" /> Request deletion</button>
+          )}
+          {data.days.length > 0 && <button type="button" className="btn-press inline-flex items-center gap-2 rounded-lg bg-[#107C41] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0B5E31]" onClick={async () => { const { exportClaim } = await import('@/lib/exportClaim'); await exportClaim(data) }}><FileSpreadsheet className="h-4 w-4" /> Download Excel</button>}
+    </>
+  )
 
   const run = async (fn: string, args: Record<string, unknown>, done: string) => {
     setMsg(null); setFail(null)
@@ -150,18 +177,18 @@ export default function ClaimPage() {
 
       {/* ---- the person's buttons ---- */}
       {c.can_edit && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-secondary" onClick={() => {
-            const used = new Set(data.days.map(d => d.day))
             const today = todayIso()
-            const start = today.slice(0, 7) === c.month.slice(0, 7) ? today : c.month.slice(0, 8) + '01'
-            setEditing(blankDay(used.has(start) ? '' : start))
+            setPickDay(today.slice(0, 7) === c.month.slice(0, 7) ? today : monthLast)
+            setPicking(true)
           }}><Plus className="h-4 w-4" /> Add a day</button>
           {lastDay && <button type="button" className="btn-secondary" onClick={() => continueFrom(lastDay)}>Continue from {dayName(lastDay.day)}</button>}
-          <button type="button" className="btn-primary" disabled={act.isPending || !data.days.length}
+          {data.days.length > 0 && <button type="button" className="btn-primary" disabled={act.isPending}
             onClick={async () => { if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless it is sent back.', yes: 'Submit' })) void run('te_submit', { p_claim: c.id }, 'Sent.') }}>
             {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Submit to manager
-          </button>
+          </button>}
+          <span className="ml-auto flex flex-wrap items-center gap-2">{tail}</span>
         </div>
       )}
 
@@ -178,26 +205,20 @@ export default function ClaimPage() {
       )}
       {c.is_desk && !c.mine && c.status !== 'draft' && c.status !== 'paid' && <DeskPanel data={data} onDone={(m) => { setMsg(m); void refetch() }} />}
 
-      <div className="flex flex-wrap justify-end gap-2">
-        {((c.mine && c.status === 'draft') || (isAdmin && c.status !== 'paid')) && (
-          <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
-            if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
-            try {
-              const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]
-              if (paths?.length) await supabase.storage.from('te-bills').remove(paths)
-              nav(c.mine ? '/' : '/approvals')
-            } catch (e) { setFail((e as Error).message) }
-          }}><Trash2 className="h-4 w-4" /> Delete claim</button>
-        )}
-        {c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'paid' && (
-          <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
-            const reason = await ask.prompt({ title: 'Request deletion', body: 'This claim is already sent, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
-            if (reason && reason.trim()) void run('te_request_delete', { p_claim: c.id, p_reason: reason }, 'Asked your manager to delete it.')
-          }}><Trash2 className="h-4 w-4" /> Request deletion</button>
-        )}
-        <button type="button" className="btn-press inline-flex items-center gap-2 rounded-lg bg-[#107C41] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0B5E31]" onClick={async () => { const { exportClaim } = await import('@/lib/exportClaim'); await exportClaim(data) }}><FileSpreadsheet className="h-4 w-4" /> Download Excel</button>
-      </div>
+      {!c.can_edit && <div className="flex flex-wrap justify-end gap-2">{tail}</div>}
 
+      {picking && (
+        <Dialog title="Add a day" icon={<Plus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
+          <div className="mt-3 space-y-3">
+            <MonthCalendar value={pickDay} onChange={setPickDay} min={c.month} max={monthLast} marked={data.days.map(d => d.day)} />
+            {data.days.some(d => d.day === pickDay) && <p className="text-sm text-ink-600">{dayName(pickDay)} is already on this claim — Continue opens it.</p>}
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setPicking(false)}>Cancel</button>
+              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); setEditing(data.days.find(d => d.day === pickDay) ?? blankDay(pickDay)) }}>Continue</button>
+            </div>
+          </div>
+        </Dialog>
+      )}
       {editing && <DayEditor data={data} initial={editing} onClose={() => setEditing(null)} />}
       {map && <RouteMap days={map.days} rule={rule} title={map.title} onClose={() => setMap(null)} />}
     </div>
