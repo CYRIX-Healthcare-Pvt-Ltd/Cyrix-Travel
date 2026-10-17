@@ -45,6 +45,7 @@ export const STATUS: Record<string, { label: string; tone: string }> = {
   approved: { label: 'Approved', tone: 'bg-green-100 text-green-900' },
   paid: { label: 'Paid', tone: 'bg-teal-100 text-teal-900' },
   returned: { label: 'Sent back', tone: 'bg-cyrixRed-100 text-cyrixRed-900' },
+  recalled: { label: 'Recalled · editing', tone: 'bg-orange-100 text-orange-900' },
 }
 
 export interface Ride {
@@ -85,6 +86,7 @@ export interface ClaimData {
     name: string; ecode: string; manager: string | null; coordinator: string | null
     mine: boolean; can_edit: boolean; can_decide: boolean; is_desk: boolean; is_manager: boolean
     delete_requested_at: string | null; delete_reason: string | null
+    recalls: number; last_recalled_at: string | null
   }
   rule: Rule
   days: Day[]
@@ -104,6 +106,8 @@ export const monthName = (iso: string) => `${MON[Number(iso.slice(5, 7)) - 1]}-$
 export const claimName = (iso: string, _part?: number | null) => monthName(iso)
 /** Today as YYYY-MM-DD, on the phone's own calendar. */
 export const todayIso = () => new Date().toLocaleDateString('en-CA')
+/** Its person can change it now: unsent, sent back, or recalled (te_0021). */
+export const editable = (status: string) => status === 'draft' || status === 'returned' || status === 'recalled'
 /** "15 Oct", "15–17 Oct", "30 Sep – 2 Oct" — the days a claim covers (the user, 17 Oct). */
 export function dayRange(first: string | null, last: string | null) {
   if (!first) return 'No days yet'

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { CalendarPlus, ChevronRight, ReceiptText, Trash2 } from 'lucide-react'
+import { CalendarPlus, ChevronRight, Pencil, ReceiptText, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
-import { STATUS, claimName, dayRange, km, money, monthName, rpc, todayIso, useMyClaims } from '@/lib/claims'
+import { STATUS, claimName, dayRange, editable, km, money, monthName, rpc, todayIso, useMyClaims } from '@/lib/claims'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
 
@@ -50,7 +50,7 @@ export default function Months() {
     }
     return { month: iso(m), pct: late === 0 ? 0 : [10, 20, 30][late - 1] ?? null }
   }).filter(x => x.pct !== null)
-  // Deleting a claim (the user, 17 Oct): at once while it is a draft; once sent, the manager approves (claim page).
+  // Deleting a claim (the user, 17 Oct): at once while it is a draft or recalled; otherwise the manager approves (claim page).
   const remove = async (id: string, label: string) => {
     if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${label} claim and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
     setErr(null)
@@ -87,7 +87,18 @@ export default function Months() {
                 </div>
                 <span className={`badge ${s.tone}`}>{s.label}</span>
                 <span className="w-24 text-right font-semibold text-ink-900">{money(c.total)}</span>
-                {c.status === 'draft' && (
+                {(editable(c.status) || c.status === 'with_manager') && (
+                  <button type="button" className="btn-icon text-violet-700" aria-label="Edit claim" title={c.status === 'with_manager' ? 'Recall to edit' : 'Edit'}
+                    onClick={async e => {
+                      e.preventDefault(); e.stopPropagation()
+                      if (c.status === 'with_manager') {
+                        if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change bills or km. Submit it again when done.`, yes: 'Recall' }))) return
+                        try { await rpc('te_recall', { p_claim: c.id }); await qc.invalidateQueries({ queryKey: ['te_my_claims'] }) } catch (x) { setErr((x as Error).message); return }
+                      }
+                      nav(`/claim/${c.id}?edit=1`)
+                    }}><Pencil className="h-4 w-4" /></button>
+                )}
+                {(c.status === 'draft' || c.status === 'recalled') && (
                   <button type="button" className="btn-icon text-cyrixRed-600" aria-label="Delete claim" title="Delete claim"
                     onClick={e => { e.preventDefault(); e.stopPropagation(); void remove(c.id, claimName(c.month, c.part)) }}><Trash2 className="h-4 w-4" /></button>
                 )}

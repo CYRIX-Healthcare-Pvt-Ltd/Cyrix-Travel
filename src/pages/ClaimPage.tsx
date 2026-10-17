@@ -51,6 +51,15 @@ export default function ClaimPage() {
     return out
   }, [data])
 
+  // Arriving from Edit: straight to the form — the latest day, or a new day dated today when there is none.
+  if (search.get('edit') && data && data.claim.can_edit) {
+    const last = data.days[data.days.length - 1]
+    window.setTimeout(() => {
+      setSearch({}, { replace: true })
+      if (last) openDay(last)
+      else openDay(blankDay(todayIso().slice(0, 7) === data.claim.month.slice(0, 7) ? todayIso() : data.claim.month), true)
+    }, 0)
+  }
   // Arriving from "Add a day" with its date: open that day once.
   const want = search.get('add')
   if (want && data) {
@@ -69,10 +78,14 @@ export default function ClaimPage() {
   const lastDay = data.days[data.days.length - 1]
   const monthLast = (() => { const d = new Date(c.month + 'T00:00:00'); const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString('en-CA'); return end < todayIso() ? end : todayIso() })()
   // Delete / request deletion / Excel: one row with the person's buttons (the user, 17 Oct).
-  const tail = (
+  const excel = data.days.length > 0 && (
+    <button type="button" className="btn-lift inline-flex h-9 items-center gap-2 rounded-lg border border-green-600/40 px-3 text-sm font-semibold text-green-700 hover:bg-green-50"
+      onClick={async () => { const { exportClaim } = await import('@/lib/exportClaim'); await exportClaim(data) }}><FileSpreadsheet className="h-4 w-4" /> Download Excel</button>
+  )
+  const deletes = (
     <>
-          {((c.mine && c.status === 'draft') || (isAdmin && c.status !== 'paid')) && (
-            <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
+          {((c.mine && (c.status === 'draft' || c.status === 'recalled')) || (isAdmin && c.status !== 'paid')) && (
+            <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline" onClick={async () => {
               if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
               try {
                 const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]
@@ -81,15 +94,21 @@ export default function ClaimPage() {
               } catch (e) { setFail((e as Error).message) }
             }}><Trash2 className="h-4 w-4" /> Delete claim</button>
           )}
-          {c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'paid' && (
-            <button type="button" className="btn-secondary !py-1.5 text-sm text-cyrixRed-700" onClick={async () => {
+          {c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid' && (
+            <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline" onClick={async () => {
               const reason = await ask.prompt({ title: 'Request deletion', body: 'This claim is already sent, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
               if (reason && reason.trim()) void run('te_request_delete', { p_claim: c.id, p_reason: reason }, 'Asked your manager to delete it.')
             }}><Trash2 className="h-4 w-4" /> Request deletion</button>
           )}
-          {data.days.length > 0 && <button type="button" className="btn-press inline-flex items-center gap-2 rounded-lg bg-[#107C41] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0B5E31]" onClick={async () => { const { exportClaim } = await import('@/lib/exportClaim'); await exportClaim(data) }}><FileSpreadsheet className="h-4 w-4" /> Download Excel</button>}
     </>
   )
+  // The quiet row under the actions: Excel left, delete right (the user, 17 Oct: "buttons misaligned").
+  const tail = (excel || ((c.mine && (c.status === 'draft' || c.status === 'recalled')) || (isAdmin && c.status !== 'paid') || (c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid'))) ? (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <span>{excel}</span>
+      <span className="flex items-center gap-3">{deletes}</span>
+    </div>
+  ) : null
 
   const run = async (fn: string, args: Record<string, unknown>, done: string) => {
     setMsg(null); setFail(null)
@@ -105,13 +124,23 @@ export default function ClaimPage() {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
+  /*
+    The next day, from where the last one ended (the user, 17 Oct: "only continue from needed — in the
+    first trip I may have come back home, then again from home I can start"). Ended at home: a new day
+    starting from home. Ended elsewhere (a hotel, another town): the same trip goes on, joined to it,
+    with its purpose, place and tickets carried. The date is the next day, never a future one, and can
+    be changed in the form.
+  */
   const continueFrom = (d: Day) => {
     const next = new Date(d.day + 'T00:00:00'); next.setDate(next.getDate() + 1)
-    const iso = next.toLocaleDateString('en-CA')
+    const iso = next.toLocaleDateString('en-CA') > todayIso() ? todayIso() : next.toLocaleDateString('en-CA')
     const lastRide = d.rides[d.rides.length - 1]
+    const atHome = !lastRide || /\bhome\b/i.test(lastRide.to_name ?? '')
     const nd = blankDay(iso)
-    nd.continues_day = d.day; nd.purpose = d.purpose; nd.place = d.place; nd.district = d.district; nd.da_kind = d.da_kind
-    nd.tickets = d.tickets.map(t => ({ ...t, id: newId() }))
+    if (!atHome) {
+      nd.continues_day = d.day; nd.purpose = d.purpose; nd.place = d.place; nd.district = d.district; nd.da_kind = d.da_kind
+      nd.tickets = d.tickets.map(t => ({ ...t, id: newId() }))
+    }
     if (lastRide?.to_lat != null) nd.rides = [{ id: newId(), mode: lastRide.mode, from_name: lastRide.to_name, from_lat: lastRide.to_lat, from_lng: lastRide.to_lng, to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null }]
     openDay(nd)
   }
@@ -132,6 +161,17 @@ export default function ClaimPage() {
           <p className="mt-1 text-xs text-ink-500">Manager {c.manager ?? '—'}{c.coordinator ? ` · Coordinator ${c.coordinator}` : ''} · Travel Desk</p>
         </div>
         <div className="text-right">
+          {c.mine && (c.can_edit || c.status === 'with_manager') && (
+            <button type="button" className="btn-lift mb-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+              onClick={async () => {
+                if (c.status === 'with_manager') {
+                  if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change it. Submit it again when done.`, yes: 'Recall' }))) return
+                  try { await act.mutateAsync({ fn: 'te_recall', args: { p_claim: c.id } }) } catch (e) { setFail((e as Error).message); return }
+                }
+                const last = data.days[data.days.length - 1]
+                openDay(last ?? blankDay(todayIso().slice(0, 7) === c.month.slice(0, 7) ? todayIso() : c.month))
+              }}><Pencil className="h-4 w-4" /> {c.status === 'with_manager' ? 'Recall to edit' : 'Edit'}</button>
+          )}
           <p className="text-xs text-ink-500">Total claimed</p>
           <p className="text-2xl font-semibold text-ink-900">{money(total)}</p>
           {c.late_pct > 0 && <p className="text-xs text-cyrixRed-700">Late {c.late_pct}% · −{money(late)}</p>}
@@ -141,6 +181,8 @@ export default function ClaimPage() {
       </div>
 
       {c.status === 'returned' && c.return_note && <Alert kind="warning" title="Sent back to you">{c.return_note}</Alert>}
+      {c.mine && c.status === 'recalled' && <Alert kind="info" title="Recalled to edit">Change what you need, then press Submit to manager again. It keeps its number.</Alert>}
+      {!c.mine && c.recalls > 0 && <p className="text-sm text-orange-800">Recalled {c.recalls}× by {c.name.split(' ')[0]} after sending{c.last_recalled_at ? ` · last on ${new Date(c.last_recalled_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</p>}
       {/* Deleting a sent claim needs the manager (te_0016; the user, 17 Oct). */}
       {c.delete_requested_at && (
         <div className="card flex flex-wrap items-center gap-3 border-cyrixRed-300 p-4">
@@ -186,20 +228,29 @@ export default function ClaimPage() {
         </div>
       ))}
 
-      {/* ---- the person's buttons ---- */}
+      {/* ---- the person's actions: one panel, the same shape on a phone and a computer ---- */}
       {c.can_edit && (
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn-secondary" onClick={() => {
-            const today = todayIso()
-            setPickDay(today.slice(0, 7) === c.month.slice(0, 7) ? today : monthLast)
-            setPicking(true)
-          }}><Plus className="h-4 w-4" /> Add a day</button>
-          {lastDay && <button type="button" className="btn-secondary" onClick={() => continueFrom(lastDay)}>Continue from {dayName(lastDay.day)}</button>}
-          {data.days.length > 0 && <button type="button" className="btn-primary" disabled={act.isPending}
-            onClick={async () => { if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless it is sent back.', yes: 'Submit' })) void run('te_submit', { p_claim: c.id }, 'Sent.') }}>
-            {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Submit to manager
-          </button>}
-          <span className="ml-auto flex flex-wrap items-center gap-2">{tail}</span>
+        <div className="card space-y-3 p-3 sm:p-4">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            {data.days.length > 0 && (
+              <button type="button" className="btn-primary col-span-2 h-11 justify-center sm:order-last sm:ml-auto" disabled={act.isPending}
+                onClick={async () => { if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Submit' })) void run('te_submit', { p_claim: c.id }, 'Sent.') }}>
+                {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Submit to manager
+              </button>
+            )}
+            {lastDay ? (
+              <button type="button" className="btn-secondary col-span-2 h-11 justify-center whitespace-nowrap text-sm sm:col-span-1" onClick={() => continueFrom(lastDay)}>
+                <Plus className="h-4 w-4" /> Continue from {new Date(lastDay.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+              </button>
+            ) : (
+              <button type="button" className="btn-secondary col-span-2 h-11 justify-center text-sm sm:col-span-1" onClick={() => {
+                const today = todayIso()
+                setPickDay(today.slice(0, 7) === c.month.slice(0, 7) ? today : monthLast)
+                setPicking(true)
+              }}><Plus className="h-4 w-4" /> Add your first day</button>
+            )}
+          </div>
+          {tail && <div className="border-t border-ink-100 pt-3">{tail}</div>}
         </div>
       )}
 
@@ -218,7 +269,7 @@ export default function ClaimPage() {
       )}
       {c.is_desk && !c.mine && c.status !== 'draft' && c.status !== 'paid' && <DeskPanel data={data} onDone={(m) => { setMsg(m); void refetch() }} />}
 
-      {!c.can_edit && <div className="flex flex-wrap justify-end gap-2">{tail}</div>}
+      {!c.can_edit && tail}
 
       {picking && (
         <Dialog title="Add a day" icon={<Plus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
@@ -237,24 +288,14 @@ export default function ClaimPage() {
   )
 }
 
-function Header({ data, onSaved }: { data: ClaimData; onSaved: () => void }) {
+/** The claim's header, as the top of the Excel sheet. Shown here; it is changed in the day form. */
+function Header({ data }: { data: ClaimData; onSaved?: () => void }) {
   const c = data.claim
-  const act = useClaimAction()
-  const [edit, setEdit] = useState(false)
-  const [v, setV] = useState({ project: c.project ?? '', base: c.base_location ?? '', mobile: c.mobile ?? '' })
-  if (!edit) return (
-    <p className="mt-0.5 text-sm text-ink-500">
-      Project {c.project || '—'} · Base {c.base_location || '—'} · {c.mobile || 'no mobile'}
-      {c.can_edit && <button type="button" className="ml-2 text-violet-700 hover:underline" onClick={() => setEdit(true)}>Change</button>}
-    </p>
-  )
   return (
-    <div className="mt-2 flex flex-wrap items-end gap-2">
-      <input className="input w-48" placeholder="Project" value={v.project} onChange={e => setV({ ...v, project: e.target.value })} />
-      <input className="input w-36" placeholder="Base location" value={v.base} onChange={e => setV({ ...v, base: e.target.value })} />
-      <input className="input w-36" placeholder="Mobile" value={v.mobile} onChange={e => setV({ ...v, mobile: e.target.value })} />
-      <button type="button" className="btn-primary !py-1.5 text-sm" onClick={async () => { await act.mutateAsync({ fn: 'te_set_header', args: { p_claim: c.id, p_project: v.project, p_base: v.base, p_mobile: v.mobile } }); setEdit(false); onSaved() }}>Save</button>
-    </div>
+    <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-500">
+      <span>Project: <b className="font-medium text-ink-800">{c.project || '—'}</b></span>
+      <span>Base: <b className="font-medium text-ink-800">{c.base_location || '—'}</b></span>
+    </p>
   )
 }
 

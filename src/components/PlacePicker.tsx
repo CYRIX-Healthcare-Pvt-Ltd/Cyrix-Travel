@@ -1,23 +1,32 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBackCloses } from '@/lib/useBackCloses'
-import { Crosshair, Home, MapPin, Search } from 'lucide-react'
+import { Crosshair, Home, MapPin, Search, Star } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useMyPlaces } from '@/pages/MyPlaces'
 import 'leaflet/dist/leaflet.css'
 import Dialog from '@/components/Dialog'
 import { Spinner } from '@/components/ui'
-import { nameOf, searchPlaces, type Place } from '@/lib/claims'
+import { nameOf, rpc, searchPlaces, type Place } from '@/lib/claims'
 
 /*
   Choosing a place is required, and is done on the map (the user, 17 Oct: "there mandatory option
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, quick, onPick, onClose }: {
+export default function PlacePicker({ title, start, quick, onPick, onClose, askName = false }: {
   title: string
   start?: Place | null
   quick: Array<Place & { label?: string; home?: boolean }>
-  onPick: (p: Place) => void
+  onPick: (p: Place, name?: string) => void
   onClose: () => void
+  /** Adding a saved place: the name is asked for, not offered. */
+  askName?: boolean
 }) {
+  // Saved places first (te_0023; the user, 17 Oct), and saving the one chosen with a name.
+  const { data: saved } = useMyPlaces()
+  const [saveAs, setSaveAs] = useState<string | null>(askName ? '' : null)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
+  const qc = useQueryClient()
   const box = useRef<HTMLDivElement>(null)
   const mapRef = useRef<import('leaflet').Map | null>(null)
   const pinRef = useRef<import('leaflet').Marker | null>(null)
@@ -77,6 +86,14 @@ export default function PlacePicker({ title, start, quick, onPick, onClose }: {
   return (
     <Dialog title={title} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} huge>
       <div className="mt-3 space-y-3">
+        {(saved ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {(saved ?? []).map(p => (
+              <button key={p.id} type="button" className="inline-flex items-center gap-1 rounded-full border border-teal-300 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-900 hover:bg-teal-100"
+                onClick={() => void put(p.lat, p.lng, p.name)}><Star className="h-3.5 w-3.5" />{p.name}</button>
+            ))}
+          </div>
+        )}
         {quick.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {quick.map((p, i) => (
@@ -106,9 +123,25 @@ export default function PlacePicker({ title, start, quick, onPick, onClose }: {
           <span className="min-w-0 flex-1 truncate text-right text-sm text-ink-600">{picked ? picked.name : 'Tap the map or search'}</span>
         </div>
         {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
+        {picked && picked.name !== '…' && (saveAs === null ? (
+          <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline" onClick={() => setSaveAs(picked.name.split(',')[0])}><Star className="h-4 w-4" /> Save to my places</button>
+        ) : (
+          <label className="block"><span className="label">{askName ? 'Name this place' : 'Save to my places as'}</span>
+            <input className="input mt-1" value={saveAs} onChange={e => setSaveAs(e.target.value)} placeholder="Home, Kochi office, ESI Hospital" autoFocus={askName} /></label>
+        ))}
+        {saveErr && <p className="text-sm text-cyrixRed-700">{saveErr}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={!picked || picked.name === '…'} onClick={() => picked && onPick(picked)}>Use this place</button>
+          <button type="button" className="btn-primary" disabled={!picked || picked.name === '…' || (askName && !(saveAs ?? '').trim())} onClick={async () => {
+            if (!picked) return
+            const name = (saveAs ?? '').trim()
+            if (name && !askName) {
+              setSaveErr(null)
+              try { await rpc('te_save_place', { p_id: null, p_name: name, p_lat: picked.lat, p_lng: picked.lng }); await qc.invalidateQueries({ queryKey: ['te_places'] }) }
+              catch (e) { setSaveErr((e as Error).message); return }
+              onPick({ ...picked, name }, name)
+            } else onPick(picked, name || undefined)
+          }}>{askName ? 'Save place' : 'Use this place'}</button>
         </div>
       </div>
     </Dialog>

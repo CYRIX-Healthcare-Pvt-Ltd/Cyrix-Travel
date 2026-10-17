@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
-import { ClipboardCheck, Grid2x2, LogOut, Navigation, ReceiptText, Settings2 } from 'lucide-react'
+import { ClipboardCheck, Grid2x2, LogOut, MapPin, Navigation, ReceiptText, Settings2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInbox } from '@/lib/claims'
 import { TONE_TEXT, type Tone } from '@/lib/tones'
@@ -21,6 +21,7 @@ export default function Shell() {
 
   const items: Array<{ to: string; label: string; short: string; icon: typeof Navigation; tone: Tone; end?: boolean; badge?: number }> = [
     { to: '/', label: 'My claims', short: 'Claims', icon: ReceiptText, tone: 'amber', end: true },
+    { to: '/places', label: 'My places', short: 'Places', icon: MapPin, tone: 'teal' },
     ...(manages || isAdmin ? [{ to: '/approvals', label: 'Approvals', short: 'Approve', icon: ClipboardCheck, tone: 'green' as Tone, badge: waiting }] : []),
     ...(isAdmin ? [{ to: '/policy', label: 'Travel policy', short: 'Policy', icon: Settings2, tone: 'violet' as Tone }] : []),
   ]

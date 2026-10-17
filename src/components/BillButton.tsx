@@ -11,8 +11,10 @@ import { useAsk } from '@/components/Ask'
   free reader in the phone (the user, 17 Oct) and hands it back to fill the amount; the same file
   twice is refused, naming the claim it was used on; a look-alike is flagged for the approvers.
 */
-export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onChange, compact = false }: {
+export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onChange, compact = false, large = false }: {
   compact?: boolean
+  /** Thumb-sized, for the day form on a phone. */
+  large?: boolean
   claimId: string
   kind: Bill['owner_kind']
   ownerId: string
@@ -55,12 +57,12 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     <span className="inline-flex items-center gap-1">
       {mine.map(b => (
         <button key={b.id} type="button" onClick={() => void open(b)} title={b.twin ? `Looks like ${b.twin}` : b.name ?? 'Bill'}
-          className={`grid h-7 w-7 place-items-center rounded-md ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-green-100 text-green-700'}`}><FileText className="h-3.5 w-3.5" /></button>
+          className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} place-items-center ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-green-100 text-green-700'}`}><FileText className="h-3.5 w-3.5" /></button>
       ))}
       {editable && (
         <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"
-          className={`grid h-7 w-7 place-items-center rounded-md border ${needed && !mine.length ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
-          {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className="h-3.5 w-3.5" />}
+          className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
+          {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
         </button>
       )}
       {!editable && needed && !mine.length && <span className="text-xs text-amber-700">No bill</span>}

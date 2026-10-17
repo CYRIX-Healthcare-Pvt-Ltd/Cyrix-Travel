@@ -14,10 +14,11 @@ type AdminData = {
   rules: Rule[]
   policy: Record<string, unknown>
   purposes: Array<{ id: number; label: string; gives_da: boolean; is_active: boolean }>
+  projects: Array<{ id: number; label: string; is_active: boolean }>
   coordinators: Array<{ ecode: string; name: string; coordinator_ecode: string; coordinator: string }>
   desk: Array<{ ecode: string; name: string }>
 }
-const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['coord', 'Coordinators'], ['desk', 'Travel Desk']] as const
+const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk']] as const
 const RULE_COLS: Array<[keyof Rule, string]> = [
   ['da_in_district', 'DA in district'], ['da_out_district', 'DA out of district'], ['da_out_state', 'DA out of state'], ['da_out_state_stay', 'DA out of state, staying'],
   ['hotel_in_single', 'Hotel in state S'], ['hotel_in_double', 'Hotel in state D'], ['hotel_out_single', 'Hotel out of state S'], ['hotel_out_double', 'Hotel out of state D'],
@@ -58,6 +59,7 @@ export default function TeAdmin() {
         </div>
       )}
       {tab === 'purposes' && <Purposes list={data.purposes} call={call} />}
+      {tab === 'projects' && <Projects list={data.projects} call={call} />}
       {tab === 'coord' && <Coordinators list={data.coordinators} call={call} />}
       {tab === 'desk' && <Desk list={data.desk} call={call} />}
     </div>
@@ -170,6 +172,25 @@ function Desk({ list, call }: { list: AdminData['desk']; call: Call }) {
       <div className="flex gap-2 pt-2">
         <input className="input w-40" placeholder="E-code" value={e} onChange={x => setE(x.target.value)} />
         <button type="button" className="btn-secondary" disabled={!e.trim()} onClick={() => { void call('te_set_desk', { p_ecode: e, p_on: true }, 'Added to the Travel Desk.'); setE('') }}>Add</button>
+      </div>
+    </div>
+  )
+}
+
+/** The projects a claim chooses from (te_0022; the user, 17 Oct: "project need dropdown, that sw or acc admin will set"). */
+function Projects({ list, call }: { list: AdminData['projects']; call: Call }) {
+  const [label, setLabel] = useState('')
+  return (
+    <div className="card space-y-2 p-4">
+      {list.map(p => (
+        <div key={p.id} className="flex flex-wrap items-center gap-3 text-sm">
+          <span className={clsx('min-w-[14rem] font-medium', p.is_active ? 'text-ink-900' : 'text-ink-400 line-through')}>{p.label}</span>
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.is_active} onChange={e => void call('te_set_project', { p_id: p.id, p_label: p.label, p_active: e.target.checked })} /> In use</label>
+        </div>
+      ))}
+      <div className="flex gap-2 pt-2">
+        <input className="input max-w-xs" placeholder="New project" value={label} onChange={e => setLabel(e.target.value)} />
+        <button type="button" className="btn-secondary" disabled={!label.trim()} onClick={() => { void call('te_set_project', { p_id: null, p_label: label, p_active: true }, 'Project added.'); setLabel('') }}>Add</button>
       </div>
     </div>
   )

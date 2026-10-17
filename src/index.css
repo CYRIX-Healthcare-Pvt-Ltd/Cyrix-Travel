@@ -631,6 +631,7 @@
       background-color var(--dur-fast) ease,
       border-color var(--dur-fast) ease,
       color var(--dur-fast) ease,
+      box-shadow var(--dur-fast) ease,
       transform var(--dur-press) var(--ease-out);
   }
   /* Press feedback. Without it a button answers the pointer but never the
@@ -664,6 +665,18 @@
     border-color: var(--score-accent);
     color: var(--score-strong);
   }
+
+  /* A small lift on hover, so every button visibly answers the pointer (the user, 17 Oct: "hover buttons"). */
+  .btn-primary:hover:not(:disabled),
+  .btn-secondary:hover:not(:disabled),
+  .btn-lift:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px -8px rgb(0 0 0 / 0.45);
+  }
+  .btn-lift {
+    transition: background-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, transform var(--dur-press) var(--ease-out);
+  }
+  .btn-lift:active:not(:disabled) { transform: scale(0.97); }
 
   .btn-danger {
     @apply btn bg-cyrixRed-600 text-white hover:bg-cyrixRed-700;
@@ -780,6 +793,19 @@
   .btn-icon:focus-visible {
     background-color: var(--score-soft);
     color: var(--score-strong);
+  }
+  /* A bin turns red when pointed at (the user, 17 Oct): every Remove / Delete icon button. */
+  .btn-icon[aria-label^="Remove"]:hover,
+  .btn-icon[aria-label^="Delete"]:hover,
+  .btn-icon[aria-label^="Remove"]:focus-visible,
+  .btn-icon[aria-label^="Delete"]:focus-visible {
+    background-color: rgb(254 226 226);
+    color: rgb(220 38 38);
+  }
+  .dark .btn-icon[aria-label^="Remove"]:hover,
+  .dark .btn-icon[aria-label^="Delete"]:hover {
+    background-color: rgb(127 29 29 / 0.35);
+    color: rgb(248 113 113);
   }
   .btn-icon:active {
     transform: scale(0.94);
