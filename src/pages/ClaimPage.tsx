@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
 import { ArrowLeft, BedDouble, Check, CornerUpLeft, FileSpreadsheet, Map as MapIcon, Pencil, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
-import DayEditor, { blankDay } from '@/components/DayEditor'
+import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
 import Dialog from '@/components/Dialog'
@@ -12,7 +12,7 @@ import MonthCalendar from '@/components/MonthCalendar'
 import BillButton from '@/components/BillButton'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, MODES, STATUS, claimName, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, rideAmount,
+  DA_KINDS, MODES, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -29,7 +29,7 @@ export default function ClaimPage() {
   const [search, setSearch] = useSearchParams()
   const { isAdmin } = useAuth()
   const ask = useAsk()
-  const [editing, setEditing] = useState<Day | null>(null)
+  const openDay = (d: Day, replace = false) => nav(`/claim/${id}/day`, { state: { day: d }, replace })
   const [map, setMap] = useState<{ days: Day[]; title: string } | null>(null)
   const [note, setNote] = useState('')
   // The decision panel says its own result, where the button was pressed (the user, 17 Oct).
@@ -53,9 +53,9 @@ export default function ClaimPage() {
 
   // Arriving from "Add a day" with its date: open that day once.
   const want = search.get('add')
-  if (want && data && !editing) {
+  if (want && data) {
     const have = data.days.find(d => d.day === want)
-    window.setTimeout(() => { setEditing(have ?? blankDay(want)); setSearch({}, { replace: true }) }, 0)
+    window.setTimeout(() => { setSearch({}, { replace: true }); openDay(have ?? blankDay(want)) }, 0)
   }
   if (isLoading) return <PageLoader />
   if (error || !data) return <Alert kind="error">{(error as Error)?.message ?? 'That claim could not be opened.'}</Alert>
@@ -113,7 +113,7 @@ export default function ClaimPage() {
     nd.continues_day = d.day; nd.purpose = d.purpose; nd.place = d.place; nd.district = d.district; nd.da_kind = d.da_kind
     nd.tickets = d.tickets.map(t => ({ ...t, id: newId() }))
     if (lastRide?.to_lat != null) nd.rides = [{ id: newId(), mode: lastRide.mode, from_name: lastRide.to_name, from_lat: lastRide.to_lat, from_lng: lastRide.to_lng, to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null }]
-    setEditing(nd)
+    openDay(nd)
   }
 
   return (
@@ -124,9 +124,8 @@ export default function ClaimPage() {
       <div className="card flex flex-wrap items-start justify-between gap-4 p-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-lg font-semibold text-ink-900">{claimName(c.month, c.part)} claim</h1>
+            <h1 className="text-lg font-semibold text-ink-900">{c.number ? `${c.number} · ${monthName(c.month)}` : `${monthName(c.month)} claim`}</h1>
             <span className={`badge ${status.tone}`}>{status.label}</span>
-            {c.number && <span className="badge bg-ink-100 text-ink-700">{c.number}</span>}
           </div>
           <p className="mt-1 text-sm text-ink-700">{c.name} · {c.ecode} · Grade {c.grade ?? '—'}{c.designation ? ` · ${c.designation}` : ''}</p>
           <Header data={data} onSaved={() => void refetch()} />
@@ -179,7 +178,7 @@ export default function ClaimPage() {
           )}
           {g.map((d, i) => (
             <DayCard key={d.id} d={d} data={data} tripDay={g.length > 1 ? `Trip day ${i + 1} of ${g.length}` : null} tol={tol} over={over}
-              onEdit={() => setEditing(d)} onMap={() => setMap({ days: [d], title: `${dayName(d.day)}${d.place ? ' · ' + d.place : ''}` })}
+              onEdit={() => openDay(d)} onMap={() => setMap({ days: [d], title: `${dayName(d.day)}${d.place ? ' · ' + d.place : ''}` })}
               onMapDays={(days, title) => setMap({ days, title })}
               onDelete={async () => { if (await ask.confirm({ title: `Remove ${dayName(d.day)}?`, body: 'The day, its rides, tickets, expenses and bills come off the claim.', yes: 'Remove day', danger: true })) void run('te_delete_day', { p_day: d.id }, 'Day removed.') }}
               onBills={() => void refetch()} />
@@ -228,12 +227,11 @@ export default function ClaimPage() {
             {data.days.some(d => d.day === pickDay) && <p className="text-sm text-ink-600">{dayName(pickDay)} is already on this claim — Continue opens it.</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setPicking(false)}>Cancel</button>
-              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); setEditing(data.days.find(d => d.day === pickDay) ?? blankDay(pickDay)) }}>Continue</button>
+              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); openDay(data.days.find(d => d.day === pickDay) ?? blankDay(pickDay)) }}>Continue</button>
             </div>
           </div>
         </Dialog>
       )}
-      {editing && <DayEditor data={data} initial={editing} onClose={() => setEditing(null)} />}
       {map && <RouteMap days={map.days} rule={rule} title={map.title} onClose={() => setMap(null)} />}
     </div>
   )

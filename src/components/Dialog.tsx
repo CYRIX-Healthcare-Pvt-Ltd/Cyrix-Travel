@@ -11,8 +11,10 @@ import { X } from 'lucide-react'
  * the page behind does not scroll while it is open.
  */
 export default function Dialog({
-  title, icon, children, onClose, wide = false,
+  title, icon, children, onClose, wide = false, huge = false,
 }: {
+  /** A map: much wider on a computer (the user, 17 Oct). */
+  huge?: boolean
   title: string
   icon?: ReactNode
   children: ReactNode
@@ -47,7 +49,7 @@ export default function Dialog({
       <div
         ref={panel}
         onClick={e => e.stopPropagation()}
-        className={`animate-pop-in max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl ${wide ? 'sm:max-w-xl' : 'sm:max-w-md'}`}
+        className={`animate-pop-in max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl ${huge ? 'sm:max-w-5xl' : wide ? 'sm:max-w-xl' : 'sm:max-w-md'}`}
       >
         <div className="flex items-start justify-between gap-3">
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-ink-900">{icon}{title}</h2>

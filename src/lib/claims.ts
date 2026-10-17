@@ -100,8 +100,8 @@ export const money = (n: number | null | undefined) =>
 export const km = (n: number | null | undefined) => (n == null ? '—' : `${Math.round(n * 10) / 10} km`)
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 export const monthName = (iso: string) => `${MON[Number(iso.slice(5, 7)) - 1]}-${iso.slice(2, 4)}`
-/** "Oct-26", or "Oct-26 · part 2" once a month has more than one claim (te_0018). */
-export const claimName = (iso: string, part?: number | null) => (part && part > 1 ? `${monthName(iso)} · part ${part}` : monthName(iso))
+/** A claim by its month; once sent, its number (TE-01) is what tells two of the same month apart (the user, 17 Oct). */
+export const claimName = (iso: string, _part?: number | null) => monthName(iso)
 /** Today as YYYY-MM-DD, on the phone's own calendar. */
 export const todayIso = () => new Date().toLocaleDateString('en-CA')
 /** "15 Oct", "15–17 Oct", "30 Sep – 2 Oct" — the days a claim covers (the user, 17 Oct). */
@@ -187,6 +187,15 @@ export async function nameOf(lat: number, lng: number): Promise<string> {
   } catch { return `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
 }
 const shortName = (s: string) => s.split(',').slice(0, 3).map(x => x.trim()).join(', ')
+/** The district of a point, from OpenStreetMap's address (the user, 17 Oct: "district will be autofetched"). */
+export async function districtOf(lat: number, lng: number): Promise<string | null> {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&addressdetails=1&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
+    const a = ((await r.json()) as { address?: Record<string, string> }).address ?? {}
+    const d = a.state_district ?? a.county ?? a.city_district ?? a.city ?? null
+    return d ? d.replace(/\s+district$/i, '').trim() : null
+  } catch { return null }
+}
 
 // ---------------------------------------------------------------- bills
 export async function sha256(file: Blob) {

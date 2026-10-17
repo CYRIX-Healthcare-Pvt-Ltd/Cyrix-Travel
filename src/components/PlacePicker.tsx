@@ -75,7 +75,7 @@ export default function PlacePicker({ title, start, quick, onPick, onClose }: {
   }
 
   return (
-    <Dialog title={title} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} wide>
+    <Dialog title={title} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} huge>
       <div className="mt-3 space-y-3">
         {quick.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
@@ -100,7 +100,7 @@ export default function PlacePicker({ title, start, quick, onPick, onClose }: {
             ))}
           </div>
         )}
-        <div ref={box} className="h-64 w-full overflow-hidden rounded-xl border border-ink-200" />
+        <div ref={box} className="h-64 w-full overflow-hidden rounded-xl border border-ink-200 sm:h-[55vh]" />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={here}><Crosshair className="h-4 w-4" /> Use my location</button>
           <span className="min-w-0 flex-1 truncate text-right text-sm text-ink-600">{picked ? picked.name : 'Tap the map or search'}</span>

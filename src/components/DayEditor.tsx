@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useBackCloses } from '@/lib/useBackCloses'
-import { createPortal } from 'react-dom'
-import { BedDouble, MapPin, Plus, ReceiptIndianRupee, Ticket as TicketIcon, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ArrowLeft, BedDouble, MapPin, Plus, ReceiptIndianRupee, Ticket as TicketIcon, Trash2, TriangleAlert } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import PlacePicker from '@/components/PlacePicker'
 import BillButton from '@/components/BillButton'
@@ -9,7 +7,7 @@ import { Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, EXPENSE_CATEGORIES, MODES, MODE_ORDER, daFor, hotelLimit, km, kmOver, money, needsBill, newId,
+  DA_KINDS, EXPENSE_CATEGORIES, districtOf, MODES, MODE_ORDER, daFor, hotelLimit, km, kmOver, money, needsBill, newId,
   rideAmount, roadKm, type ClaimData, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 
@@ -31,12 +29,13 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   const { employee } = useAuth()
   const [d, setD] = useState<Day>(initial)
   const [picking, setPicking] = useState<{ ride: string; end: 'from' | 'to' } | null>(null)
+  // The day's hospital, picked on the map: its name and its district filled in (the user, 17 Oct).
+  const [pickingPlace, setPickingPlace] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [home, setHome] = useState<Place | null>(null)
   const [who, setWho] = useState<Array<{ ecode: string; full_name: string }>>([])
   const c = data.claim, rule = data.rule
-  useBackCloses(onClose)
   const over = Number(data.policy.bill_over ?? 300), tol = Number(data.policy.km_tolerance_pct ?? 10), metroPct = Number(data.policy.metro_extra_pct ?? 20)
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
   const da = daFor(rule, d.da_kind, d.purpose, data.office_purposes)
@@ -74,6 +73,10 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng }
       : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng }
     setRide(rideId, { ...next, map_km: null })
+    if (end === 'to' && !d.place?.trim()) {
+      set({ place: p.name.split(',')[0] })
+      void districtOf(p.lat, p.lng).then(dist => { if (dist) setD(x => (x.district?.trim() ? x : { ...x, district: dist })) })
+    }
     if (next.from_lat != null && next.to_lat != null) {
       const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! })
       setRide(rideId, { map_km: road?.km ?? null })
@@ -110,22 +113,26 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   }
 
   const ride = picking ? d.rides.find(r => r.id === picking.ride) : null
-  return createPortal(
-    <div className="fixed inset-0 z-40 flex items-stretch justify-center bg-shade/60 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Day">
-      <div className="flex max-h-full w-full flex-col overflow-hidden bg-surface sm:max-w-3xl sm:rounded-2xl">
-        <div className="flex items-center justify-between gap-3 border-b border-ink-200 px-4 py-3">
-          <h2 className="text-base font-semibold text-ink-900">{initial.place || initial.rides.length ? 'Edit day' : 'Add a day'}</h2>
-          <button type="button" className="btn-icon" onClick={onClose} aria-label="Close"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+  return (
+    <div className="mx-auto max-w-4xl space-y-4 pb-24">
+      <div>
+        <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> Back to the claim</button>
+        <h1 className="mt-2 text-xl font-semibold text-ink-900">{initial.place || initial.rides.length ? 'Edit day' : 'Add a day'}</h1>
+      </div>
+      <div className="card">
+        <div className="space-y-5 px-4 py-4">
           {d.continues_day && <p className="rounded-lg bg-violet-100 px-3 py-2 text-sm text-violet-900">Continues the trip of {new Date(d.continues_day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="block"><span className="label">Date</span>
               <input type="date" className="input mt-1" min={firstDay} max={lastDay} value={d.day} onChange={e => set({ day: e.target.value })} /></label>
             <label className="block"><span className="label">Hospital / place</span>
-              <input className="input mt-1" value={d.place ?? ''} onChange={e => set({ place: e.target.value })} placeholder="ESI Hospital" /></label>
+              <span className="relative mt-1 block">
+                <input className="input pr-10" value={d.place ?? ''} onChange={e => set({ place: e.target.value })} placeholder="Hospital name" />
+                <button type="button" className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-cyrixRed-600 hover:bg-ink-100"
+                  title="Find on the map" aria-label="Find on the map" onClick={() => setPickingPlace(true)}><MapPin className="h-4 w-4" /></button>
+              </span></label>
             <label className="block"><span className="label">District</span>
-              <input className="input mt-1" value={d.district ?? ''} onChange={e => set({ district: e.target.value })} placeholder="Ernakulam" /></label>
+              <input className="input mt-1" value={d.district ?? ''} onChange={e => set({ district: e.target.value })} placeholder="District" /></label>
             <label className="block"><span className="label">Purpose</span>
               <select className="input mt-1" value={d.purpose ?? ''} onChange={e => set({ purpose: e.target.value || null })}>
                 <option value="">Choose…</option>
@@ -310,14 +317,24 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
           <label className="block"><span className="label">Remarks</span>
             <textarea rows={2} className="input mt-1" value={d.remarks ?? ''} onChange={e => set({ remarks: e.target.value })} placeholder="What was done" /></label>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-ink-200 px-4 py-3">
+      </div>
+        <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-ink-200 bg-surface px-4 py-3 shadow-lg lg:bottom-4">
           <span className="text-sm text-ink-600">Day total <b className="text-ink-900">{money(d.rides.reduce((t, r) => t + rideAmount(r, rule), 0) + da + (d.room_by ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}</b></span>
           <div className="flex items-center gap-2">
             {err && <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>}
             <button type="button" className="btn-primary" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save day</button>
           </div>
         </div>
-      </div>
+      {pickingPlace && (
+        <PlacePicker title="Hospital / place" start={null} quick={quick}
+          onPick={async p => {
+            setPickingPlace(false)
+            set({ place: p.name.split(',')[0] })
+            const dist = await districtOf(p.lat, p.lng)
+            if (dist) setD(x => ({ ...x, district: dist }))
+          }}
+          onClose={() => setPickingPlace(false)} />
+      )}
       {picking && ride && (
         <PlacePicker
           title={picking.end === 'from' ? 'From' : 'To'}
@@ -327,7 +344,6 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
           onClose={() => setPicking(null)}
         />
       )}
-    </div>,
-    document.body,
+    </div>
   )
 }

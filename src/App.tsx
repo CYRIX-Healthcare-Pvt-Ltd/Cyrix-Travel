@@ -10,6 +10,7 @@ import { lazyRoute } from '@/lib/lazyRoute'
 
 const Months  = lazyRoute(() => import('@/pages/Months'))
 const Claim   = lazyRoute(() => import('@/pages/ClaimPage'))
+const DayPage = lazyRoute(() => import('@/pages/DayPage'))
 const Inbox   = lazyRoute(() => import('@/pages/Inbox'))
 const TeAdmin = lazyRoute(() => import('@/pages/TeAdmin'))
 
@@ -26,6 +27,7 @@ export default function App() {
         <Route element={<Shell />}>
           <Route index element={<Months />} />
           <Route path="claim/:id" element={<Claim />} />
+          <Route path="claim/:id/day" element={<DayPage />} />
           <Route path="approvals" element={<Inbox />} />
           <Route path="policy" element={isAdmin ? <TeAdmin /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
