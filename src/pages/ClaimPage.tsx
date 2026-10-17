@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -32,6 +32,9 @@ export default function ClaimPage() {
   const [editing, setEditing] = useState<Day | null>(null)
   const [map, setMap] = useState<{ days: Day[]; title: string } | null>(null)
   const [note, setNote] = useState('')
+  // The decision panel says its own result, where the button was pressed (the user, 17 Oct).
+  const [panel, setPanel] = useState<{ ok: boolean; text: string } | null>(null)
+  const noteBox = useRef<HTMLTextAreaElement>(null)
   const [picking, setPicking] = useState(false)
   const [pickDay, setPickDay] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
@@ -92,6 +95,15 @@ export default function ClaimPage() {
     setMsg(null); setFail(null)
     try { const r = await act.mutateAsync({ fn, args }); setMsg(typeof r === 'string' && fn === 'te_submit' ? `Sent to your manager as ${r}.` : done); setNote('') }
     catch (e) { setFail((e as Error).message) }
+  }
+  const decide = async (approve: boolean) => {
+    setPanel(null)
+    if (!approve && !note.trim()) { setPanel({ ok: false, text: "Write why it's going back" }); noteBox.current?.focus(); return }
+    try {
+      await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: approve, p_note: note } })
+      setNote(''); setMsg(approve ? 'Approved and passed on.' : 'Sent back.')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
   const continueFrom = (d: Day) => {
     const next = new Date(d.day + 'T00:00:00'); next.setDate(next.getDate() + 1)
@@ -196,10 +208,12 @@ export default function ClaimPage() {
       {c.can_decide && (
         <div className="card space-y-3 p-4">
           <h2 className="text-sm font-semibold text-ink-900">{c.status === 'with_desk' ? 'Travel Desk check' : c.status === 'with_coordinator' ? 'Coordinator check' : 'Manager check'}</h2>
-          <textarea rows={2} className="input" value={note} onChange={e => setNote(e.target.value)} placeholder="Note (needed to send back)" />
+          <textarea ref={noteBox} rows={2} className={`input ${panel && !panel.ok && !note.trim() ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-200' : ''}`} value={note}
+            onChange={e => { setNote(e.target.value); if (panel && !panel.ok) setPanel(null) }} placeholder="Note (needed to send back)" />
+          {panel && <p className={`text-sm ${panel.ok ? 'text-green-700' : 'text-cyrixRed-700'}`}>{panel.text}</p>}
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary" disabled={act.isPending} onClick={() => void run('te_decide', { p_claim: c.id, p_approve: true, p_note: note }, 'Approved and passed on.')}><Check className="h-4 w-4" /> Approve</button>
-            <button type="button" className="btn-secondary" disabled={act.isPending} onClick={() => void run('te_decide', { p_claim: c.id, p_approve: false, p_note: note }, 'Sent back.')}><CornerUpLeft className="h-4 w-4" /> Send back</button>
+            <button type="button" className="btn-primary" disabled={act.isPending} onClick={() => void decide(true)}><Check className="h-4 w-4" /> Approve</button>
+            <button type="button" className="btn-secondary" disabled={act.isPending} onClick={() => void decide(false)}><CornerUpLeft className="h-4 w-4" /> Send back</button>
           </div>
         </div>
       )}
