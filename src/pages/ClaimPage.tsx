@@ -30,7 +30,8 @@ export default function ClaimPage() {
   const act = useClaimAction()
   const nav = useNavigate()
   const [search, setSearch] = useSearchParams()
-  const { isAdmin } = useAuth()
+  // Deleting any claim is SW Admin's alone (te_0028; the user, 18 Oct: "only for swadmin").
+  const { isSwAdmin } = useAuth()
   const ask = useAsk()
   const openDay = (d: Day, replace = false) => nav(`/claim/${id}/day`, { state: { day: d }, replace })
   const [map, setMap] = useState<{ days: Day[]; title: string } | null>(null)
@@ -89,12 +90,14 @@ export default function ClaimPage() {
   )
   const deletes = (
     <>
-          {((c.mine && (c.status === 'draft' || c.status === 'recalled')) || (isAdmin && c.status !== 'paid')) && (
+          {((c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin) && (
             <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline" onClick={async () => {
               if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
               try {
-                const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]
-                if (paths?.length) await supabase.storage.from('te-bills').remove(paths)
+                // The bills first: once the claim is gone, nothing is left to allow removing them.
+                const paths = data.bills.map(b => b.path)
+                if (paths.length) await supabase.storage.from('te-bills').remove(paths)
+                await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } })
                 nav(c.mine ? '/claims' : '/approvals')
               } catch (e) { setFail((e as Error).message) }
             }}><Trash2 className="h-4 w-4" /> Delete claim</button>
@@ -108,7 +111,7 @@ export default function ClaimPage() {
     </>
   )
   // The quiet row under the actions: Excel left, delete right (the user, 17 Oct: "buttons misaligned").
-  const tail = (excel || ((c.mine && (c.status === 'draft' || c.status === 'recalled')) || (isAdmin && c.status !== 'paid') || (c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid'))) ? (
+  const tail = (excel || ((c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin || (c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid'))) ? (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <span>{excel}</span>
       <span className="flex items-center gap-3">{deletes}</span>
@@ -206,7 +209,7 @@ export default function ClaimPage() {
             <>
               <button type="button" className="btn-primary bg-cyrixRed-600" onClick={async () => {
                 if (!(await ask.confirm({ title: 'Approve the deletion?', body: `${c.name}'s ${monthName(c.month)} claim and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
-                try { const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]; if (paths?.length) await supabase.storage.from('te-bills').remove(paths); nav('/approvals') } catch (e) { setFail((e as Error).message) }
+                try { const paths = data.bills.map(b => b.path); if (paths.length) await supabase.storage.from('te-bills').remove(paths); await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }); nav('/approvals') } catch (e) { setFail((e as Error).message) }
               }}>Approve deletion</button>
               <button type="button" className="btn-secondary" onClick={() => void run('te_keep_claim', { p_claim: c.id }, 'Kept. The claim carries on.')}>Keep the claim</button>
             </>
@@ -324,8 +327,6 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   // Open for whoever may change its figures, so the pencils are in sight.
   const [open, setOpen] = useState(!!onAdjust)
   const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
-  const dayIds = new Set([d.id, ...d.rides.map(r => r.id), ...(d.hotel ? [d.hotel.id] : []), ...d.expenses.map(x => x.id)])
-  const changedHere = (data.adjustments ?? []).filter(a => dayIds.has(a.item_id)).length
   // An amount: what was claimed struck through once an approver changed it, and their pencil.
   const amt = (id: string, now: number, t?: AdjustTarget, tone = 'text-ink-900') => {
     const a = changes(id), last = a[a.length - 1]
@@ -372,7 +373,6 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         {d.room_by && <span className="inline-flex items-center gap-1 text-green-700"><BedDouble className="h-3.5 w-3.5" />Room by {d.room_by.name.split(' ')[0]}</span>}
         {d.expenses.length > 0 && <span className="inline-flex items-center gap-1 text-amber-700"><ReceiptIndianRupee className="h-3.5 w-3.5" />{money(d.expenses.reduce((t, x) => t + x.amount, 0))}</span>}
         {missing > 0 && <span className="font-semibold text-amber-700">{missing} bill{missing > 1 ? 's' : ''} needed</span>}
-        {changedHere > 0 && <span className="inline-flex items-center gap-1 font-semibold text-rose-700"><PencilLine className="h-3.5 w-3.5" />{changedHere} changed by an approver</span>}
         <button type="button" className="ml-auto font-semibold text-violet-700 hover:underline" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}</button>
       </div>
 

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { Settings2, Trash2 } from 'lucide-react'
-import { Alert, PageLoader } from '@/components/ui'
+import { Alert, PageLoader, Spinner } from '@/components/ui'
+import { supabase } from '@/lib/supabase'
 import { rpc, type Rule } from '@/lib/claims'
 
 /*
@@ -17,6 +18,8 @@ type AdminData = {
   projects: Array<{ id: number; label: string; is_active: boolean }>
   coordinators: Array<{ ecode: string; name: string; coordinator_ecode: string; coordinator: string }>
   desk: Array<{ ecode: string; name: string }>
+  /** SW Admin, who alone deletes claims (te_0028). */
+  sw?: boolean
 }
 const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk']] as const
 const RULE_COLS: Array<[keyof Rule, string]> = [
@@ -34,7 +37,7 @@ const POLICY: Array<[string, string]> = [
 export default function TeAdmin() {
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['te_admin'], queryFn: () => rpc<AdminData>('te_admin_data') })
-  const [tab, setTab] = useState<typeof TABS[number][0]>('rules')
+  const [tab, setTab] = useState<typeof TABS[number][0] | 'delete'>('rules')
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
   const call = async (fn: string, args: Record<string, unknown>, done = 'Saved.') => {
@@ -47,7 +50,7 @@ export default function TeAdmin() {
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Settings2 className="h-5 w-5 text-violet-600" /> Travel policy</h1>
       <div className="flex flex-wrap gap-1.5">
-        {TABS.map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={clsx('rounded-full px-3 py-1.5 text-sm font-medium', tab === k ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-700 hover:bg-ink-200')}>{l}</button>)}
+        {[...TABS, ...(data.sw ? [['delete', 'Delete'] as const] : [])].map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={clsx('rounded-full px-3 py-1.5 text-sm font-medium', tab === k ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-700 hover:bg-ink-200')}>{l}</button>)}
       </div>
       {msg && <Alert kind="success">{msg}</Alert>}
       {fail && <Alert kind="error">{fail}</Alert>}
@@ -62,6 +65,7 @@ export default function TeAdmin() {
       {tab === 'projects' && <Projects list={data.projects} call={call} />}
       {tab === 'coord' && <Coordinators list={data.coordinators} call={call} />}
       {tab === 'desk' && <Desk list={data.desk} call={call} />}
+      {tab === 'delete' && data.sw && <DeleteClaim />}
     </div>
   )
 }
@@ -191,6 +195,72 @@ function Projects({ list, call }: { list: AdminData['projects']; call: Call }) {
       <div className="flex gap-2 pt-2">
         <input className="input max-w-xs" placeholder="New project" value={label} onChange={e => setLabel(e.target.value)} />
         <button type="button" className="btn-secondary" disabled={!label.trim()} onClick={() => { void call('te_set_project', { p_id: null, p_label: label, p_active: true }, 'Project added.'); setLabel('') }}>Add</button>
+      </div>
+    </div>
+  )
+}
+
+const STATUS_WORD: Record<string, string> = {
+  draft: 'Draft', with_manager: 'With manager', with_coordinator: 'With coordinator', with_desk: 'With Travel Desk',
+  approved: 'Approved', paid: 'Paid', returned: 'Sent back', recalled: 'Recalled',
+}
+/*
+  Delete a claim (Travel te_0028; the user, 18 Oct: "for sw_admin like in revive lab also need option to
+  delete claim" — "only for swadmin"), as Revive Lab deletes a ticket: type its number, see whose it
+  is, confirm. Its bills go first, then the claim with its days and history; one audit line keeps what
+  it was. The tab shows only for SW Admin, and the database refuses anybody else.
+*/
+function DeleteClaim() {
+  const qc = useQueryClient()
+  const [typed, setTyped] = useState('')
+  const [found, setFound] = useState<{ id: string; number: string; name: string; ecode: string; month: string; status: string; total: number; days: number; paths: string[] } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const lookUp = async () => {
+    setError(null); setNotice(null); setFound(null); setBusy(true)
+    try { setFound(await rpc('te_find_claim', { p_number: typed })) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+  }
+  const remove = async () => {
+    if (!found) return
+    setBusy(true); setError(null)
+    try {
+      if (found.paths.length) {
+        const { error: rm } = await supabase.storage.from('te-bills').remove(found.paths)
+        if (rm) throw new Error(rm.message)
+      }
+      await rpc('te_delete_claim', { p_claim: found.id })
+      setNotice(`Deleted ${found.number}.`); setFound(null); setTyped('')
+      void qc.invalidateQueries()
+    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+  }
+  const mon = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.toLocaleDateString('en-GB', { month: 'short' })}-${String(d.getFullYear()).slice(2)}` }
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-ink-200 bg-ink-50 px-4 py-2.5">
+        <Trash2 className="h-4 w-4 text-cyrixRed-600" />
+        <h3 className="text-sm font-semibold text-ink-800">Delete a claim</h3>
+      </div>
+      <div className="space-y-3 p-4">
+        {error && <Alert kind="error">{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
+        <form className="flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); void lookUp() }}>
+          <label className="block w-44"><span className="label">Claim number</span>
+            <input className="input mt-1 h-11 font-mono" value={typed} onChange={e => { setTyped(e.target.value); setFound(null) }} placeholder="TE-02" /></label>
+          <button type="submit" className="btn-secondary h-11 !text-cyrixRed-700" disabled={busy || !typed.trim()}>
+            {busy && !found ? <Spinner className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />} Delete
+          </button>
+        </form>
+        {found && (
+          <div className="rounded-xl border border-cyrixRed-200 bg-cyrixRed-50 p-3">
+            <p className="text-sm font-medium text-cyrixRed-900">Delete {found.number} · {found.name} ({found.ecode}) · {mon(found.month)} · ₹{Math.round(found.total).toLocaleString('en-IN')} for good?</p>
+            <p className="mt-0.5 text-xs text-cyrixRed-800">{STATUS_WORD[found.status] ?? found.status} · {found.days} day{found.days === 1 ? '' : 's'}. Its days, bills and history go with it. This cannot be undone.</p>
+            <div className="mt-2 flex gap-2">
+              <button type="button" className="btn-danger" onClick={() => void remove()} disabled={busy}>{busy && <Spinner className="h-4 w-4" />} Yes, delete {found.number}</button>
+              <button type="button" className="btn-secondary" onClick={() => setFound(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
