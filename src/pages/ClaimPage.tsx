@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, CornerUpLeft, FileSpreadsheet, Map as MapIcon, Pencil, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -11,6 +11,7 @@ import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
 import BillButton from '@/components/BillButton'
 import History from '@/components/History'
+import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
@@ -41,6 +42,8 @@ export default function ClaimPage() {
   const [pickDay, setPickDay] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
+  // An approver changing one figure (te_0027).
+  const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
 
   // Days joined into trips: a day that continues the one before is drawn with it.
   const groups = useMemo(() => {
@@ -123,6 +126,7 @@ export default function ClaimPage() {
     try {
       const next = await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: approve, p_note: note } }) as string
       const who = `${c.number ?? monthName(c.month)} · ${c.name}`
+      if (!approve) void supabase.functions.invoke('push', { body: { action: 'travel' } }).catch(() => undefined)
       nav('/approvals', { state: { done: !approve ? `${who} sent back.`
         : next === 'with_coordinator' ? `${who} approved and passed to the coordinator.`
         : next === 'with_desk' ? `${who} approved and passed to the Travel Desk.`
@@ -230,7 +234,7 @@ export default function ClaimPage() {
               onEdit={() => openDay(d)} onMap={() => setMap({ days: [d], title: `${dayName(d.day)}${d.place ? ' · ' + d.place : ''}` })}
               onMapDays={(days, title) => setMap({ days, title })}
               onDelete={async () => { if (await ask.confirm({ title: `Remove ${dayName(d.day)}?`, body: 'The day, its rides, tickets, expenses and bills come off the claim.', yes: 'Remove day', danger: true })) void run('te_delete_day', { p_day: d.id }, 'Day removed.') }}
-              onBills={() => void refetch()} />
+              onBills={() => void refetch()} onAdjust={c.can_decide && !c.mine ? setAdjust : undefined} />
           ))}
         </div>
       ))}
@@ -293,6 +297,7 @@ export default function ClaimPage() {
         </Dialog>
       )}
       {map && <RouteMap days={map.days} rule={rule} title={map.title} onClose={() => setMap(null)} />}
+      {adjust && <AdjustDialog claimId={c.id} target={adjust} onClose={() => setAdjust(null)} />}
     </div>
   )
 }
@@ -307,15 +312,35 @@ function Header({ data }: { data: ClaimData; onSaved?: () => void }) {
   )
 }
 
-function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDelete, onBills }: {
+function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDelete, onBills, onAdjust }: {
   d: Day; data: ClaimData; tripDay: string | null; tol: number; over: number
   onEdit: () => void; onMap: () => void; onMapDays: (days: Day[], title: string) => void; onDelete: () => void; onBills: () => void
+  onAdjust?: (t: AdjustTarget) => void
 }) {
   const c = data.claim, rule = data.rule
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
-  const [open, setOpen] = useState(false)
+  // Open for whoever may change its figures, so the pencils are in sight.
+  const [open, setOpen] = useState(!!onAdjust)
+  const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
+  const dayIds = new Set([d.id, ...d.rides.map(r => r.id), ...(d.hotel ? [d.hotel.id] : []), ...d.expenses.map(x => x.id)])
+  const changedHere = (data.adjustments ?? []).filter(a => dayIds.has(a.item_id)).length
+  // An amount: what was claimed struck through once an approver changed it, and their pencil.
+  const amt = (id: string, now: number, t?: AdjustTarget, tone = 'text-ink-900') => {
+    const a = changes(id), last = a[a.length - 1]
+    return (
+      <span className="inline-flex shrink-0 items-center justify-end gap-1.5">
+        {a.length > 0 && <s className="text-xs text-ink-400">{money(a[0].old_amount)}</s>}
+        <span className={`min-w-[3.5rem] text-right font-medium ${a.length ? 'text-violet-700' : tone}`} title={last ? `Changed by ${last.by ?? 'an approver'}: ${last.reason}` : undefined}>{money(now)}</span>
+        {t && onAdjust && (
+          <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-violet-300 text-violet-700 hover:bg-violet-50" title="Change the amount" aria-label="Change the amount" onClick={() => onAdjust(t)}>
+            <PencilLine className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </span>
+    )
+  }
   // A ticket sits under the ride that arrives at its hospital (the user, 17 Oct: "move the ticket under the hospital name").
   const rideOf = (t: Day['tickets'][number]) => t.place ? d.rides.find(r => (r.to_name ?? '').toLowerCase().includes(t.place!.toLowerCase().split(',')[0].trim())) : undefined
   const loose = d.tickets.filter(t => !rideOf(t))
@@ -347,6 +372,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         {d.room_by && <span className="inline-flex items-center gap-1 text-green-700"><BedDouble className="h-3.5 w-3.5" />Room by {d.room_by.name.split(' ')[0]}</span>}
         {d.expenses.length > 0 && <span className="inline-flex items-center gap-1 text-amber-700"><ReceiptIndianRupee className="h-3.5 w-3.5" />{money(d.expenses.reduce((t, x) => t + x.amount, 0))}</span>}
         {missing > 0 && <span className="font-semibold text-amber-700">{missing} bill{missing > 1 ? 's' : ''} needed</span>}
+        {changedHere > 0 && <span className="inline-flex items-center gap-1 font-semibold text-violet-700"><PencilLine className="h-3.5 w-3.5" />{changedHere} changed by an approver</span>}
         <button type="button" className="ml-auto font-semibold text-violet-700 hover:underline" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}</button>
       </div>
 
@@ -360,20 +386,28 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {d.rides.map(r => {
             const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null
             return (
-              <div key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2 text-sm">
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
-                <span className="min-w-0 flex-1 truncate text-ink-800">{short(r.from_name)} → {short(r.to_name)}</span>
+              // On a phone the route on its own line and the figures under it; on a computer one line (the user, 18 Oct).
+              <div key={r.id} className="py-2 text-sm">
+               <div className="sm:flex sm:items-center sm:gap-2">
+                <div className="flex min-w-0 items-center gap-2 sm:flex-1">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
+                  <span className="min-w-0 flex-1 truncate text-ink-800">{short(r.from_name)} → {short(r.to_name)}</span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-2 sm:mt-0">
                 {m.perKm && <span className={check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
-                <span className="w-14 text-right font-medium text-ink-900">{money(rideAmount(r, rule))}</span>
+                <span className="ml-auto" />
+                {amt(r.id, rideAmount(r, rule), { kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined })}
                 <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} onChange={onBills} />
                 {r.from_lat != null && r.to_lat != null && (
                   <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-ink-200 text-teal-600 hover:bg-ink-100" title="This ride on the map" aria-label="This ride on the map"
                     onClick={() => onMapDays([{ ...d, rides: [r] }], `${short(r.from_name)} → ${short(r.to_name)}`)}><MapIcon className="h-3.5 w-3.5" /></button>
                 )}
+                </div>
+               </div>
                 {d.tickets.filter(t => rideOf(t)?.id === r.id).map(t => {
                   const earlier = (t as typeof t & { earlier?: Array<{ day: string }> }).earlier ?? []
                   return (
-                    <span key={t.id} className="flex w-full items-center gap-1.5 pl-6 text-xs text-sky-700">
+                    <span key={t.id} className="mt-1 flex w-full items-center gap-1.5 pl-1 text-xs text-sky-700">
                       <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
                       {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
                     </span>
@@ -398,7 +432,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
               <div className="flex flex-wrap items-center gap-2 py-2 text-sm">
                 <BedDouble className="h-4 w-4 text-violet-600" />
                 <span className="min-w-0 flex-1 truncate text-ink-800">{d.hotel.name || 'Hotel'} · {d.hotel.occupancy}{d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}</span>
-                <span className={limit != null && d.hotel.amount > limit ? 'font-semibold text-amber-700' : 'font-medium text-ink-900'} title={limit != null ? `Limit ${money(limit)}` : undefined}>{money(d.hotel.amount)}</span>
+                {amt(d.hotel.id, d.hotel.amount, { kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
                 <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed onChange={onBills} />
               </div>
             )
@@ -407,10 +441,17 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             <div key={x.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
               <ReceiptIndianRupee className="h-4 w-4 text-amber-600" />
               <span className="min-w-0 flex-1 truncate text-ink-800">{x.category}{x.description ? ` · ${x.description}` : ''}</span>
-              <span className="font-medium text-ink-900">{money(x.amount)}</span>
+              {amt(x.id, x.amount, { kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount })}
               <BillButton compact claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable={c.can_edit} needed={needsBill('expense', x, over)} onChange={onBills} />
             </div>
           ))}
+          {(d.da_kind !== 'none' || d.da_amount > 0) && (
+            <div className="flex flex-wrap items-center gap-2 py-2 text-sm">
+              <HandCoins className="h-4 w-4 text-teal-600" />
+              <span className="min-w-0 flex-1 truncate text-ink-800">DA · {daLabel?.toLowerCase()}</span>
+              {amt(d.id, d.da_amount, { kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount })}
+            </div>
+          )}
           {d.remarks && <p className="py-2 text-sm text-ink-600">{d.remarks}</p>}
         </div>
       )}

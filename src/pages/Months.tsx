@@ -77,16 +77,19 @@ export default function Months() {
           {data.map(c => {
             const s = STATUS[c.status] ?? STATUS.draft
             return (
-              <Link key={c.id} to={`/claim/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-ink-100/60">
-                <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-baseline gap-x-2">
+              /* One grid for every row (the user, 18 Oct: "doesn't look uniform"): on a phone the number and
+                 amount on top, the status and buttons under; on a computer one line in fixed columns. */
+              <Link key={c.id} to={`/claim/${c.id}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-ink-100/60 sm:grid-cols-[minmax(0,1fr)_11rem_6rem_7.5rem]">
+                <div className="min-w-0">
+                  <p className="flex items-baseline gap-2 whitespace-nowrap">
                     <span className="text-base font-bold text-ink-900">{c.number ?? 'Not sent yet'}</span>
                     <span className="text-sm text-ink-500">{claimName(c.month, c.part)}</span>
                   </p>
-                  <p className="text-xs text-ink-600">{dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
+                  <p className="truncate text-xs text-ink-600">{dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
                 </div>
-                <span className={`badge ${s.tone}`}>{s.label}</span>
-                <span className="w-24 text-right font-semibold text-ink-900">{money(c.total)}</span>
+                <span className="text-right text-base font-semibold text-ink-900 sm:order-3">{money(c.total)}</span>
+                <span className="justify-self-start sm:order-2"><span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span></span>
+                <span className="flex min-h-9 items-center justify-end gap-1 sm:order-4">
                 {(editable(c.status) || c.status === 'with_manager') && (
                   <button type="button" className="btn-icon text-violet-700" aria-label="Edit claim" title={c.status === 'with_manager' ? 'Recall to edit' : 'Edit'}
                     onClick={async e => {
@@ -102,7 +105,8 @@ export default function Months() {
                   <button type="button" className="btn-icon text-cyrixRed-600" aria-label="Delete claim" title="Delete claim"
                     onClick={e => { e.preventDefault(); e.stopPropagation(); void remove(c.id, claimName(c.month, c.part)) }}><Trash2 className="h-4 w-4" /></button>
                 )}
-                <ChevronRight className="h-4 w-4 text-ink-400" />
+                <ChevronRight className="ml-1 h-4 w-4 shrink-0 text-ink-400" />
+                </span>
               </Link>
             )
           })}

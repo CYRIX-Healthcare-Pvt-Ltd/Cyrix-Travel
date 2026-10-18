@@ -12,14 +12,15 @@ export default function Inbox() {
   const Row = ({ c }: { c: NonNullable<typeof data>[number] }) => {
     const s = STATUS[c.status] ?? STATUS.draft
     return (
-      <Link to={`/claim/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-ink-100/60">
-        <div className="min-w-0 flex-1">
-          <p className="font-medium text-ink-900">{c.name} <span className="text-xs text-ink-500">{c.ecode}</span></p>
-          <p className="text-xs text-ink-600"><b className="text-ink-900">{c.number}</b> · {claimName(c.month, c.part)} · {dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
+      // The same grid as My claims: on a phone the person and amount on top, the status under; on a computer fixed columns.
+      <Link to={`/claim/${c.id}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-ink-100/60 sm:grid-cols-[minmax(0,1fr)_11rem_6rem_1rem]">
+        <div className="min-w-0">
+          <p className="truncate font-medium text-ink-900">{c.name} <span className="text-xs text-ink-500">{c.ecode}</span></p>
+          <p className="truncate text-xs text-ink-600"><b className="text-ink-900">{c.number}</b> · {claimName(c.month, c.part)} · {dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
         </div>
-        <span className={`badge ${s.tone}`}>{s.label}</span>
-        <span className="w-24 text-right font-semibold text-ink-900">{money(c.total)}</span>
-        <ChevronRight className="h-4 w-4 text-ink-400" />
+        <span className="text-right text-base font-semibold text-ink-900 sm:order-3">{money(c.total)}</span>
+        <span className="justify-self-start sm:order-2"><span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span></span>
+        <ChevronRight className="h-4 w-4 justify-self-end text-ink-400 sm:order-4" />
       </Link>
     )
   }

@@ -98,6 +98,8 @@ export interface ClaimData {
   purposes: string[]
   office_purposes: string[]
   history: HistoryStep[]
+  /** Figures an approver changed (te_0027), oldest first. */
+  adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>
 }
 /** One step of a claim's history (te_0025): who did what, when, and the note given. */
 export interface HistoryStep { id: number; at: string; action: string; to_status: string | null; note: string | null; actor: string | null }

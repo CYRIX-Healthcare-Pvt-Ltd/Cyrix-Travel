@@ -57,7 +57,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     <span className="inline-flex items-center gap-1">
       {mine.map(b => (
         <button key={b.id} type="button" onClick={() => void open(b)} title={b.twin ? `Looks like ${b.twin}` : b.name ?? 'Bill'}
-          className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} place-items-center ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-green-100 text-green-700'}`}><FileText className="h-3.5 w-3.5" /></button>
+          className={`${editable ? `grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} place-items-center` : 'inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold'} ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-green-100 text-green-700'}`}><FileText className="h-3.5 w-3.5" />{!editable && 'Bill'}</button>
       ))}
       {editable && (
         <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"

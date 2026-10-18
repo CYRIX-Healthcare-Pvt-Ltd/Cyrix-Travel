@@ -1,4 +1,4 @@
-import { BadgeCheck, Check, CornerUpLeft, FilePlus2, Hourglass, History as HistoryIcon, Send, Trash2, Undo2, UserMinus, Wallet, type LucideIcon } from 'lucide-react'
+import { BadgeCheck, Check, CornerUpLeft, FilePlus2, Hourglass, History as HistoryIcon, PencilLine, Send, Trash2, Undo2, UserMinus, Wallet, type LucideIcon } from 'lucide-react'
 import { money, type ClaimData, type HistoryStep } from '@/lib/claims'
 
 /*
@@ -9,7 +9,7 @@ import { money, type ClaimData, type HistoryStep } from '@/lib/claims'
 */
 const TONE = {
   slate: 'bg-slate-100 text-slate-700', amber: 'bg-amber-100 text-amber-700', orange: 'bg-orange-100 text-orange-700',
-  green: 'bg-green-100 text-green-700', sky: 'bg-sky-100 text-sky-700', teal: 'bg-teal-100 text-teal-700', red: 'bg-cyrixRed-100 text-cyrixRed-700',
+  green: 'bg-green-100 text-green-700', violet: 'bg-violet-100 text-violet-700', sky: 'bg-sky-100 text-sky-700', teal: 'bg-teal-100 text-teal-700', red: 'bg-cyrixRed-100 text-cyrixRed-700',
 } as const
 const ON: Record<string, string> = { with_coordinator: ' · on to the coordinator', with_desk: ' · on to the Travel Desk', approved: '' }
 
@@ -28,6 +28,7 @@ function look(e: HistoryStep): { title: string; icon: LucideIcon; tone: keyof ty
     case 'delete_requested': return { title: 'Asked to delete it', icon: Trash2, tone: 'red', note: e.note }
     case 'delete_refused': return { title: 'Deletion refused · kept', icon: Check, tone: 'slate', note: null }
     case 'delete_withdrawn': return { title: 'Deletion request withdrawn', icon: Undo2, tone: 'slate', note: null }
+    case 'adjusted': return { title: 'Changed an amount', icon: PencilLine, tone: 'violet', note: e.note }
     case 'advance': return { title: `Advance set to ${money(Number(e.note ?? 0))}`, icon: Wallet, tone: 'teal', note: null }
     default: return { title: e.action, icon: Check, tone: 'slate', note: e.note }
   }

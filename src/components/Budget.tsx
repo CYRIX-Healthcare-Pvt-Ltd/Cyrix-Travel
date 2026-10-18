@@ -1,11 +1,12 @@
+import type { CSSProperties } from 'react'
 import { CircleAlert, Smartphone, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { MODES, money, type Day, type Rule } from '@/lib/claims'
 
 /*
   The month's budget, as meters (the user, 18 Oct: "this is the budget isn't it? so in each claim
   when they apply it should show the balance also, they have in month"): the grade's bike or car km a
-  month, and the auto and phone allowances. The fill turns amber from 80% and red past the limit,
-  always with words beside it, never colour alone.
+  month, and the auto and phone allowances. Each fill wears its mode's colour; from 80% the words
+  beside it turn amber, and red past the limit, each with an icon.
 */
 export interface BudgetLine { key: string; label: string; icon: LucideIcon; color: string; used: number; limit: number; unit: 'km' | '₹' }
 export interface Used { bike: number; car: number; auto: number; phone: number }
@@ -40,8 +41,9 @@ export default function Budget({ title, lines }: { title: string; lines: BudgetL
   return (
     <div className="card p-3 sm:p-4">
       <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-ink-500">{title}</p>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
-        {lines.map(l => <Meter key={l.key} l={l} />)}
+      {/* As many columns as meters, so they fill the card (the user, 18 Oct: "stretch this to fit the container"); on a phone two a row, an odd last one full width. */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-6 sm:[grid-template-columns:repeat(var(--n),minmax(0,1fr))]" style={{ '--n': lines.length } as CSSProperties}>
+        {lines.map((l, i) => <div key={l.key} className={lines.length % 2 && i === lines.length - 1 ? 'col-span-2 sm:col-span-1' : ''}><Meter l={l} /></div>)}
       </div>
     </div>
   )
@@ -61,8 +63,9 @@ function Meter({ l }: { l: BudgetLine }) {
           {state === 'over' ? <><TriangleAlert className="h-3.5 w-3.5" />Over {fmt(-left)}</> : <>{state === 'near' && <CircleAlert className="h-3.5 w-3.5" />}{fmt(left)} left</>}
         </span>
       </div>
-      <div className={`mt-1.5 h-2 overflow-hidden rounded-full ${state === 'over' ? 'bg-cyrixRed-100' : state === 'near' ? 'bg-amber-100' : 'bg-teal-100'}`}>
-        <div className={`h-full rounded-full ${state === 'over' ? 'bg-cyrixRed-600' : state === 'near' ? 'bg-amber-600' : 'bg-teal-600'}`} style={{ width: `${Math.min(100, pct * 100)}%` }} />
+      {/* The fill in the mode's own colour, on a pale track of it (the user, 18 Oct); near or over is said in words above. */}
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full" style={{ background: l.color + '33' }}>
+        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct * 100)}%`, minWidth: l.used > 0 ? 4 : 0, background: l.color }} />
       </div>
       <p className="mt-1 text-xs text-ink-500">{fmt(l.used)} of {fmt(l.limit)}</p>
     </div>
