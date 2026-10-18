@@ -66,7 +66,7 @@ export default function Months() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ReceiptText className="h-5 w-5 text-amber-600" /> My claims</h1>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-primary" disabled={!!busy} onClick={() => { setPickDay(todayIso()); setPicking(true) }}><CalendarPlus className="h-4 w-4" /> Add a day</button>
+          <button type="button" className="btn-primary" disabled={!!busy} onClick={() => { setPickDay(todayIso()); setPicking(true) }}><CalendarPlus className="h-4 w-4" /> Add a claim</button>
         </div>
       </div>
       {(err || error) && <Alert kind="error">{err ?? (error as Error).message}</Alert>}
@@ -109,7 +109,7 @@ export default function Months() {
         </div>
       )}
       {picking && (
-        <Dialog title="Add a day" icon={<CalendarPlus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
+        <Dialog title="Add a claim" icon={<CalendarPlus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
           <div className="mt-3 space-y-3">
             <MonthCalendar value={pickDay} onChange={setPickDay} min={minDay} max={todayIso()} />
             <p className="text-sm text-ink-600">{new Date(pickDay + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>

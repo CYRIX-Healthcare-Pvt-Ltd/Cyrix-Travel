@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ChevronRight, ClipboardCheck } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
 import { STATUS, claimName, dayRange, km, money, useInbox } from '@/lib/claims'
@@ -6,6 +6,7 @@ import { STATUS, claimName, dayRange, km, money, useInbox } from '@/lib/claims'
 /** Claims waiting on this person — manager, coordinator or Travel Desk — and the ones they passed on. */
 export default function Inbox() {
   const { data, isLoading, error } = useInbox()
+  const done = (useLocation().state as { done?: string } | null)?.done
   if (isLoading) return <PageLoader />
   const waiting = (data ?? []).filter(c => c.waiting), rest = (data ?? []).filter(c => !c.waiting)
   const Row = ({ c }: { c: NonNullable<typeof data>[number] }) => {
@@ -25,6 +26,7 @@ export default function Inbox() {
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
+      {done && <Alert kind="success">{done}</Alert>}
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
       <section>
         <h2 className="mb-2 text-sm font-semibold text-ink-700">Waiting on you · {waiting.length}</h2>

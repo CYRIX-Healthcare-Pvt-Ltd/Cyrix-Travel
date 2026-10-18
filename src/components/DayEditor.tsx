@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, BedDouble, MapPin, Plus, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import PlacePicker from '@/components/PlacePicker'
 import BillButton from '@/components/BillButton'
 import ModePicker from '@/components/ModePicker'
+import { useAsk } from '@/components/Ask'
+import Budget, { budgetLines, dayUse, monthLong } from '@/components/Budget'
 import { Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, EXPENSE_CATEGORIES, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, needsBill, newId,
-  rideAmount, roadKm, type ClaimData, type Day, type DaKind, type Place, type Ride,
+  DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
+  reachesPlace, rideAmount, roadKm, searchPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -39,8 +41,14 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [home, setHome] = useState<Place | null>(null)
+  const [homeReady, setHomeReady] = useState(false)
   const [who, setWho] = useState<Array<{ ecode: string; full_name: string }>>([])
+  const ask = useAsk()
+  // Places offered while the hospital is typed (the user, 18 Oct: "when typing hospital / place can we get place suggestion from map").
+  const [typing, setTyping] = useState(false)
+  const [hits, setHits] = useState<Place[]>([])
   const c = data.claim, rule = data.rule
+  const nearKm = Number(data.policy.place_near_km ?? 1)
   const over = Number(data.policy.bill_over ?? 300), tol = Number(data.policy.km_tolerance_pct ?? 10), metroPct = Number(data.policy.metro_extra_pct ?? 20)
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
   const da = daFor(rule, d.da_kind, d.purpose, data.office_purposes)
@@ -56,19 +64,76 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   useEffect(() => {
     if (!employee) return
     void supabase.from('travel_homes').select('lat, lng').eq('employee_id', employee.id).maybeSingle()
-      .then(({ data: h }) => { if (h) setHome({ name: 'Home', lat: h.lat, lng: h.lng }) })
+      .then(({ data: h }) => { if (h) setHome({ name: 'Home', lat: h.lat, lng: h.lng }); setHomeReady(true) })
   }, [employee])
 
-  // Places already used this month, to pick again with one press.
+  // The day's hospital first (the user, 18 Oct: "should be also in his rides"), then places already used this month.
   const quick = useMemo(() => {
-    const seen = new Map<string, Place & { home?: boolean; label?: string }>()
+    const seen = new Map<string, Place & { home?: boolean; hospital?: boolean; label?: string }>()
+    if (d.place && d.place_lat != null) seen.set('@hospital', { name: [d.place, d.district].filter(Boolean).join(', '), lat: d.place_lat, lng: d.place_lng!, hospital: true, label: d.place })
     if (home) seen.set('Home', { ...home, home: true })
     for (const day of [...data.days, d]) for (const r of day.rides) {
       if (r.from_name && r.from_lat != null && !seen.has(r.from_name)) seen.set(r.from_name, { name: r.from_name, lat: r.from_lat, lng: r.from_lng! })
       if (r.to_name && r.to_lat != null && !seen.has(r.to_name)) seen.set(r.to_name, { name: r.to_name, lat: r.to_lat, lng: r.to_lng! })
     }
-    return [...seen.values()].slice(0, 10).map(p => ({ ...p, label: p.name.split(',')[0] }))
+    return [...seen.values()].slice(0, 10).map(p => ({ ...p, label: p.label ?? p.name.split(',')[0] }))
   }, [home, data.days, d])
+
+  // The hospital chosen from the list or the map: its name, its pin, and its district filled in.
+  const choosePlace = async (p: Place) => {
+    setTyping(false); setHits([])
+    set({ place: p.name.split(',')[0], place_lat: p.lat, place_lng: p.lng })
+    const dist = await districtOf(p.lat, p.lng)
+    if (dist) setD(x => ({ ...x, district: dist }))
+  }
+  useEffect(() => {
+    const q = d.place ?? ''
+    if (!typing || q.trim().length < 3) { setHits([]); return }
+    const t = window.setTimeout(async () => {
+      const r0 = d.rides.find(r => r.from_lat != null)
+      const near = home ?? (r0 ? { lat: r0.from_lat!, lng: r0.from_lng! } : undefined)
+      setHits((await searchPlaces(q, near)).slice(0, 6))
+    }, 400)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d.place, typing])
+
+  /*
+    The DA follows the day's places (the user, 18 Oct): worked out again whenever a place or the hotel
+    night changes, and set. The person can still choose another; a day already saved keeps its choice
+    until its places change.
+  */
+  const [auto, setAuto] = useState<DaKind | null>(initial.da_auto ?? null)
+  const stops = useMemo(() => {
+    const ps: Place[] = []
+    for (const r of d.rides) {
+      if (r.from_lat != null) ps.push({ name: '', lat: r.from_lat, lng: r.from_lng! })
+      if (r.to_lat != null) ps.push({ name: '', lat: r.to_lat, lng: r.to_lng! })
+    }
+    if (d.place_lat != null) ps.push({ name: '', lat: d.place_lat, lng: d.place_lng! })
+    return ps
+  }, [d.rides, d.place_lat, d.place_lng])
+  const stay = !!(d.hotel || d.room_by)
+  const stopsKey = stops.map(p => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`).join('|') + (stay ? '|stay' : '')
+  const applied = useRef(data.days.some(x => x.id === initial.id) ? stopsKey : '')
+  useEffect(() => {
+    if (!stops.length || !homeReady) return
+    let live = true
+    void autoDa(home, stops, stay).then(k => {
+      if (!live || !k) return
+      setAuto(k)
+      if (applied.current !== stopsKey) { applied.current = stopsKey; set({ da_kind: k }) }
+    })
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopsKey, homeReady])
+  const reached = reachesPlace(d, nearKm)
+  // The month's budget with this day as it is now in the form: saved use, less this day as saved, plus this day now.
+  const was = dayUse(data.days.find(x => x.id === initial.id)), now = dayUse(d), km0 = data.km_month
+  const budget = budgetLines(rule, data.policy, {
+    bike: km0.bike - was.bike + now.bike, car: km0.car - was.car + now.car,
+    auto: km0.auto - was.auto + now.auto, phone: (km0.phone ?? 0) - was.phone + now.phone,
+  })
 
   // Road km once both ends of a ride are picked.
   const placed = async (rideId: string, end: 'from' | 'to', p: Place) => {
@@ -79,7 +144,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng }
     setRide(rideId, { ...next, map_km: null })
     if (end === 'to' && !d.place?.trim()) {
-      set({ place: p.name.split(',')[0] })
+      set({ place: p.name.split(',')[0], place_lat: p.lat, place_lng: p.lng })
       void districtOf(p.lat, p.lng).then(dist => { if (dist) setD(x => (x.district?.trim() ? x : { ...x, district: dist })) })
     }
     if (next.from_lat != null && next.to_lat != null) {
@@ -105,6 +170,11 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       if (MODES[r.mode].perKm && !r.claimed_km) { setErr(`Type the km for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
       if (!MODES[r.mode].perKm && r.fare == null) { setErr(`Type the fare for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
     }
+    if (reached === false && !(await ask.confirm({
+      title: `No ride reaches ${d.place}`,
+      body: `None of the rides starts or ends within ${nearKm} km of it. Your approvers will see this.`,
+      yes: 'Save anyway',
+    }))) return
     setBusy(true)
     if (hdr.project !== (c.project ?? '') || hdr.base !== (c.base_location ?? '') || hdr.mobile !== (c.mobile ?? '')) {
       const { error: he } = await supabase.rpc('te_set_header', { p_claim: c.id, p_project: hdr.project, p_base: hdr.base, p_mobile: hdr.mobile })
@@ -115,6 +185,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       p_day: {
         ...d,
         continues_day: joined,
+        da_auto: auto,
         hotel: d.hotel && d.hotel.amount > 0 ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
       },
     })
@@ -128,9 +199,10 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   return (
     <div className="mx-auto max-w-4xl space-y-4 pb-24">
       <div>
-        <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> Back to the claim</button>
-        <h1 className="mt-2 text-xl font-semibold text-ink-900">{initial.place || initial.rides.length ? 'Edit day' : 'Add a day'}</h1>
+        <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.number ? `Back to ${c.number}` : `Back to the ${monthName(c.month)} claim`}</button>
+        <h1 className="mt-2 text-xl font-semibold text-ink-900">{data.days.some(x => x.id === initial.id) ? 'Edit claim' : 'Add a claim'}</h1>
       </div>
+      <Budget title={`Left in ${monthLong(c.month)}`} lines={budget} />
       <div className="card">
         <div className="space-y-5 px-4 py-4">
           <div className="grid gap-3 border-b border-ink-100 pb-4 sm:grid-cols-2">
@@ -144,11 +216,28 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="block"><span className="label">Date</span>
               <input type="date" className="input mt-1 h-11" min={firstDay} max={lastDay} value={d.day} onChange={e => set({ day: e.target.value })} /></label>
+            {/* pt-1, not mt-1: a margin here folds into the label's and sat the box 4px higher than its row (the user, 18 Oct: "alignment"). */}
             <label className="block"><span className="label">Hospital / place</span>
-              <span className="relative mt-1 block">
-                <input className="input h-11 pr-10" value={d.place ?? ''} onChange={e => set({ place: e.target.value })} placeholder="Hospital name" />
-                <button type="button" className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-cyrixRed-600 hover:bg-ink-100"
-                  title="Find on the map" aria-label="Find on the map" onClick={() => setPickingPlace(true)}><MapPin className="h-4 w-4" /></button>
+              <span className="block pt-1">
+                <span className="relative block">
+                  <input className="input h-11 pr-10" value={d.place ?? ''} placeholder="Hospital name" autoComplete="off"
+                    onChange={e => { setTyping(true); set({ place: e.target.value, place_lat: null, place_lng: null }) }}
+                    onBlur={() => window.setTimeout(() => setTyping(false), 150)} />
+                  <button type="button" className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-cyrixRed-600 hover:bg-ink-100"
+                    title="Find on the map" aria-label="Find on the map" onClick={() => setPickingPlace(true)}><MapPin className="h-4 w-4" /></button>
+                  {typing && hits.length > 0 && (
+                    <span className="absolute inset-x-0 top-full z-20 mt-1 block overflow-hidden rounded-xl border border-ink-200 bg-surface shadow-lg sm:w-[200%] sm:max-w-[28rem]">
+                      {hits.map((p, i) => (
+                        <button key={i} type="button" className="flex w-full items-start gap-2 border-b border-ink-100 px-3 py-2.5 text-left text-sm last:border-0 hover:bg-ink-100"
+                          onMouseDown={e => e.preventDefault()} onClick={() => void choosePlace(p)}>
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-cyrixRed-600" />
+                          <span className="min-w-0"><span className="block truncate font-medium text-ink-900">{p.name.split(',')[0]}</span>
+                            <span className="block truncate text-xs text-ink-500">{p.name.split(',').slice(1).join(',').trim()}</span></span>
+                        </button>
+                      ))}
+                    </span>
+                  )}
+                </span>
               </span></label>
             <label className="block"><span className="label">District</span>
               <input className="input mt-1 h-11" value={d.district ?? ''} onChange={e => set({ district: e.target.value })} placeholder="District" /></label>
@@ -214,6 +303,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                   </div>
                 )
               })}
+              {reached === false && <p className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900">No ride reaches {d.place}</p>}
               <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
@@ -251,7 +341,12 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
 
           {/* ---- DA ---- */}
           <section>
-            <label className="block"><span className="label">Daily allowance</span>
+            <label className="block">
+              <span className="label flex flex-wrap items-center gap-2">Daily allowance
+                {auto && (d.da_kind === auto
+                  ? <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-teal-800">From the map</span>
+                  : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-900">Map says {DA_KINDS.find(k => k.code === auto)?.label.toLowerCase()}</span>)}
+              </span>
               <select className="input mt-1 h-11" value={d.da_kind} onChange={e => set({ da_kind: e.target.value as DaKind })}>
                 {DA_KINDS.map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, d.purpose, data.office_purposes))}` : ''}</option>)}
               </select></label>
@@ -362,17 +457,12 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
           <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + rideAmount(r, rule), 0) + da + (d.room_by ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}</span></span>
           <div className="flex items-center gap-2">
             {err && <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>}
-            <button type="button" className="btn-primary h-11 px-6 text-base" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save day</button>
+            <button type="button" className="btn-primary h-11 px-6 text-base" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
           </div>
         </div>
       {pickingPlace && (
-        <PlacePicker title="Hospital / place" start={null} quick={quick}
-          onPick={async p => {
-            setPickingPlace(false)
-            set({ place: p.name.split(',')[0] })
-            const dist = await districtOf(p.lat, p.lng)
-            if (dist) setD(x => ({ ...x, district: dist }))
-          }}
+        <PlacePicker title="Hospital / place" start={d.place_lat != null ? { name: d.place ?? '', lat: d.place_lat, lng: d.place_lng! } : null} quick={quick.filter(p => !p.hospital)}
+          onPick={p => { setPickingPlace(false); void choosePlace(p) }}
           onClose={() => setPickingPlace(false)} />
       )}
       {picking && ride && (

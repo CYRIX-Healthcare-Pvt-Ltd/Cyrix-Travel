@@ -64,6 +64,8 @@ export interface Day {
   id: string; day: string; place: string | null; district: string | null; purpose: string | null
   da_kind: DaKind; da_amount: number; continues_day: string | null; remarks: string | null
   rides: Ride[]; tickets: Ticket[]; hotel: Hotel | null; expenses: Expense[]
+  /** The hospital's pin, and the DA the map gave for the day's places (te_0025). */
+  place_lat?: number | null; place_lng?: number | null; da_auto?: DaKind | null
   room_by?: { name: string; ecode: string; amount: number; number: string | null } | null
 }
 export interface Bill {
@@ -91,11 +93,14 @@ export interface ClaimData {
   rule: Rule
   days: Day[]
   bills: Bill[]
-  km_month: { bike: number; car: number; auto: number }
+  km_month: { bike: number; car: number; auto: number; phone?: number }
   policy: Record<string, number | number[]>
   purposes: string[]
   office_purposes: string[]
+  history: HistoryStep[]
 }
+/** One step of a claim's history (te_0025): who did what, when, and the note given. */
+export interface HistoryStep { id: number; at: string; action: string; to_status: string | null; note: string | null; actor: string | null }
 
 export const money = (n: number | null | undefined) =>
   n == null ? '—' : '₹' + Math.round(n).toLocaleString('en-IN')
@@ -206,14 +211,63 @@ export async function nameOf(lat: number, lng: number): Promise<string> {
   } catch { return `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
 }
 const shortName = (s: string) => s.split(',').slice(0, 3).map(x => x.trim()).join(', ')
-/** The district of a point, from OpenStreetMap's address (the user, 17 Oct: "district will be autofetched"). */
-export async function districtOf(lat: number, lng: number): Promise<string | null> {
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&addressdetails=1&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
-    const a = ((await r.json()) as { address?: Record<string, string> }).address ?? {}
-    const d = a.state_district ?? a.county ?? a.city_district ?? a.city ?? null
-    return d ? d.replace(/\s+district$/i, '').trim() : null
-  } catch { return null }
+/** The district and state of a point, from OpenStreetMap's address; asked once per spot. */
+const areas = new Map<string, Promise<{ district: string | null; state: string | null }>>()
+export function areaOf(lat: number, lng: number) {
+  const key = `${lat.toFixed(3)},${lng.toFixed(3)}`
+  if (!areas.has(key)) areas.set(key, (async () => {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&addressdetails=1&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
+      const a = ((await r.json()) as { address?: Record<string, string> }).address ?? {}
+      const d = a.state_district ?? a.county ?? a.city_district ?? a.city ?? null
+      return { district: d ? d.replace(/\s+district$/i, '').trim() : null, state: a.state ?? null }
+    } catch { areas.delete(key); return { district: null, state: null } }
+  })())
+  return areas.get(key)!
+}
+/** The district of a point (the user, 17 Oct: "district will be autofetched"). */
+export const districtOf = async (lat: number, lng: number) => (await areaOf(lat, lng)).district
+
+/*
+  The DA the day's places give (the user, 18 Oct: "if any change in district or state, can we
+  automatically change daily allowance?"): every place of the day against where the person starts
+  from — home, else the first ride's start. Another state is out of state (staying, with a hotel
+  night); another district is out of district; else in district.
+*/
+export async function autoDa(from: Place | null, places: Place[], stay: boolean): Promise<DaKind | null> {
+  const start = from ?? places[0]
+  if (!start || !places.length) return null
+  const base = await areaOf(start.lat, start.lng)
+  const same = (x: string | null, y: string | null) => !x || !y || x.toLowerCase() === y.toLowerCase()
+  let kind: DaKind = 'in_district'
+  for (const p of places) {
+    const a = await areaOf(p.lat, p.lng)
+    if (!same(a.state, base.state)) return stay ? 'out_state_stay' : 'out_state'
+    if (!same(a.district, base.district)) kind = 'out_district'
+  }
+  return kind
+}
+export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4 }
+
+/** Straight-line km between two points. */
+export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const rad = (x: number) => (x * Math.PI) / 180
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2
+  return 12742 * Math.asin(Math.sqrt(h))
+}
+/*
+  Whether a ride starts or ends at the day's hospital, or near it (the user, 18 Oct: "hosp/place we
+  enter first in form should be also in his rides … at least near, because location fetching may
+  vary"). Null when there is nothing to compare: no pin, or no ride placed.
+*/
+export function reachesPlace(d: Pick<Day, 'place_lat' | 'place_lng' | 'rides'>, nearKm: number): boolean | null {
+  if (d.place_lat == null || d.place_lng == null) return null
+  const ends = d.rides.flatMap(r => [
+    r.from_lat != null ? { lat: r.from_lat, lng: r.from_lng! } : null,
+    r.to_lat != null ? { lat: r.to_lat, lng: r.to_lng! } : null,
+  ]).filter((p): p is { lat: number; lng: number } => !!p)
+  if (!ends.length) return null
+  return ends.some(p => distanceKm(p, { lat: d.place_lat!, lng: d.place_lng! }) <= nearKm)
 }
 
 // ---------------------------------------------------------------- bills
@@ -304,11 +358,23 @@ export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,
   queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number }>>('te_inbox'),
 })
+export interface Summary {
+  mine: { claimed: number; not_sent: number; pending: number; approved: number; paid: number; claims: number
+    travel: number; da: number; hotel: number; other: number; days: number; tickets: number; km: number
+    bike_km: number; car_km: number; auto: number; phone: number }
+  limits: { grade: string | null; bike_km: number | null; car_km: number | null; auto: number; phone: number }
+  scope: 'team' | 'all'
+  team: Array<{ ecode: string; name: string; claims: number; claimed: number; pending: number; approved: number; paid: number; waiting: number }>
+}
+export const useSummary = (from: string | null, to: string | null) => useQuery({
+  queryKey: ['te_summary', from, to],
+  queryFn: () => rpc<Summary>('te_summary', { p_from: from, p_to: to }),
+})
 export function useClaimAction() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ fn, args }: { fn: string; args: Record<string, unknown> }) => rpc<unknown>(fn, args),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['te_claim'] }); void qc.invalidateQueries({ queryKey: ['te_my_claims'] }); void qc.invalidateQueries({ queryKey: ['te_inbox'] }) },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['te_summary'] }); void qc.invalidateQueries({ queryKey: ['te_claim'] }); void qc.invalidateQueries({ queryKey: ['te_my_claims'] }); void qc.invalidateQueries({ queryKey: ['te_inbox'] }) },
   })
 }
 export { rpc }

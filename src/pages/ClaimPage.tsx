@@ -10,9 +10,11 @@ import RouteMap from '@/components/RouteMap'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
 import BillButton from '@/components/BillButton'
+import History from '@/components/History'
+import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, MODES, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, rideAmount,
+  DA_KINDS, DA_RANK, MODES, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, reachesPlace, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -90,7 +92,7 @@ export default function ClaimPage() {
               try {
                 const paths = await act.mutateAsync({ fn: 'te_delete_claim', args: { p_claim: c.id } }) as string[]
                 if (paths?.length) await supabase.storage.from('te-bills').remove(paths)
-                nav(c.mine ? '/' : '/approvals')
+                nav(c.mine ? '/claims' : '/approvals')
               } catch (e) { setFail((e as Error).message) }
             }}><Trash2 className="h-4 w-4" /> Delete claim</button>
           )}
@@ -119,9 +121,12 @@ export default function ClaimPage() {
     setPanel(null)
     if (!approve && !note.trim()) { setPanel({ ok: false, text: "Write why it's going back" }); noteBox.current?.focus(); return }
     try {
-      await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: approve, p_note: note } })
-      setNote(''); setMsg(approve ? 'Approved and passed on.' : 'Sent back.')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      const next = await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: approve, p_note: note } }) as string
+      const who = `${c.number ?? monthName(c.month)} · ${c.name}`
+      nav('/approvals', { state: { done: !approve ? `${who} sent back.`
+        : next === 'with_coordinator' ? `${who} approved and passed to the coordinator.`
+        : next === 'with_desk' ? `${who} approved and passed to the Travel Desk.`
+        : `${who} approved.` } })
     } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
   /*
@@ -147,7 +152,7 @@ export default function ClaimPage() {
 
   return (
     <div className="space-y-4">
-      <Link to={c.mine ? '/' : '/approvals'} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.mine ? 'My claims' : 'Approvals'}</Link>
+      <Link to={c.mine ? '/claims' : '/approvals'} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.mine ? 'My claims' : 'Approvals'}</Link>
 
       {/* ---- header ---- */}
       <div className="card flex flex-wrap items-start justify-between gap-4 p-4">
@@ -180,6 +185,8 @@ export default function ClaimPage() {
         </div>
       </div>
 
+      {data.days.length > 0 && <Budget title={`${c.mine ? 'Left' : `${c.name.split(' ')[0]}'s budget left`} in ${monthLong(c.month)}`}
+        lines={budgetLines(rule, data.policy, { bike: data.km_month.bike, car: data.km_month.car, auto: data.km_month.auto, phone: data.km_month.phone ?? 0 })} />}
       {c.status === 'returned' && c.return_note && <Alert kind="warning" title="Sent back to you">{c.return_note}</Alert>}
       {c.mine && c.status === 'recalled' && <Alert kind="info" title="Recalled to edit">Change what you need, then press Submit to manager again. It keeps its number.</Alert>}
       {!c.mine && c.recalls > 0 && <p className="text-sm text-orange-800">Recalled {c.recalls}× by {c.name.split(' ')[0]} after sending{c.last_recalled_at ? ` · last on ${new Date(c.last_recalled_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</p>}
@@ -209,7 +216,7 @@ export default function ClaimPage() {
       <Observations data={data} />
 
       {/* ---- day cards ---- */}
-      {!data.days.length && <div className="card p-6 text-center text-sm text-ink-500">No days yet. Add the first day you travelled this month.</div>}
+      {!data.days.length && <div className="card p-6 text-center text-sm text-ink-500">Nothing claimed yet.</div>}
       {groups.map(g => (
         <div key={g[0].id} className={g.length > 1 ? 'space-y-2 border-l-4 border-violet-400 pl-3' : ''}>
           {g.length > 1 && (
@@ -247,7 +254,7 @@ export default function ClaimPage() {
                 const today = todayIso()
                 setPickDay(today.slice(0, 7) === c.month.slice(0, 7) ? today : monthLast)
                 setPicking(true)
-              }}><Plus className="h-4 w-4" /> Add your first day</button>
+              }}><Plus className="h-4 w-4" /> Add a claim</button>
             )}
           </div>
           {tail && <div className="border-t border-ink-100 pt-3">{tail}</div>}
@@ -271,8 +278,10 @@ export default function ClaimPage() {
 
       {!c.can_edit && tail}
 
+      <History data={data} />
+
       {picking && (
-        <Dialog title="Add a day" icon={<Plus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
+        <Dialog title="Add a claim" icon={<Plus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
           <div className="mt-3 space-y-3">
             <MonthCalendar value={pickDay} onChange={setPickDay} min={c.month} max={monthLast} marked={data.days.map(d => d.day)} />
             {data.days.some(d => d.day === pickDay) && <p className="text-sm text-ink-600">{dayName(pickDay)} is already on this claim — Continue opens it.</p>}
@@ -434,7 +443,7 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
 */
 function Observations({ data }: { data: ClaimData }) {
   const rule = data.rule, tol = Number(data.policy.km_tolerance_pct ?? 10), over = Number(data.policy.bill_over ?? 300)
-  const metro = Number(data.policy.metro_extra_pct ?? 20)
+  const metro = Number(data.policy.metro_extra_pct ?? 20), near = Number(data.policy.place_near_km ?? 1)
   const items: Array<{ tone: 'amber' | 'red' | 'sky'; text: string }> = []
   const dn = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
   const billed = new Set(data.bills.map(b => b.owner_id))
@@ -452,6 +461,8 @@ function Observations({ data }: { data: ClaimData }) {
       if (lim != null && d.hotel.amount > lim) items.push({ tone: 'amber', text: `${dn(d.day)}: hotel ${money(d.hotel.amount)} is over the ${money(lim)} limit` })
       if (!billed.has(d.hotel.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no hotel bill` })
     }
+    if (reachesPlace(d, near) === false) items.push({ tone: 'amber', text: `${dn(d.day)}: no ride reaches ${d.place} (within ${near} km)` })
+    if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ tone: 'amber', text: `${dn(d.day)}: DA ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
     for (const x of d.expenses) if (needsBill('expense', x, over) && !billed.has(x.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no bill for ${x.category.toLowerCase()} ${money(x.amount)}` })
     for (const t of d.tickets) {
       const earlier = (t as typeof t & { earlier?: Array<{ day: string; name: string; mine: boolean }> }).earlier ?? []

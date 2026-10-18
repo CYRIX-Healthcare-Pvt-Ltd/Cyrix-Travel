@@ -14,6 +14,7 @@ const DayPage = lazyRoute(() => import('@/pages/DayPage'))
 const MyPlaces = lazyRoute(() => import('@/pages/MyPlaces'))
 const Inbox   = lazyRoute(() => import('@/pages/Inbox'))
 const TeAdmin = lazyRoute(() => import('@/pages/TeAdmin'))
+const Summary = lazyRoute(() => import('@/pages/Summary'))
 
 export default function App() {
   const { session, loading, hasAccess, isAdmin } = useAuth()
@@ -26,7 +27,8 @@ export default function App() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route element={<Shell />}>
-          <Route index element={<Months />} />
+          <Route index element={<Summary />} />
+          <Route path="claims" element={<Months />} />
           <Route path="claim/:id" element={<Claim />} />
           <Route path="claim/:id/day" element={<DayPage />} />
           <Route path="places" element={<MyPlaces />} />

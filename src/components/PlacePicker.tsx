@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBackCloses } from '@/lib/useBackCloses'
-import { Crosshair, Home, MapPin, Search, Star } from 'lucide-react'
+import { Crosshair, Home, Hospital, MapPin, Search, Star } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMyPlaces } from '@/pages/MyPlaces'
 import 'leaflet/dist/leaflet.css'
@@ -16,7 +16,7 @@ import { nameOf, rpc, searchPlaces, type Place } from '@/lib/claims'
 export default function PlacePicker({ title, start, quick, onPick, onClose, askName = false }: {
   title: string
   start?: Place | null
-  quick: Array<Place & { label?: string; home?: boolean }>
+  quick: Array<Place & { label?: string; home?: boolean; hospital?: boolean }>
   onPick: (p: Place, name?: string) => void
   onClose: () => void
   /** Adding a saved place: the name is asked for, not offered. */
@@ -103,9 +103,9 @@ export default function PlacePicker({ title, start, quick, onPick, onClose, askN
         {quick.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {quick.map((p, i) => (
-              <button key={i} type="button" className="inline-flex items-center gap-1 rounded-full border border-ink-200 px-3 py-1 text-xs text-ink-800 hover:bg-ink-100"
+              <button key={i} type="button" className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs hover:bg-ink-100 ${p.hospital ? 'border-cyrixRed-300 font-semibold text-ink-900' : 'border-ink-200 text-ink-800'}`}
                 onClick={() => void put(p.lat, p.lng, p.name)}>
-                {p.home && <Home className="h-3.5 w-3.5 text-teal-600" />}{p.label ?? p.name}
+                {p.home && <Home className="h-3.5 w-3.5 text-teal-600" />}{p.hospital && <Hospital className="h-3.5 w-3.5 text-cyrixRed-600" />}{p.label ?? p.name}
               </button>
             ))}
           </div>
