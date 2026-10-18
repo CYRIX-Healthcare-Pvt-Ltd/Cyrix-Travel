@@ -332,7 +332,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
     return (
       <span className="inline-flex shrink-0 items-center justify-end gap-1.5">
         {a.length > 0 && <s className="text-xs text-ink-400">{money(a[0].old_amount)}</s>}
-        <span className={`min-w-[3.5rem] text-right font-medium ${a.length ? 'text-violet-700' : tone}`} title={last ? `Changed by ${last.by ?? 'an approver'}: ${last.reason}` : undefined}>{money(now)}</span>
+        <span className={`min-w-[3.5rem] text-right font-medium ${a.length ? 'font-semibold text-rose-700' : tone}`} title={last ? `Changed by ${last.by ?? 'an approver'}: ${last.reason}` : undefined}>{money(now)}</span>
         {t && onAdjust && (
           <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-violet-300 text-violet-700 hover:bg-violet-50" title="Change the amount" aria-label="Change the amount" onClick={() => onAdjust(t)}>
             <PencilLine className="h-3.5 w-3.5" />
@@ -372,7 +372,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         {d.room_by && <span className="inline-flex items-center gap-1 text-green-700"><BedDouble className="h-3.5 w-3.5" />Room by {d.room_by.name.split(' ')[0]}</span>}
         {d.expenses.length > 0 && <span className="inline-flex items-center gap-1 text-amber-700"><ReceiptIndianRupee className="h-3.5 w-3.5" />{money(d.expenses.reduce((t, x) => t + x.amount, 0))}</span>}
         {missing > 0 && <span className="font-semibold text-amber-700">{missing} bill{missing > 1 ? 's' : ''} needed</span>}
-        {changedHere > 0 && <span className="inline-flex items-center gap-1 font-semibold text-violet-700"><PencilLine className="h-3.5 w-3.5" />{changedHere} changed by an approver</span>}
+        {changedHere > 0 && <span className="inline-flex items-center gap-1 font-semibold text-rose-700"><PencilLine className="h-3.5 w-3.5" />{changedHere} changed by an approver</span>}
         <button type="button" className="ml-auto font-semibold text-violet-700 hover:underline" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}</button>
       </div>
 
@@ -485,7 +485,11 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
 function Observations({ data }: { data: ClaimData }) {
   const rule = data.rule, tol = Number(data.policy.km_tolerance_pct ?? 10), over = Number(data.policy.bill_over ?? 300)
   const metro = Number(data.policy.metro_extra_pct ?? 20), near = Number(data.policy.place_near_km ?? 1)
-  const items: Array<{ tone: 'amber' | 'red' | 'sky'; text: string }> = []
+  const items: Array<{ tone: 'amber' | 'red' | 'sky' | 'rose'; text: string }> = []
+  for (const e of data.history ?? []) if (e.action === 'adjusted' && e.note) {
+    const [what, ...why] = e.note.split('\n')
+    items.push({ tone: 'rose', text: `${(e.actor ?? 'An approver').split(' ')[0]} changed ${what}${why.join(' ').trim() ? ` — “${why.join(' ').trim()}”` : ''}` })
+  }
   const dn = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
   const billed = new Set(data.bills.map(b => b.owner_id))
   for (const d of data.days) {
@@ -516,7 +520,7 @@ function Observations({ data }: { data: ClaimData }) {
   const autoCap = Number(data.policy.auto_month ?? 1000)
   if (data.km_month.auto > autoCap) items.push({ tone: 'amber', text: `Auto ${money(data.km_month.auto)} this month, over the ${money(autoCap)} allowance` })
   if (!items.length) return data.days.length ? <p className="text-sm text-green-800"><Check className="mr-1 inline h-4 w-4" />Nothing to look at twice on this claim.</p> : null
-  const tone = { amber: 'bg-amber-100 text-amber-900', red: 'bg-cyrixRed-100 text-cyrixRed-900', sky: 'bg-sky-100 text-sky-900' }
+  const tone = { amber: 'bg-amber-100 text-amber-900', red: 'bg-cyrixRed-100 text-cyrixRed-900', sky: 'bg-sky-100 text-sky-900', rose: 'bg-rose-100 text-rose-900' }
   return (
     <div className="card space-y-2 p-4">
       <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink-900"><TriangleAlert className="h-4 w-4 text-amber-600" /> Observations · {items.length}</h2>

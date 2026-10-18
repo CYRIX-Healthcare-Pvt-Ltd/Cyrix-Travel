@@ -9,11 +9,18 @@ import { money, type ClaimData, type HistoryStep } from '@/lib/claims'
 */
 const TONE = {
   slate: 'bg-slate-100 text-slate-700', amber: 'bg-amber-100 text-amber-700', orange: 'bg-orange-100 text-orange-700',
-  green: 'bg-green-100 text-green-700', violet: 'bg-violet-100 text-violet-700', sky: 'bg-sky-100 text-sky-700', teal: 'bg-teal-100 text-teal-700', red: 'bg-cyrixRed-100 text-cyrixRed-700',
+  green: 'bg-green-100 text-green-700', violet: 'bg-violet-100 text-violet-700', rose: 'bg-rose-100 text-rose-700', sky: 'bg-sky-100 text-sky-700', teal: 'bg-teal-100 text-teal-700', red: 'bg-cyrixRed-100 text-cyrixRed-700',
 } as const
 const ON: Record<string, string> = { with_coordinator: ' · on to the coordinator', with_desk: ' · on to the Travel Desk', approved: '' }
 
-function look(e: HistoryStep): { title: string; icon: LucideIcon; tone: keyof typeof TONE; note: string | null } {
+/** "18 Oct · Auto Vytilla → MG Road: ₹100 → ₹90" and the reason under it, as te_adjust writes them. */
+function changeOf(note: string | null) {
+  const m = (note ?? '').match(/^(.*): (.+?) → (.+?)(?:\n([\s\S]*))?$/)
+  return m ? { what: m[1], from: m[2], to: m[3], why: (m[4] ?? '').trim() } : { what: note ?? '', from: '', to: '', why: '' }
+}
+type Change = ReturnType<typeof changeOf>
+
+function look(e: HistoryStep): { title: string; icon: LucideIcon; tone: keyof typeof TONE; note: string | null; change?: Change } {
   switch (e.action) {
     case 'created': return { title: 'Started claim', icon: FilePlus2, tone: 'slate', note: null }
     case 'submitted': return { title: `Submitted to the manager${e.note ? ` as ${e.note}` : ''}`, icon: Send, tone: 'amber', note: null }
@@ -28,7 +35,7 @@ function look(e: HistoryStep): { title: string; icon: LucideIcon; tone: keyof ty
     case 'delete_requested': return { title: 'Asked to delete it', icon: Trash2, tone: 'red', note: e.note }
     case 'delete_refused': return { title: 'Deletion refused · kept', icon: Check, tone: 'slate', note: null }
     case 'delete_withdrawn': return { title: 'Deletion request withdrawn', icon: Undo2, tone: 'slate', note: null }
-    case 'adjusted': return { title: 'Changed an amount', icon: PencilLine, tone: 'violet', note: e.note }
+    case 'adjusted': return { title: 'Changed an amount', icon: PencilLine, tone: 'rose', note: null, change: changeOf(e.note) }
     case 'advance': return { title: `Advance set to ${money(Number(e.note ?? 0))}`, icon: Wallet, tone: 'teal', note: null }
     default: return { title: e.action, icon: Check, tone: 'slate', note: e.note }
   }
@@ -52,11 +59,17 @@ export default function History({ data }: { data: ClaimData }) {
   const c = data.claim
   const steps = data.history ?? []
   if (!steps.length) return null
-  const waiting = c.status === 'with_manager' ? `Waiting on ${c.manager ?? 'the manager'}`
-    : c.status === 'with_coordinator' ? `Waiting on ${c.coordinator ?? 'the coordinator'}`
-    : c.status === 'with_desk' ? 'Waiting on the Travel Desk'
+  /*
+    What is still to do, said as that (the user, 18 Oct: the Travel Desk changed an amount and it still
+    read "Waiting on the Travel Desk"). Changing an amount is part of the check; the claim moves on only
+    with Approve or Send back, so the step says the approval is still to come.
+  */
+  const waiting = c.status === 'with_manager' ? `Waiting for ${c.manager ?? 'the manager'} to approve`
+    : c.status === 'with_coordinator' ? `Waiting for ${c.coordinator ?? 'the coordinator'} to approve`
+    : c.status === 'with_desk' ? 'Waiting for the Travel Desk to approve'
     : c.status === 'approved' ? 'Waiting to be paid' : null
-  const rows = [...steps.map(e => ({ e, ...look(e) })), ...(waiting ? [{ e: null, title: waiting, icon: Hourglass, tone: 'amber' as const, note: null }] : [])]
+  const rows: Array<{ e: HistoryStep | null; title: string; icon: LucideIcon; tone: keyof typeof TONE; note: string | null; change?: Change }> =
+    [...steps.map(e => ({ e, ...look(e) })), ...(waiting ? [{ e: null, title: waiting, icon: Hourglass, tone: 'amber' as const, note: null }] : [])]
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center gap-2.5 border-b border-ink-100 bg-ink-50 px-4 py-2">
@@ -81,6 +94,12 @@ export default function History({ data }: { data: ClaimData }) {
                 <p className="text-sm font-medium text-ink-900">{s.title}</p>
                 {s.e && <p className="mt-0.5 text-xs text-ink-500">{when(s.e.at)} · {s.e.actor ?? 'System'}</p>}
                 {s.note && <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-ink-50 px-2.5 py-1.5 text-sm text-ink-700">{s.note}</p>}
+                {s.change && (
+                  <div className="mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-sm">
+                    <p className="text-ink-800">{s.change.what}{s.change.from && <>: <s className="text-ink-500">{s.change.from}</s> → <b className="font-semibold text-rose-800">{s.change.to}</b></>}</p>
+                    {s.change.why && <p className="mt-0.5 text-rose-900">“{s.change.why}”</p>}
+                  </div>
+                )}
               </div>
             </li>
           )

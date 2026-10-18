@@ -6,7 +6,9 @@ import { MODES, km, money, rideAmount, type Day, type Rule } from '@/lib/claims'
   to, in between km and cost"): each stop a dot — home green, a change of mode grey, a hospital red,
   a hotel violet — and each ride the road between them in its mode's colour, with its mode, km and cost.
 */
-const MIN_STEP = 150
+const MIN_STEP = 110
+// The first and last dots sit this far in; their names read inwards from them.
+const EDGE = 24
 const PIN = { home: '#1D9E75', change: '#888780', hospital: '#E24B4A', hotel: '#7F77DD', place: '#E24B4A' }
 
 export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | undefined }) {
@@ -45,8 +47,10 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
     if (i > 0 && (rides[i - 1].to_name ?? '') !== (r.from_name ?? '')) at++
     segs.push({ from: at, ride: r }); at++
   })
-  const STEP = Math.max(MIN_STEP, stops.length > 1 ? (room - 100) / (stops.length - 1) : MIN_STEP)
-  const w = Math.max(320, (stops.length - 1) * STEP + 100)
+  // As wide as the card: a phone shows a day of three stops whole, without scrolling (the user, 18 Oct).
+  const STEP = Math.max(MIN_STEP, stops.length > 1 ? (room - 2 * EDGE) / (stops.length - 1) : MIN_STEP)
+  const w = Math.max(room || 300, (stops.length - 1) * STEP + 2 * EDGE)
+  const names = fitNames(stops.map(x => x.name), STEP)
   const totalKm = rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0)
   const totalCost = rides.reduce((t, r) => t + rideAmount(r, rule), 0)
   return (
@@ -55,7 +59,7 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
         <title>Route</title>
         {segs.map(({ from, ride }) => {
           const m = MODES[ride.mode]
-          const x1 = 50 + from * STEP, x2 = 50 + (from + 1) * STEP
+          const x1 = EDGE + from * STEP, x2 = EDGE + (from + 1) * STEP
           return (
             <g key={ride.id}>
               <line x1={x1} y1={84} x2={x2} y2={84} stroke={m.color} strokeWidth={5} strokeLinecap="round" />
@@ -68,13 +72,19 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
           )
         })}
         {stops.map((s, i) => {
-          const x = 50 + i * STEP, c = PIN[s.kind]
+          const x = EDGE + i * STEP, c = PIN[s.kind]
           const filled = s.kind === 'hospital' || s.kind === 'hotel' || s.kind === 'place'
+          // The first name reads on from its dot and the last one back to it, so neither runs off the card
+          // (the user, 18 Oct: "the first place name not seeing … and last also"); the rest sit centred.
+          const first = i === 0, last = i === stops.length - 1 && stops.length > 1
+          const anchor = first ? 'start' : last ? 'end' : 'middle'
+          const tx = first ? x - 10 : last ? x + 10 : x
           return (
             <g key={i}>
+              <title>{s.name}</title>
               <circle cx={x} cy={84} r={filled ? 10 : 9} fill={filled ? c : 'rgb(var(--surface))'} stroke={filled ? 'rgb(var(--surface))' : c} strokeWidth={3} />
-              <text x={x} y={116} textAnchor="middle" className="fill-ink-900" style={{ fontSize: 12, fontWeight: 600 }}>{trim(s.name)}</text>
-              {s.sub && <text x={x} y={131} textAnchor="middle" className="fill-ink-500" style={{ fontSize: 11 }}>{s.sub}</text>}
+              <text x={tx} y={116} textAnchor={anchor} className="fill-ink-900" style={{ fontSize: 12, fontWeight: 600 }}>{names[i]}</text>
+              {s.sub && <text x={tx} y={131} textAnchor={anchor} className="fill-ink-500" style={{ fontSize: 11 }}>{s.sub}</text>}
             </g>
           )
         })}
@@ -85,4 +95,39 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
     </div>
   )
 }
-const trim = (s: string) => (s.length > 20 ? s.slice(0, 19) + '…' : s)
+/*
+  The stops' names, each the place's own name (before the first comma), cut so that no two touch:
+  measured in the strip's own font, the first reading on from its dot, the last back to it, the
+  rest centred, and the room between two dots shared — a short name leaves its neighbour more.
+*/
+let ctx: CanvasRenderingContext2D | null = null
+function textWidth(t: string) {
+  if (!ctx) {
+    ctx = document.createElement('canvas').getContext('2d')
+    if (ctx) ctx.font = `600 12px ${getComputedStyle(document.body).fontFamily}`
+  }
+  return ctx ? ctx.measureText(t).width : t.length * 7.2
+}
+function fitNames(full: string[], step: number) {
+  const n = full.length, GAP = 10
+  const want = full.map(x => x.split(',')[0].trim() || x)
+  const wd = want.map(textWidth)
+  // How far each name reaches left and right of its dot.
+  const left = wd.map((x, i) => (i === 0 ? 10 : i === n - 1 && n > 1 ? x - 10 : x / 2))
+  const right = wd.map((x, i) => (i === 0 ? x - 10 : i === n - 1 && n > 1 ? 10 : x / 2))
+  const maxL = left.slice(), maxR = right.slice()
+  for (let i = 0; i < n - 1; i++) {
+    const room = step - GAP
+    if (right[i] + left[i + 1] <= room) continue
+    if (right[i] <= room / 2) maxL[i + 1] = room - right[i]
+    else if (left[i + 1] <= room / 2) maxR[i] = room - left[i + 1]
+    else { maxR[i] = room / 2; maxL[i + 1] = room / 2 }
+  }
+  return want.map((t, i) => {
+    const limit = i === 0 ? maxR[i] + 10 : i === n - 1 && n > 1 ? maxL[i] + 10 : 2 * Math.min(maxL[i], maxR[i])
+    if (wd[i] <= limit) return t
+    let k = t.length
+    while (k > 1 && textWidth(t.slice(0, k).trimEnd() + '…') > limit) k--
+    return t.slice(0, k).trimEnd() + '…'
+  })
+}
