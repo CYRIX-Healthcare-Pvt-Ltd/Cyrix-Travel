@@ -1,44 +1,85 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart3, ChevronRight } from 'lucide-react'
+import { BarChart3, CalendarDays, ChevronRight } from 'lucide-react'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
+import AddClaim from '@/components/AddClaim'
+import Dialog from '@/components/Dialog'
+import MonthCalendar from '@/components/MonthCalendar'
 import { Alert, PageLoader } from '@/components/ui'
 import { km, money, todayIso, useSummary } from '@/lib/claims'
 
 /*
   Summary (te_0026; the user, 18 Oct: "need a summary tab also"): calendar months only — This month,
-  Last month, All time. The person's own claims: what was claimed and where it stands, by kind, and
-  the month's budget; then, for whoever approves, one row for each person they see.
+  All time, or any two dates on a calendar (the user, 19 Oct: "need date filter also", "need calendar only,
+  because I may want to search from 15th of some month"): the days travelled between them (te_0031).
+  The person's own claims: what was claimed and where it stands, by kind, and the month's budget; then,
+  for whoever approves, one row for each person they see. Add a claim at the top, as Revive Lab's
+  dashboard has Raise ticket.
 */
-const PERIODS = [['this', 'This month'], ['last', 'Last month'], ['all', 'All time']] as const
+// No Last month (the user, 19 Oct): Custom reaches any month.
+const PERIODS = [['this', 'This month'], ['all', 'All time'], ['custom', 'Custom']] as const
 type Period = typeof PERIODS[number][0]
 
-function range(p: Period): [string | null, string | null] {
+const firstOf = (back: number) => { const t = new Date(todayIso() + 'T00:00:00'); return new Date(t.getFullYear(), t.getMonth() - back, 1).toLocaleDateString('en-CA') }
+/** "15 Aug 2026" */
+const dayLong = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+/** As far back as the calendar goes: two years. */
+const EARLIEST = firstOf(24)
+
+function range(p: Period, custom: [string, string]): [string | null, string | null] {
   if (p === 'all') return [null, null]
-  const t = new Date(todayIso() + 'T00:00:00')
-  const m = new Date(t.getFullYear(), t.getMonth() - (p === 'last' ? 1 : 0), 1).toLocaleDateString('en-CA')
-  return [m, m]
+  if (p === 'custom') return custom[0] <= custom[1] ? custom : [custom[1], custom[0]]
+  return [firstOf(0), todayIso()]
 }
+const kept = <T,>(k: string, fallback: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : fallback } catch { return fallback } }
+const keep = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* the choice is only a convenience */ } }
 
 export default function Summary() {
-  const [period, setPeriod] = useState<Period>(() => { try { return (localStorage.getItem('te.summary.period') as Period) || 'this' } catch { return 'this' } })
-  const [from, to] = range(period)
+  const [period, setPeriod] = useState<Period>(() => { const p = kept<string>('te.summary.period2', 'this'); return PERIODS.some(([k]) => k === p) ? (p as Period) : 'this' })
+  const [custom, setCustom] = useState<[string, string]>(() => kept<[string, string]>('te.summary.dates', [firstOf(0), todayIso()]))
+  // Which end of the range the calendar is choosing.
+  const [choosing, setChoosing] = useState<0 | 1 | null>(null)
+  const [from, to] = range(period, custom)
   const { data, isLoading, error } = useSummary(from, to)
-  const pick = (p: Period) => { setPeriod(p); try { localStorage.setItem('te.summary.period', p) } catch { /* the choice is only a convenience */ } }
+  const pick = (p: Period) => { setPeriod(p); keep('te.summary.period2', p) }
+  const setRange = (next: [string, string]) => { setCustom(next); keep('te.summary.dates', next) }
   const m = data?.mine
   const kinds = m ? [['Travel', m.travel], ['DA', m.da], ['Hotel', m.hotel], ['Other', m.other]] as const : []
   const kindMax = Math.max(1, ...kinds.map(k => k[1]))
-  const where = from ? monthLong(from) : 'all months'
+  const where = !from ? 'all time' : period === 'this' ? monthLong(from) : from === to ? dayLong(from) : `${dayLong(from)} – ${dayLong(to!)}`
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><BarChart3 className="h-5 w-5 text-sky-600" /> Summary</h1>
+        <AddClaim />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <div className="grid w-full grid-cols-3 overflow-hidden rounded-lg border border-ink-200 sm:w-auto">
           {PERIODS.map(([k, l]) => (
             <button key={k} type="button" onClick={() => pick(k)}
-              className={`h-10 px-4 text-sm font-semibold ${period === k ? 'bg-ink-900 text-[color:rgb(var(--surface))]' : 'text-ink-700 hover:bg-ink-100'}`}>{l}</button>
+              className={`h-10 px-2 text-sm font-semibold sm:px-4 ${period === k ? 'bg-ink-900 text-[color:rgb(var(--surface))]' : 'text-ink-700 hover:bg-ink-100'}`}>{l}</button>
           ))}
         </div>
+        {period === 'custom' && (
+          <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
+            {(['From', 'To'] as const).map((l, i) => (
+              <button key={l} type="button" onClick={() => setChoosing(i as 0 | 1)}
+                className="btn-lift flex h-10 items-center gap-2 rounded-lg border border-ink-200 px-3 text-left text-sm hover:bg-ink-100">
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">{l}</span>
+                <span className="min-w-0 flex-1 truncate font-semibold text-ink-900">{dayLong(custom[i])}</span>
+                <CalendarDays className="h-4 w-4 shrink-0 text-ink-400" />
+              </button>
+            ))}
+          </div>
+        )}
+        {choosing !== null && (
+          <Dialog title={choosing === 0 ? 'From' : 'To'} icon={<CalendarDays className="h-5 w-5 text-sky-600" />} onClose={() => setChoosing(null)}>
+            <div className="mt-3">
+              <MonthCalendar value={custom[choosing]} min={choosing === 0 ? EARLIEST : custom[0]} max={choosing === 0 ? custom[1] : todayIso()}
+                onChange={v => { setRange(choosing === 0 ? [v, custom[1]] : [custom[0], v]); setChoosing(null) }} />
+            </div>
+          </Dialog>
+        )}
       </div>
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
       {isLoading || !data || !m ? <PageLoader /> : (
@@ -51,7 +92,7 @@ export default function Summary() {
               <p className="mt-1 text-sm text-ink-500">{[`${m.days} day${m.days === 1 ? '' : 's'}`, km(m.km), `${m.tickets} ticket${m.tickets === 1 ? '' : 's'}`].join(' · ')}</p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {([['Paid', m.paid], ['Approved', m.approved], ['With approvers', m.pending], ['Not sent', m.not_sent]] as const).map(([l, v]) => (
+              {([['Paid', m.paid], ['Approved', m.approved], ['With approvers', m.pending], ['Sent back', m.sent_back]] as const).map(([l, v]) => (
                 <div key={l} className="rounded-xl border border-ink-200 p-3">
                   <p className="text-xs text-ink-500">{l}</p>
                   <p className="mt-0.5 text-lg font-semibold text-ink-900">{money(v)}</p>
@@ -77,8 +118,8 @@ export default function Summary() {
           </div>
 
           {/* ---- the month's budget ---- */}
-          {from && (
-            <Budget title={`${period === 'this' ? 'Left' : 'Budget'} in ${monthLong(from)}`}
+          {period === 'this' && from && (
+            <Budget title={`Left in ${monthLong(from)}`}
               lines={budgetLines(
                 { bike_rate: data.limits.bike_km ? 1 : null, bike_km_month: data.limits.bike_km, car_rate: data.limits.car_km ? 1 : null, car_km_month: data.limits.car_km },
                 { auto_month: data.limits.auto, phone_month: data.limits.phone },

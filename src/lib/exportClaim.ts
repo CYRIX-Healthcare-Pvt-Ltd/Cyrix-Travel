@@ -1,4 +1,4 @@
-import { MODES, dayTotal, monthName, rideAmount, type ClaimData } from './claims'
+import { MODES, STATUS, dayTotal, monthName, rideAmount, type ClaimData } from './claims'
 
 /*
   The claim as the expense reimbursement Excel the team used (EXP REIMBURSEMENT FORMAT.xlsx), so
@@ -19,7 +19,7 @@ export async function exportClaim(data: ClaimData) {
   ws.addRow(['CYRIX - EXPENSES REIMBURSEMENT FORM']); ws.mergeCells(1, 1, 1, W)
   ws.addRow([`Name : ${c.name}`, null, null, null, null, `EECode: ${c.ecode}`, null, `PROJECT: ${c.project ?? ''}`, null, null, null, `BASE LOCATION: ${c.base_location ?? ''}`, null, null, null, `Designation: ${c.designation ?? ''}`, null, `MOBILE: ${c.mobile ?? ''}`])
   ws.mergeCells(2, 1, 2, 5); ws.mergeCells(2, 6, 2, 7); ws.mergeCells(2, 8, 2, 11); ws.mergeCells(2, 12, 2, 15); ws.mergeCells(2, 16, 2, 17)
-  ws.addRow([`Month: ${monthName(c.month)}${c.number ? ' · ' + c.number : ''} · Grade ${c.grade ?? ''}`]); ws.mergeCells(3, 1, 3, W)
+  ws.addRow([`Month: ${monthName(c.month)}${c.number ? ' · ' + c.number : ''} · Grade ${c.grade ?? ''} · ${STATUS[c.status]?.label ?? c.status}`]); ws.mergeCells(3, 1, 3, W)
   ws.addRow(['Date (DD-MM-YY)', 'Locations', null, 'Worked District', 'Mode of Trasp. {Train(T)/Bus (B) / Bike (Bi)/Car(C )/Metro(M)}', 'Distance in (KM)', 'TA (if mode is Train(T)/Bus (B) /Metro (M)) - Amount', 'Auto fare', 'D. A.', 'Local Spare Purch. Rate', 'Hotel', 'Other Expenses', null, 'Total', 'Purpose of Visit', 'Barcode/ Asset No. and Ticket No./MPT ID.', 'Service Rpt. No.', 'Remarks'])
   ws.addRow([null, 'From', 'To', null, null, null, null, null, null, null, null, 'Description', 'Amount', null, null, null, null, null])
   ws.mergeCells(4, 2, 4, 3); ws.mergeCells(4, 12, 4, 13)
@@ -55,14 +55,27 @@ export async function exportClaim(data: ClaimData) {
     void dayTotal
   }
   const late = Math.round(sums.total * (c.late_pct / 100))
-  ws.addRow(['TOTAL EXPENSE CLAIMED', null, null, null, null, sums.km, sums.ta, sums.auto, sums.da, sums.spare, sums.hotel, null, sums.other, sums.total])
-  if (late) ws.addRow([`LATE SUBMISSION ${c.late_pct}%`, null, null, null, null, null, null, null, null, null, null, null, null, -late])
-  ws.addRow(['ADVANCES', null, null, null, null, null, null, null, null, null, null, null, null, c.advance ?? 0])
+  const label = (row: { number: number }) => ws.mergeCells(row.number, 1, row.number, 5)
+  label(ws.addRow(['TOTAL EXPENSE CLAIMED', null, null, null, null, sums.km, sums.ta, sums.auto, sums.da, sums.spare, sums.hotel, null, sums.other, sums.total]))
+  if (late) label(ws.addRow([`LATE SUBMISSION ${c.late_pct}%`, null, null, null, null, null, null, null, null, null, null, null, null, -late]))
+  label(ws.addRow(['ADVANCES', null, null, null, null, null, null, null, null, null, null, null, null, c.advance ?? 0]))
   const net = sums.total - late - (c.advance ?? 0)
-  ws.addRow(['NET PAYABLE', null, null, null, null, null, null, null, null, null, null, null, null, net])
-  ws.addRow([`Amount in words: ${words(Math.round(net))} only`])
-  ws.addRow([`REMARKS: ${c.desk_note ?? c.coordinator_note ?? c.manager_note ?? ''}`])
-  ws.addRow([`Claimed By: ${c.name}`, null, null, null, null, null, null, `Approved By: ${c.manager ?? ''}`, null, null, null, null, `Coordinator: ${c.coordinator ?? ''}`, null, null, null, 'Travel Desk'])
+  label(ws.addRow(['NET PAYABLE', null, null, null, null, null, null, null, null, null, null, null, null, net]))
+  const wide = (text: string) => { const row = ws.addRow([text]); ws.mergeCells(row.number, 1, row.number, W); return row }
+  wide(`Amount in words: ${words(Math.round(net))} only`)
+  wide(`REMARKS: ${c.desk_note ?? c.coordinator_note ?? c.manager_note ?? ''}`)
+  // Who did each step, and when, from the claim's history (te_0025): the last time each was done.
+  const at = (iso: string) => { const d = new Date(iso); return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}` }
+  const last = (...actions: string[]) => [...(data.history ?? [])].reverse().find(e => actions.includes(e.action))
+  const sent = last('submitted', 'resubmitted'), mgr = last('manager_approved'), coord = last('coordinator_approved'), desk = last('desk_approved'), paid = last('paid')
+  const sign = ws.addRow([
+    `Claimed by: ${c.name}${sent ? '\n' + at(sent.at) : ''}`, null, null, null, null,
+    `Approved by (manager): ${mgr?.actor ?? c.manager ?? ''}${mgr ? '\n' + at(mgr.at) : ''}`, null, null, null, null,
+    `Coordinator: ${coord?.actor ?? c.coordinator ?? '—'}${coord ? '\n' + at(coord.at) : ''}`, null, null, null,
+    `Travel Desk: ${desk?.actor ?? ''}${desk ? '\n' + at(desk.at) : ''}${paid ? '\nPaid ' + at(paid.at) : ''}`, null, null, null,
+  ])
+  ws.mergeCells(sign.number, 1, sign.number, 5); ws.mergeCells(sign.number, 6, sign.number, 10)
+  ws.mergeCells(sign.number, 11, sign.number, 14); ws.mergeCells(sign.number, 15, sign.number, 18)
   ws.eachRow((row, rn) => row.eachCell({ includeEmpty: true }, (cell, cn) => {
     if (cn > W) return
     cell.font = { name: 'Calibri', size: 10, bold: rn <= 5 || /^(TOTAL|ADVANCES|NET|LATE)/.test(String(row.getCell(1).value ?? '')) }
@@ -71,8 +84,11 @@ export async function exportClaim(data: ClaimData) {
     if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF1E293B') }
     if (rn === 4 || rn === 5) cell.fill = fill('FFDBEAFE')
     if (String(row.getCell(1).value ?? '').startsWith('NET PAYABLE')) cell.fill = fill('FFDCFCE7')
+    if (row.number === sign.number) cell.alignment = { vertical: 'top', wrapText: true }
   }))
-  ws.columns = [12, 18, 18, 14, 12, 10, 14, 10, 8, 10, 10, 22, 10, 10, 16, 18, 12, 30].map(width => ({ width }))
+  // Rows tall enough for what they hold: the two-line headings, the signatures with their times.
+  ws.getRow(1).height = 26; ws.getRow(4).height = 64; ws.getRow(5).height = 18; sign.height = 58
+  ws.columns = [13, 18, 18, 15, 16, 11, 16, 10, 9, 12, 10, 24, 11, 11, 18, 20, 13, 30].map(width => ({ width }))
   const buf = await wb.xlsx.writeBuffer()
   const a = document.createElement('a')
   a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))

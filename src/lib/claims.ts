@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bike, Bus, Car, CarTaxiFront, Plane, TrainFront, TramFront, Truck, type LucideIcon } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
 
 /*
@@ -14,16 +15,18 @@ export type ModeCode = 'bike' | 'car' | 'bus' | 'train' | 'metro' | 'auto' | 'ta
   One colour per mode, never two alike (the user, 17 Oct: "avoid look alike colors for modes"),
   the same in the chips, the drawn route and the map. Red is the hospitals' pins, so no mode is red.
 */
-export const MODES: Record<ModeCode, { label: string; color: string; bg: string; fg: string; icon: LucideIcon; perKm: boolean }> = {
-  bike:   { label: 'Bike', color: '#EF9F27', bg: '#FEF3C7', fg: '#78350F', icon: Bike, perKm: true },
-  car:    { label: 'Car', color: '#2563EB', bg: '#DBEAFE', fg: '#1E3A8A', icon: Car, perKm: true },
-  bus:    { label: 'Bus', color: '#16A34A', bg: '#DCFCE7', fg: '#14532D', icon: Bus, perKm: false },
-  train:  { label: 'Train', color: '#7C3AED', bg: '#EDE9FE', fg: '#4C1D95', icon: TrainFront, perKm: false },
-  metro:  { label: 'Metro', color: '#06B6D4', bg: '#CFFAFE', fg: '#164E63', icon: TramFront, perKm: false },
-  auto:   { label: 'Auto', color: '#DB2777', bg: '#FCE7F3', fg: '#831843', icon: Truck, perKm: false },
-  taxi:   { label: 'Uber / Taxi', color: '#374151', bg: '#E5E7EB', fg: '#111827', icon: CarTaxiFront, perKm: false },
-  flight: { label: 'Flight', color: '#92400E', bg: '#FDE7D3', fg: '#7C2D12', icon: Plane, perKm: false },
+export const MODES: Record<ModeCode, { label: string; color: string; onDark: string; bg: string; fg: string; icon: LucideIcon; perKm: boolean }> = {
+  bike:   { label: 'Bike', color: '#EF9F27', onDark: '#F6B95A', bg: '#FEF3C7', fg: '#78350F', icon: Bike, perKm: true },
+  car:    { label: 'Car', color: '#2563EB', onDark: '#7AA7FF', bg: '#DBEAFE', fg: '#1E3A8A', icon: Car, perKm: true },
+  bus:    { label: 'Bus', color: '#16A34A', onDark: '#4ADE80', bg: '#DCFCE7', fg: '#14532D', icon: Bus, perKm: false },
+  train:  { label: 'Train', color: '#7C3AED', onDark: '#B197FC', bg: '#EDE9FE', fg: '#4C1D95', icon: TrainFront, perKm: false },
+  metro:  { label: 'Metro', color: '#06B6D4', onDark: '#22D3EE', bg: '#CFFAFE', fg: '#164E63', icon: TramFront, perKm: false },
+  auto:   { label: 'Auto', color: '#DB2777', onDark: '#F472B6', bg: '#FCE7F3', fg: '#831843', icon: Truck, perKm: false },
+  taxi:   { label: 'Uber / Taxi', color: '#374151', onDark: '#B8C0CC', bg: '#E5E7EB', fg: '#111827', icon: CarTaxiFront, perKm: false },
+  flight: { label: 'Flight', color: '#92400E', onDark: '#E0A46E', bg: '#FDE7D3', fg: '#7C2D12', icon: Plane, perKm: false },
 }
+/** A mode's colour for text and icons, its lighter shade on a dark page: with the class "mode-ink" (or "mode-fill" in a drawing). */
+export const inkVars = (m: { color: string; onDark: string }) => ({ '--mc': m.color, '--mcd': m.onDark }) as CSSProperties
 export const MODE_ORDER: ModeCode[] = ['bike', 'car', 'bus', 'train', 'metro', 'auto', 'taxi', 'flight']
 
 export const DA_KINDS = [
@@ -381,7 +384,7 @@ export const useInbox = (enabled = true) => useQuery({
   queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number }>>('te_inbox'),
 })
 export interface Summary {
-  mine: { claimed: number; not_sent: number; pending: number; approved: number; paid: number; claims: number
+  mine: { claimed: number; sent_back: number; pending: number; approved: number; paid: number; claims: number
     travel: number; da: number; hotel: number; other: number; days: number; tickets: number; km: number
     bike_km: number; car_km: number; auto: number; phone: number }
   limits: { grade: string | null; bike_km: number | null; car_km: number | null; auto: number; phone: number }

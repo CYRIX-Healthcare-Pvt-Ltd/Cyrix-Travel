@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Copy, FileText, Paperclip, TriangleAlert, X } from 'lucide-react'
 import { Spinner } from '@/components/ui'
-import { billUrl, readBill, uploadBill, money, type Bill } from '@/lib/claims'
+import { billUrl, inkVars, readBill, uploadBill, money, type Bill } from '@/lib/claims'
 import { supabase } from '@/lib/supabase'
 import BillView from '@/components/BillView'
 import { useAsk } from '@/components/Ask'
@@ -11,9 +11,11 @@ import { useAsk } from '@/components/Ask'
   free reader in the phone (the user, 17 Oct) and hands it back to fill the amount; the same file
   twice is refused, naming the claim it was used on; a look-alike is flagged for the approvers.
 */
-export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onChange, compact = false, large = false, claimed, part = 'both' }: {
+export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onChange, compact = false, large = false, claimed, part = 'both', accent }: {
   /** Only the paperclip, or only the bills (the day form shows the bills on their own line). */
   part?: 'both' | 'attach' | 'bills'
+  /** The colour a needed bill's paperclip wears: a ride's mode, instead of amber. */
+  accent?: { color: string; onDark: string }
   /** The amount claimed, to set against what the bill reads (the user, 18 Oct). */
   claimed?: number | null
   compact?: boolean
@@ -74,7 +76,8 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       })}
       {editable && part !== 'bills' && (
         <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"
-          className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
+          style={needed && !mine.length && accent ? { borderColor: accent.color + '99', background: accent.color + '14', ...inkVars(accent) } : undefined}
+          className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? (accent ? 'mode-ink' : 'border-amber-400 bg-amber-50 text-amber-700') : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
           {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
         </button>
       )}

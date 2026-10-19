@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, BedDouble, MapPin, Plus, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import BillButton from '@/components/BillButton'
 import ModePicker from '@/components/ModePicker'
@@ -44,6 +45,27 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   const [homeReady, setHomeReady] = useState(false)
   const [who, setWho] = useState<Array<{ ecode: string; full_name: string }>>([])
   const ask = useAsk()
+  const nav = useNavigate()
+  /*
+    Discard (the user, 19 Oct: "when I'm clicking Add a claim the old draft is showing, which is good, still
+    need a discard, so that I can start from fresh"): the draft and its bills go — from My claims too — and a
+    fresh one opens on the same date. Only an unsent draft: a claim with a number is never discarded here.
+  */
+  const discard = async () => {
+    const n = data.days.length
+    if (!(await ask.confirm({ title: `Discard the ${monthName(c.month)} draft?`, body: n ? `Its ${n} day${n > 1 ? 's' : ''} and bills are deleted, and a fresh claim opens.` : 'A fresh claim opens.', yes: 'Discard', danger: true }))) return
+    setBusy(true); setErr(null)
+    try {
+      const paths = data.bills.map(b => b.path)
+      if (paths.length) await supabase.storage.from('te-bills').remove(paths)
+      const { error: de } = await supabase.rpc('te_delete_claim', { p_claim: c.id })
+      if (de) throw de
+      const { data: fresh, error: oe } = await supabase.rpc('te_open_month', { p_month: c.month.slice(0, 8) + '01' })
+      if (oe) throw oe
+      void qc.invalidateQueries({ queryKey: ['te_my_claims'] }); void qc.invalidateQueries({ queryKey: ['te_summary'] })
+      nav(`/claim/${fresh as string}?add=${d.day}`, { replace: true })
+    } catch (e) { setErr(friendlyError(e as never)) } finally { setBusy(false) }
+  }
   // Places offered while the hospital is typed (the user, 18 Oct: "when typing hospital / place can we get place suggestion from map").
   const [typing, setTyping] = useState(false)
   const [hits, setHits] = useState<Place[]>([])
@@ -199,7 +221,10 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   return (
     <div className="mx-auto max-w-4xl space-y-4 pb-24">
       <div>
-        <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.number ? `Back to ${c.number}` : `Back to the ${monthName(c.month)} claim`}</button>
+        <div className="flex items-center justify-between gap-3">
+          <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.number ? `Back to ${c.number}` : `Back to the ${monthName(c.month)} claim`}</button>
+          {c.status === 'draft' && <button type="button" disabled={busy} onClick={() => void discard()} className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline"><Trash2 className="h-4 w-4" /> Discard draft</button>}
+        </div>
         <h1 className="mt-2 text-xl font-semibold text-ink-900">{data.days.some(x => x.id === initial.id) ? 'Edit claim' : 'Add a claim'}</h1>
       </div>
       <Budget title={`Left in ${monthLong(c.month)}`} lines={budget} />
@@ -258,8 +283,8 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                 const notAllowed = outOfPolicy(r.mode, rule)
                 const read = m.perKm ? null : billRead(data.bills, r.id)
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
-                  <button type="button" onClick={() => setPicking({ ride: r.id, end })}
-                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'border-amber-400 bg-amber-50 text-amber-900'}`}>
+                  <button type="button" onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
+                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'text-ink-700'}`}>
                     <span className="grid w-4 shrink-0 place-items-center">{end === 'from' ? <span className="h-2.5 w-2.5 rounded-full bg-teal-500" /> : <MapPin className="h-4 w-4 text-cyrixRed-600" />}</span>
                     <span className="w-9 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{end === 'from' ? 'From' : 'To'}</span>
                     <span className="truncate">{name ?? (end === 'from' ? 'Choose where you started' : 'Choose where you went')}</span>
@@ -288,7 +313,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                             onChange={e => setRide(r.id, { fare: e.target.value === '' ? null : Number(e.target.value) })} />
                         </span>
                       )}
-                      <BillButton compact large part="attach" claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
+                      <BillButton compact large part="attach" accent={m} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={a => { if (!m.perKm && r.fare == null) setRide(r.id, { fare: a }) }} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
@@ -314,11 +339,11 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                 )
               })}
               {reached === false && <p className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900">No ride reaches {d.place}</p>}
-              <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => {
+              <button type="button" className="btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
                 set({ rides: [...d.rides, blankRide(from)] })
-              }}><Plus className="h-4 w-4" /> Add ride</button>
+              }}><span className="grid h-6 w-6 place-items-center rounded-full bg-teal-600 text-white"><Plus className="h-4 w-4" /></span> {d.rides.length ? 'Add another ride' : 'Add a ride'}</button>
             </div>
           </section>
 

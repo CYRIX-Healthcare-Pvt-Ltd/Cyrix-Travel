@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, ChevronDown, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -161,8 +161,8 @@ export default function ClaimPage() {
     <div className="space-y-4">
       <Link to={c.mine ? '/claims' : '/approvals'} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.mine ? 'My claims' : 'Approvals'}</Link>
 
-      {/* ---- header ---- */}
-      <div className="card flex flex-wrap items-start justify-between gap-4 p-4">
+      {/* ---- header, a stripe and a wash of its status's colour (the user, 19 Oct: "emphasis colour for this container") ---- */}
+      <div className="card flex flex-wrap items-start justify-between gap-4 p-4" style={{ borderLeft: `4px solid ${HEAD[c.status] ?? HEAD.draft}`, background: `linear-gradient(90deg, ${HEAD[c.status] ?? HEAD.draft}1F, transparent 70%)` }}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-semibold text-ink-900">{c.number ? `${c.number} · ${monthName(c.month)}` : `${monthName(c.month)} claim`}</h1>
@@ -185,7 +185,7 @@ export default function ClaimPage() {
               }}><Pencil className="h-4 w-4" /> {c.status === 'with_manager' ? 'Recall to edit' : 'Edit'}</button>
           )}
           <p className="text-xs text-ink-500">Total claimed</p>
-          <p className="text-2xl font-semibold text-ink-900">{money(total)}</p>
+          <p className="text-3xl font-bold text-ink-900">{money(total)}</p>
           {c.late_pct > 0 && <p className="text-xs text-cyrixRed-700">Late {c.late_pct}% · −{money(late)}</p>}
           {c.advance > 0 && <p className="text-xs text-ink-600">Advance −{money(c.advance)}</p>}
           {(c.late_pct > 0 || c.advance > 0) && <p className="text-sm font-semibold text-ink-900">Net payable {money(net)}</p>}
@@ -349,8 +349,10 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const missing = d.rides.filter(r => needsBill('ride', r, over, rule) && !billed.has(r.id)).length
     + (d.hotel && !d.room_by && !billed.has(d.hotel.id) ? 1 : 0)
     + d.expenses.filter(x => needsBill('expense', x, over) && !billed.has(x.id)).length
+  // Tapped anywhere but a button or the open details, the card opens or closes (the user, 19 Oct).
+  const toggle = (e: React.MouseEvent) => { if (!(e.target as HTMLElement).closest('button, a, input, select, textarea, [data-details]')) setOpen(o => !o) }
   return (
-    <div className="card space-y-2 p-4">
+    <div className="card cursor-pointer space-y-2 p-4 transition-shadow hover:shadow-md" onClick={toggle}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold text-ink-900">{dayName(d.day)}{d.place ? ` · ${d.place}` : ''}{d.district ? `, ${d.district}` : ''}</p>
@@ -373,11 +375,11 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         {d.room_by && <span className="inline-flex items-center gap-1 text-green-700"><BedDouble className="h-3.5 w-3.5" />Room by {d.room_by.name.split(' ')[0]}</span>}
         {d.expenses.length > 0 && <span className="inline-flex items-center gap-1 text-amber-700"><ReceiptIndianRupee className="h-3.5 w-3.5" />{money(d.expenses.reduce((t, x) => t + x.amount, 0))}</span>}
         {missing > 0 && <span className="font-semibold text-amber-700">{missing} bill{missing > 1 ? 's' : ''} needed</span>}
-        <button type="button" className="ml-auto font-semibold text-violet-700 hover:underline" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}</button>
+        <button type="button" className="ml-auto inline-flex items-center gap-1 rounded-full border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       </div>
 
       {open && (
-        <div className="divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3">
+        <div data-details className="cursor-auto divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3">
           {hasMap && (
             <div className="flex justify-end py-2">
               <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>
@@ -535,6 +537,12 @@ function Observations({ data }: { data: ClaimData }) {
       </ul>
     </div>
   )
+}
+
+/** Each status's colour, for the claim's header (the badge's own colours, as one strong hue). */
+const HEAD: Record<string, string> = {
+  draft: '#94A3B8', with_manager: '#F59E0B', with_coordinator: '#8B5CF6', with_desk: '#0EA5E9',
+  approved: '#16A34A', paid: '#0D9488', returned: '#E30613', recalled: '#F97316',
 }
 
 const short = (s: string | null) => (s ? s.split(',')[0] : '—')

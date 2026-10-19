@@ -1810,3 +1810,16 @@
 .rm-line { transition: stroke-width 0.18s, opacity 0.18s, filter 0.18s; cursor: pointer; }
 .rm-line.up { filter: drop-shadow(0 6px 6px rgb(0 0 0 / 0.45)); }
 .leaflet-container .dim { opacity: 0.28; }
+
+/* iOS Safari draws a date box at its own width, past its container, and centres the date (the user,
+   19 Oct). Only where Safari on iOS reads it: elsewhere the browser's own date box is kept. */
+@supports (-webkit-touch-callout: none) {
+  input[type='date'].input { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; }
+  input[type='date'].input::-webkit-date-and-time-value { text-align: left; }
+}
+
+/* A mode's colour on text and icons, and its lighter shade on a dark page (inkVars). */
+.mode-ink { color: var(--mc); }
+.mode-fill { fill: var(--mc); }
+.dark .mode-ink { color: var(--mcd); }
+.dark .mode-fill { fill: var(--mcd); }
