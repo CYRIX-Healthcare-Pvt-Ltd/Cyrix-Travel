@@ -81,6 +81,9 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
           {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
         </button>
       )}
+      {editable && part !== 'bills' && !large && needed && !mine.length && !busy && (
+        <button type="button" onClick={() => input.current?.click()} className="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md bg-cyrixRed-100 px-2 text-xs font-semibold text-cyrixRed-800 hover:bg-cyrixRed-200">Bill needed</button>
+      )}
       {!editable && needed && !mine.length && <span className="text-xs text-amber-700">No bill</span>}
       <input ref={input} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pick(f) }} />
       {err && <span className="text-xs font-bold text-cyrixRed-700" title={err}>!</span>}

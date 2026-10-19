@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, ChevronDown, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, ChevronDown, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -45,6 +45,9 @@ export default function ClaimPage() {
   const [fail, setFail] = useState<string | null>(null)
   // An approver changing one figure (te_0027).
   const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
+  // The bills still needed, named, when Submit finds them (the user, 19 Oct: "don't know in which is having error").
+  const [need, setNeed] = useState<Array<{ id: string; label: string }> | null>(null)
+  const showBill = (id: string) => window.setTimeout(() => document.getElementById('bill-' + id)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 150)
 
   // Days joined into trips: a day that continues the one before is drawn with it.
   const groups = useMemo(() => {
@@ -219,6 +222,19 @@ export default function ClaimPage() {
       )}
       {msg && <Alert kind="success">{msg}</Alert>}
       {fail && <Alert kind="error">{fail}</Alert>}
+      {(() => {
+        // Gone as each is attached.
+        const billedNow = new Set(data.bills.map(b => b.owner_id))
+        const left = (need ?? []).filter(x => !billedNow.has(x.id))
+        return left.length > 0 && (
+          <div className="card border-cyrixRed-300 bg-cyrixRed-50 p-4">
+            <p className="flex items-center gap-2 font-semibold text-cyrixRed-900"><Paperclip className="h-4 w-4" /> Attach {left.length === 1 ? 'this bill' : `these ${left.length} bills`} before sending</p>
+            <ul className="mt-2 space-y-1">
+              {left.map(x => <li key={x.id}><button type="button" className="text-left text-sm font-medium text-cyrixRed-800 hover:underline" onClick={() => showBill(x.id)}>{x.label}</button></li>)}
+            </ul>
+          </div>
+        )
+      })()}
 
       <Observations data={data} />
 
@@ -237,7 +253,7 @@ export default function ClaimPage() {
               onEdit={() => openDay(d)} onMap={() => setMap({ days: [d], title: `${dayName(d.day)}${d.place ? ' · ' + d.place : ''}` })}
               onMapDays={(days, title) => setMap({ days, title })}
               onDelete={async () => { if (await ask.confirm({ title: `Remove ${dayName(d.day)}?`, body: 'The day, its rides, tickets, expenses and bills come off the claim.', yes: 'Remove day', danger: true })) void run('te_delete_day', { p_day: d.id }, 'Day removed.') }}
-              onBills={() => void refetch()} onAdjust={c.can_decide && !c.mine ? setAdjust : undefined} />
+              onBills={() => void refetch()} onAdjust={c.can_decide && !c.mine ? setAdjust : undefined} need={new Set((need ?? []).map(x => x.id))} />
           ))}
         </div>
       ))}
@@ -248,7 +264,12 @@ export default function ClaimPage() {
           <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
             {data.days.length > 0 && (
               <button type="button" className="btn-primary col-span-2 h-11 justify-center sm:order-last sm:ml-auto" disabled={act.isPending}
-                onClick={async () => { if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Submit' })) void run('te_submit', { p_claim: c.id }, 'Sent.') }}>
+                onClick={async () => {
+                  const miss = missingBills(data, over)
+                  if (miss.length) { setNeed(miss); setMsg(null); setFail(null); showBill(miss[0].id); return }
+                  setNeed(null)
+                  if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Submit' })) void run('te_submit', { p_claim: c.id }, 'Sent.')
+                }}>
                 {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Submit to manager
               </button>
             )}
@@ -315,10 +336,12 @@ function Header({ data }: { data: ClaimData; onSaved?: () => void }) {
   )
 }
 
-function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDelete, onBills, onAdjust }: {
+function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDelete, onBills, onAdjust, need }: {
   d: Day; data: ClaimData; tripDay: string | null; tol: number; over: number
   onEdit: () => void; onMap: () => void; onMapDays: (days: Day[], title: string) => void; onDelete: () => void; onBills: () => void
   onAdjust?: (t: AdjustTarget) => void
+  /** Items whose bill Submit found missing: the card opens on them and marks them. */
+  need?: Set<string>
 }) {
   const c = data.claim, rule = data.rule
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
@@ -326,6 +349,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   // Open for whoever may change its figures, so the pencils are in sight.
   const [open, setOpen] = useState(!!onAdjust)
+  const needHere = [...(need ?? [])].some(id => id === d.hotel?.id || d.rides.some(r => r.id === id) || d.expenses.some(x => x.id === id))
+  useEffect(() => { if (needHere) setOpen(true) }, [needHere])
+  const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300' : '')
   const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
   // An amount: what was claimed struck through once an approver changed it, and their pencil.
   const amt = (id: string, now: number, t?: AdjustTarget, tone = 'text-ink-900') => {
@@ -389,7 +415,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null, bad = outOfPolicy(r.mode, rule)
             return (
               // On a phone the route on its own line and the figures under it; on a computer one line (the user, 18 Oct).
-              <div key={r.id} className="py-2 text-sm">
+              <div key={r.id} id={'bill-' + r.id} className={'py-2 text-sm' + mark(r.id)}>
                <div className="sm:flex sm:items-center sm:gap-2">
                 <div className="flex min-w-0 items-center gap-2 sm:flex-1">
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
@@ -432,7 +458,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {d.hotel && !d.room_by && (() => {
             const limit = hotelLimit(rule, d.hotel, outOfState, Number(data.policy.metro_extra_pct ?? 20))
             return (
-              <div className="flex flex-wrap items-center gap-2 py-2 text-sm">
+              <div id={'bill-' + d.hotel.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(d.hotel.id)}>
                 <BedDouble className="h-4 w-4 text-violet-600" />
                 <span className="min-w-0 flex-1 truncate text-ink-800">{d.hotel.name || 'Hotel'} · {d.hotel.occupancy}{d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}</span>
                 {amt(d.hotel.id, d.hotel.amount, { kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
@@ -441,7 +467,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             )
           })()}
           {d.expenses.map(x => (
-            <div key={x.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+            <div key={x.id} id={'bill-' + x.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(x.id)}>
               <ReceiptIndianRupee className="h-4 w-4 text-amber-600" />
               <span className="min-w-0 flex-1 truncate text-ink-800">{x.category}{x.description ? ` · ${x.description}` : ''}</span>
               {amt(x.id, x.amount, { kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount })}
@@ -543,6 +569,18 @@ function Observations({ data }: { data: ClaimData }) {
 const HEAD: Record<string, string> = {
   draft: '#94A3B8', with_manager: '#F59E0B', with_coordinator: '#8B5CF6', with_desk: '#0EA5E9',
   approved: '#16A34A', paid: '#0D9488', returned: '#E30613', recalled: '#F97316',
+}
+
+/** The rides, hotel nights and expenses still without the bill the policy asks for, named for the person. */
+function missingBills(data: ClaimData, over: number): Array<{ id: string; label: string }> {
+  const billed = new Set(data.bills.map(b => b.owner_id)), rule = data.rule, out: Array<{ id: string; label: string }> = []
+  for (const d of data.days) {
+    const dn = new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    for (const r of d.rides) if (needsBill('ride', r, over, rule) && !billed.has(r.id)) out.push({ id: r.id, label: `${dn} · ${MODES[r.mode].label} ride ${short(r.from_name)} → ${short(r.to_name)} · ${money(rideAmount(r, rule))}` })
+    if (d.hotel && !d.room_by && !billed.has(d.hotel.id)) out.push({ id: d.hotel.id, label: `${dn} · Hotel night ${d.hotel.name ?? ''} · ${money(d.hotel.amount)}` })
+    for (const x of d.expenses) if (needsBill('expense', x, over) && !billed.has(x.id)) out.push({ id: x.id, label: `${dn} · ${x.category} · ${money(x.amount)}` })
+  }
+  return out
 }
 
 const short = (s: string | null) => (s ? s.split(',')[0] : '—')
