@@ -15,7 +15,7 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, reachesPlace, rideAmount,
+  DA_KINDS, DA_RANK, MODES, billRead, outOfPolicy, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, reachesPlace, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -384,20 +384,21 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             </div>
           )}
           {d.rides.map(r => {
-            const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null
+            const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null, bad = outOfPolicy(r.mode, rule)
             return (
               // On a phone the route on its own line and the figures under it; on a computer one line (the user, 18 Oct).
               <div key={r.id} className="py-2 text-sm">
                <div className="sm:flex sm:items-center sm:gap-2">
                 <div className="flex min-w-0 items-center gap-2 sm:flex-1">
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
+                  {bad && <span className="-ml-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white" title={`${m.label} is not in grade ${c.grade ?? '—'}'s policy`}>!</span>}
                   <span className="min-w-0 flex-1 truncate text-ink-800">{short(r.from_name)} → {short(r.to_name)}</span>
                 </div>
                 <div className="mt-1.5 flex items-center gap-2 sm:mt-0">
                 {m.perKm && <span className={check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
                 <span className="ml-auto" />
                 {amt(r.id, rideAmount(r, rule), { kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined })}
-                <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} onChange={onBills} />
+                <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm ? undefined : rideAmount(r, rule)} onChange={onBills} />
                 {r.from_lat != null && r.to_lat != null && (
                   <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-ink-200 text-teal-600 hover:bg-ink-100" title="This ride on the map" aria-label="This ride on the map"
                     onClick={() => onMapDays([{ ...d, rides: [r] }], `${short(r.from_name)} → ${short(r.to_name)}`)}><MapIcon className="h-3.5 w-3.5" /></button>
@@ -433,7 +434,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 <BedDouble className="h-4 w-4 text-violet-600" />
                 <span className="min-w-0 flex-1 truncate text-ink-800">{d.hotel.name || 'Hotel'} · {d.hotel.occupancy}{d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}</span>
                 {amt(d.hotel.id, d.hotel.amount, { kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
-                <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed onChange={onBills} />
+                <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed claimed={d.hotel.amount} onChange={onBills} />
               </div>
             )
           })()}
@@ -442,7 +443,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
               <ReceiptIndianRupee className="h-4 w-4 text-amber-600" />
               <span className="min-w-0 flex-1 truncate text-ink-800">{x.category}{x.description ? ` · ${x.description}` : ''}</span>
               {amt(x.id, x.amount, { kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount })}
-              <BillButton compact claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable={c.can_edit} needed={needsBill('expense', x, over)} onChange={onBills} />
+              <BillButton compact claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable={c.can_edit} needed={needsBill('expense', x, over)} claimed={x.amount} onChange={onBills} />
             </div>
           ))}
           {(d.da_kind !== 'none' || d.da_amount > 0) && (
@@ -497,17 +498,22 @@ function Observations({ data }: { data: ClaimData }) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${short(r.from_name)} → ${short(r.to_name)}`
       if (k && k.over > 0) items.push({ tone: 'amber', text: `${dn(d.day)}: ${m.label} ${leg} claimed ${km(r.claimed_km)}, map ${km(r.map_km)} — ${km(k.over)} over the ${tol}% allowance` })
-      if ((r.mode === 'car' && !rule.car_rate) || (r.mode === 'bike' && !rule.bike_rate) || (r.mode === 'flight' && !rule.flight) || (r.mode === 'taxi' && !rule.taxi))
-        items.push({ tone: 'amber', text: `${dn(d.day)}: ${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
+      const read = m.perKm ? null : billRead(data.bills, r.id)
+      if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ tone: 'amber', text: `${dn(d.day)}: ${m.label} ${leg} claimed ${money(r.fare)}, the bill reads ${money(read)}` })
+      if (outOfPolicy(r.mode, rule))
+        items.push({ tone: 'red', text: `${dn(d.day)}: ${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no bill for the ${m.label.toLowerCase()} ride ${leg}` })
     }
     if (d.hotel && !d.room_by) {
       const lim = hotelLimit(rule, d.hotel, d.da_kind === 'out_state' || d.da_kind === 'out_state_stay', metro)
       if (lim != null && d.hotel.amount > lim) items.push({ tone: 'amber', text: `${dn(d.day)}: hotel ${money(d.hotel.amount)} is over the ${money(lim)} limit` })
       if (!billed.has(d.hotel.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no hotel bill` })
+      const hr = billRead(data.bills, d.hotel.id)
+      if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ tone: 'amber', text: `${dn(d.day)}: hotel claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
     }
     if (reachesPlace(d, near) === false) items.push({ tone: 'amber', text: `${dn(d.day)}: no ride reaches ${d.place} (within ${near} km)` })
     if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ tone: 'amber', text: `${dn(d.day)}: DA ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
+    for (const x of d.expenses) { const xr = billRead(data.bills, x.id); if (xr != null && Math.abs(xr - x.amount) > 1) items.push({ tone: 'amber', text: `${dn(d.day)}: ${x.category.toLowerCase()} claimed ${money(x.amount)}, the bill reads ${money(xr)}` }) }
     for (const x of d.expenses) if (needsBill('expense', x, over) && !billed.has(x.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no bill for ${x.category.toLowerCase()} ${money(x.amount)}` })
     for (const t of d.tickets) {
       const earlier = (t as typeof t & { earlier?: Array<{ day: string; name: string; mine: boolean }> }).earlier ?? []

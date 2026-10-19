@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MODES, km, money, rideAmount, type Day, type Rule } from '@/lib/claims'
+import { MODES, km, money, outOfPolicy, rideAmount, type Day, type Rule } from '@/lib/claims'
 
 /*
   A day's (or a trip's) route, drawn (the user, 17 Oct: "a graphical representation that show from
@@ -64,6 +64,13 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
             <g key={ride.id}>
               <line x1={x1} y1={84} x2={x2} y2={84} stroke={m.color} strokeWidth={5} strokeLinecap="round" />
               <m.icon x={(x1 + x2) / 2 - 9} y={14} width={18} height={18} color={m.color} strokeWidth={2.2} />
+              {outOfPolicy(ride.mode, rule) && (
+                <g>
+                  <title>{m.label} is not in the grade's policy</title>
+                  <circle cx={(x1 + x2) / 2 + 20} cy={15} r={8} fill="#E30613" stroke="rgb(var(--surface))" strokeWidth={2} />
+                  <text x={(x1 + x2) / 2 + 20} y={19} textAnchor="middle" style={{ fontSize: 11, fontWeight: 700, fill: '#fff' }}>!</text>
+                </g>
+              )}
               <text x={(x1 + x2) / 2} y={50} textAnchor="middle" style={{ fontSize: 11, fontWeight: 600, fill: m.color }}>
                 {m.label}{m.perKm && ride.claimed_km != null ? ` · ${km(ride.claimed_km)}` : ride.map_km != null ? ` · ${km(ride.map_km)}` : ''}
               </text>

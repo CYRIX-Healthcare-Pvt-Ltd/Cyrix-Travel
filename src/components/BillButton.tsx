@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Copy, FileText, Paperclip, X } from 'lucide-react'
+import { Copy, FileText, Paperclip, TriangleAlert, X } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import { billUrl, readBill, uploadBill, money, type Bill } from '@/lib/claims'
 import { supabase } from '@/lib/supabase'
@@ -11,7 +11,11 @@ import { useAsk } from '@/components/Ask'
   free reader in the phone (the user, 17 Oct) and hands it back to fill the amount; the same file
   twice is refused, naming the claim it was used on; a look-alike is flagged for the approvers.
 */
-export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onChange, compact = false, large = false }: {
+export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onChange, compact = false, large = false, claimed, part = 'both' }: {
+  /** Only the paperclip, or only the bills (the day form shows the bills on their own line). */
+  part?: 'both' | 'attach' | 'bills'
+  /** The amount claimed, to set against what the bill reads (the user, 18 Oct). */
+  claimed?: number | null
   compact?: boolean
   /** Thumb-sized, for the day form on a phone. */
   large?: boolean
@@ -55,11 +59,20 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
 
   if (compact) return (
     <span className="inline-flex items-center gap-1">
-      {mine.map(b => (
-        <button key={b.id} type="button" onClick={() => void open(b)} title={b.twin ? `Looks like ${b.twin}` : b.name ?? 'Bill'}
-          className={`${editable ? `grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} place-items-center` : 'inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold'} ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-green-100 text-green-700'}`}><FileText className="h-3.5 w-3.5" />{!editable && 'Bill'}</button>
-      ))}
-      {editable && (
+      {/* Each bill says what it reads (the user, 18 Oct: "the approver should see easily that this is the
+          amount fetched"): green when it matches the claim, amber with a mark when it does not. */}
+      {part !== 'attach' && mine.map(b => {
+        const read = b.ocr_amount != null ? Number(b.ocr_amount) : null
+        const off = read != null && claimed != null && Math.abs(read - claimed) > 1
+        return (
+          <button key={b.id} type="button" onClick={() => void open(b)}
+            title={b.twin ? `Looks like ${b.twin}` : off ? `The bill reads ${money(read)} · claimed ${money(claimed)}` : read != null ? `The bill reads ${money(read)}` : 'Bill · the amount could not be read'}
+            className={`inline-flex shrink-0 items-center gap-1 font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-800' : off ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-400' : 'bg-green-100 text-green-800'}`}>
+            <FileText className="h-3.5 w-3.5" />{read != null ? money(read) : 'Bill'}{off && <TriangleAlert className="h-3.5 w-3.5" />}
+          </button>
+        )
+      })}
+      {editable && part !== 'bills' && (
         <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"
           className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
           {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}

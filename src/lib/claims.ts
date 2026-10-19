@@ -297,29 +297,49 @@ export async function dhash(file: Blob): Promise<string | null> {
   } catch { return null }
 }
 /*
-  The amount, date and bill number read off a bill photo with the free reader in the phone
-  (Tesseract; the user, 17 Oct). It is a guess the person checks: the largest money-looking figure
-  near "total", else the largest one.
+  The amount (and, kept for the duplicate check, the bill number) read off a bill photo with the free reader in the phone
+  (Tesseract; the user, 17 Oct). It is a guess the person checks, and it is shown on the bill for the
+  approvers (18 Oct). The amount: the largest figure on a line that says total, else on a line that
+  says amount, fare or paid, else the largest figure written with paise. The rupee sign comes out as
+  ¥, % or =, which does not matter: only the figures are read.
 */
 export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null }> {
   if (!file.type.startsWith('image/')) return { amount: null, date: null, billno: null }
   const { recognize } = await import('tesseract.js')
-  const { data } = await recognize(file, 'eng')
-  const text = data.text.replace(/[Oo](?=\d)/g, '0')
+  const { data } = await recognize(await shrink(file), 'eng')
+  const text = data.text.replace(/[Oo](?=\d)/g, '0').replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
   const lines = text.split('\n')
-  const nums = (s: string) => [...s.matchAll(/(?:₹|rs\.?|inr)?\s*(\d{1,6}(?:[.,]\d{1,2})?)/gi)].map(m => Number(m[1].replace(',', '.'))).filter(n => n > 0 && n < 200000)
+  const figs = (s: string) => [...s.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => n > 0 && n < 200000)
   let amount: number | null = null
-  for (const l of lines) if (/total|amount|amt|fare|net|paid/i.test(l)) { const n = nums(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
-  if (amount == null) { const all = nums(text).filter(n => n >= 5); if (all.length) amount = Math.max(...all) }
-  const dm = text.match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/)
-  let date: string | null = null
-  if (dm) {
-    const y = dm[3].length === 2 ? '20' + dm[3] : dm[3]
-    const d = new Date(`${y}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}T00:00:00`)
-    if (!isNaN(d.getTime())) date = d.toISOString().slice(0, 10)
+  for (const l of lines) if (/total|grand|net\s*(amt|amount|payable)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
+  if (amount == null) for (const l of lines) if (/amount|amt|fare|paid|payable|rs\.?|inr|₹/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
+  if (amount == null) {
+    const paise = [...text.matchAll(/(\d{1,6})\.(\d{2})(?!\d)/g)].map(m => Number(m[1] + '.' + m[2])).filter(n => n > 0 && n < 200000)
+    if (paise.length) amount = Math.max(...paise)
   }
   const bm = text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
-  return { amount, date, billno: bm ? bm[1] : null }
+  // No date: the person enters the day, and the bill's own date is not needed (the user, 19 Oct).
+  return { amount, date: null, billno: bm ? bm[1] : null }
+}
+/** A phone photo made no wider than 2000px first: read as well, and many times faster. */
+async function shrink(file: Blob): Promise<Blob> {
+  try {
+    const img = await createImageBitmap(file)
+    const k = Math.min(1, 2000 / Math.max(img.width, img.height))
+    if (k === 1) return file
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k)
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+    return await new Promise<Blob>(res => c.toBlob(b => res(b ?? file), 'image/jpeg', 0.92))
+  } catch { return file }
+}
+/** The amount read off the last bill of a ride, hotel night or expense that could be read. */
+export function billRead(bills: Bill[], ownerId: string): number | null {
+  const read = bills.filter(b => b.owner_id === ownerId && b.ocr_amount != null)
+  return read.length ? Number(read[read.length - 1].ocr_amount) : null
+}
+/** A mode the grade's policy does not give (a car below MM3, a flight, a taxi…): it needs prior approval. */
+export function outOfPolicy(mode: ModeCode, rule: Rule | undefined) {
+  return !!rule && ((mode === 'car' && !rule.car_rate) || (mode === 'bike' && !rule.bike_rate) || (mode === 'flight' && !rule.flight) || (mode === 'taxi' && !rule.taxi))
 }
 
 /** A bill into the private bucket, then recorded; the same file twice is refused by the database. */

@@ -11,7 +11,7 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  reachesPlace, rideAmount, roadKm, searchPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
+  billRead, outOfPolicy, reachesPlace, rideAmount, roadKm, searchPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -255,7 +255,8 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
               {d.rides.map((r, i) => {
                 const m = MODES[r.mode]
                 const check = m.perKm ? kmOver(r, tol) : null
-                const notAllowed = (r.mode === 'car' && !rule.car_rate) || (r.mode === 'bike' && !rule.bike_rate) || (r.mode === 'flight' && !rule.flight) || (r.mode === 'taxi' && !rule.taxi)
+                const notAllowed = outOfPolicy(r.mode, rule)
+                const read = m.perKm ? null : billRead(data.bills, r.id)
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
                   <button type="button" onClick={() => setPicking({ ride: r.id, end })}
                     className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'border-amber-400 bg-amber-50 text-amber-900'}`}>
@@ -273,7 +274,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                       <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => set({ rides: d.rides.filter(x => x.id !== r.id) })}><Trash2 className="h-4 w-4" /></button>
                     </div>
                     <div className="mt-2.5 flex items-center gap-2 pl-6">
-                      <ModePicker value={r.mode} onChange={code => setRide(r.id, { mode: code })} />
+                      <ModePicker value={r.mode} onChange={code => setRide(r.id, { mode: code })} blocked={code => outOfPolicy(code, rule)} />
                       {m.perKm ? (
                         <span className="relative min-w-0 max-w-[8rem] flex-1">
                           <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full pr-9" value={r.claimed_km ?? ''} placeholder="0"
@@ -287,7 +288,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                             onChange={e => setRide(r.id, { fare: e.target.value === '' ? null : Number(e.target.value) })} />
                         </span>
                       )}
-                      <BillButton compact large claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
+                      <BillButton compact large part="attach" claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={a => { if (!m.perKm && r.fare == null) setRide(r.id, { fare: a }) }} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
@@ -299,7 +300,16 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                       </p>
                     )}
                     {!m.perKm && r.map_km != null && <p className="mt-1.5 pl-6 text-xs text-ink-500">Map {km(r.map_km)}</p>}
-                    {notAllowed && <p className="mt-1 pl-6 text-xs font-semibold text-amber-800">{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
+                    {/* The bill and what it reads, on a line of its own (the user, 18 Oct). */}
+                    {data.bills.some(b => b.owner_id === r.id) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+                        <BillButton compact part="bills" claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={false} claimed={m.perKm ? undefined : r.fare} onChange={refresh} />
+                        {read != null && r.fare != null && Math.abs(read - r.fare) > 1 && (
+                          <span className="text-xs font-semibold text-amber-800">Reads {money(read)} · <button type="button" className="underline" onClick={() => setRide(r.id, { fare: read })}>Use {money(read)}</button></span>
+                        )}
+                      </div>
+                    )}
+                    {notAllowed && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-cyrixRed-100 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
                   </div>
                 )
               })}
@@ -406,7 +416,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                     <span className={`text-xs ${limit != null && h.amount > limit ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
                       {limit == null ? '' : h.amount > limit ? `Over the ${money(limit)} limit — needs approval` : `Limit ${money(limit)}`}
                     </span>
-                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed onRead={a => { if (!h.amount) setH({ amount: a }) }} onChange={refresh} />
+                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onChange={refresh} />
                   </div>
                 </div>
               )
@@ -436,7 +446,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                         <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
                         <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
                         <span className="col-span-3 sm:col-span-1">
-                          <BillButton compact large claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)}
+                          <BillButton compact large claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
                             onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
                         </span>
                       </div>
