@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { PencilLine } from 'lucide-react'
+import { Ban, PencilLine } from 'lucide-react'
 import Dialog from '@/components/Dialog'
 import { Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
@@ -14,6 +14,8 @@ import { money, useClaimAction } from '@/lib/claims'
 export interface AdjustTarget {
   kind: 'ride' | 'hotel' | 'expense' | 'da'; id: string; label: string
   unit: 'km' | '₹'; value: number; amount: number; rate?: number
+  /** A bike or car ride's road km on the map, and the allowance over it (%). */
+  map?: number | null; tol?: number
 }
 
 export default function AdjustDialog({ claimId, target, onClose }: { claimId: string; target: AdjustTarget; onClose: () => void }) {
@@ -40,6 +42,17 @@ export default function AdjustDialog({ claimId, target, onClose }: { claimId: st
         <div className="rounded-lg bg-ink-50 px-3 py-2 text-sm">
           <p className="font-medium text-ink-900">{target.label}</p>
           <p className="text-ink-600">Claimed {km ? `${target.value} km · ${money(target.amount)}` : money(target.value)}</p>
+          {/* What the map says, to change to (the user, 19 Oct: "need to show how much km was there in map"). */}
+          {km && target.map != null && (() => {
+            const allowed = Math.round(target.map * (1 + (target.tol ?? 10) / 100) * 10) / 10
+            return (
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-ink-700">
+                <span>Map <b className="font-semibold">{target.map} km</b> · allowed <b className="font-semibold">{allowed} km</b> (+{target.tol ?? 10}%)</span>
+                <button type="button" className="rounded-md border border-ink-200 px-2 py-0.5 text-xs font-semibold hover:bg-ink-100" onClick={() => setV(String(target.map))}>Use {target.map}</button>
+                <button type="button" className="rounded-md border border-ink-200 px-2 py-0.5 text-xs font-semibold hover:bg-ink-100" onClick={() => setV(String(allowed))}>Use {allowed}</button>
+              </p>
+            )
+          })()}
         </div>
         <label className="block"><span className="label">{km ? 'Km' : 'Amount'}</span>
           <span className="mt-1 flex items-center gap-3">
@@ -50,6 +63,11 @@ export default function AdjustDialog({ claimId, target, onClose }: { claimId: st
             </span>
             {km && Number.isFinite(n) && <span className="text-sm font-semibold text-ink-900">= {money(n * (target.rate ?? 0))}</span>}
           </span></label>
+        {/* Cut it out altogether in one tap (the user, 19 Oct: "add not allowed"): nothing paid, the reason started. */}
+        <button type="button" onClick={() => { setV('0'); setWhy(w => (w.trim() ? w : 'Not allowed')); setErr(null) }}
+          className="btn-lift inline-flex h-9 items-center gap-1.5 rounded-lg border border-cyrixRed-300 px-3 text-sm font-semibold text-cyrixRed-700 hover:bg-cyrixRed-50">
+          <Ban className="h-4 w-4" /> Not allowed · ₹0
+        </button>
         <label className="block"><span className="label">Why</span>
           <textarea rows={2} className="input mt-1" value={why} onChange={e => setWhy(e.target.value)} placeholder="Reason for the change" /></label>
         {err && <p className="text-sm text-cyrixRed-700">{err}</p>}

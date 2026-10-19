@@ -79,6 +79,8 @@ export interface Day {
 export interface Bill {
   id: string; owner_kind: 'ride' | 'hotel' | 'expense'; owner_id: string; path: string; name: string | null
   ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
+  /** The line and claim of the bill it looks like (te_0036). */
+  twin_owner?: string | null; twin_claim?: string | null
 }
 export interface Rule {
   grade: string; da_in_district: number; da_out_district: number; da_out_state: number; da_out_state_stay: number

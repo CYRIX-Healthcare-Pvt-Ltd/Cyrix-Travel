@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, ChevronDown, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, ChevronDown, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -47,7 +47,20 @@ export default function ClaimPage() {
   const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
   // The bills still needed, named, when Submit finds them (the user, 19 Oct: "don't know in which is having error").
   const [need, setNeed] = useState<Array<{ id: string; label: string }> | null>(null)
-  const showBill = (id: string) => window.setTimeout(() => document.getElementById('bill-' + id)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 150)
+  const [focus, setFocus] = useState<string | null>(null)
+  const goTo = (id: string) => { setFocus(id); showBill(id) }
+  // The outline goes at the next tap anywhere (the user, 19 Oct).
+  useEffect(() => {
+    if (!focus) return
+    const off = () => setFocus(null)
+    const t = window.setTimeout(() => document.addEventListener('pointerdown', off, { once: true }), 0)
+    return () => { window.clearTimeout(t); document.removeEventListener('pointerdown', off) }
+  }, [focus])
+  const showBill = (id: string) => {
+    const go = () => document.getElementById('bill-' + id)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    window.setTimeout(go, 150)
+    window.setTimeout(() => { const r = document.getElementById('bill-' + id)?.getBoundingClientRect(); if (r && (r.top < 0 || r.bottom > innerHeight)) go() }, 650)
+  }
 
   // Days joined into trips: a day that continues the one before is drawn with it.
   const groups = useMemo(() => {
@@ -236,7 +249,6 @@ export default function ClaimPage() {
         )
       })()}
 
-      <Observations data={data} />
 
       {/* ---- day cards ---- */}
       {!data.days.length && <div className="card p-6 text-center text-sm text-ink-500">Nothing claimed yet.</div>}
@@ -253,10 +265,13 @@ export default function ClaimPage() {
               onEdit={() => openDay(d)} onMap={() => setMap({ days: [d], title: `${dayName(d.day)}${d.place ? ' · ' + d.place : ''}` })}
               onMapDays={(days, title) => setMap({ days, title })}
               onDelete={async () => { if (await ask.confirm({ title: `Remove ${dayName(d.day)}?`, body: 'The day, its rides, tickets, expenses and bills come off the claim.', yes: 'Remove day', danger: true })) void run('te_delete_day', { p_day: d.id }, 'Day removed.') }}
-              onBills={() => void refetch()} onAdjust={c.can_decide && !c.mine ? setAdjust : undefined} need={new Set((need ?? []).map(x => x.id))} />
+              onBills={() => void refetch()} onAdjust={c.can_decide && !c.mine ? setAdjust : undefined} need={new Set((need ?? []).map(x => x.id))} focus={focus} />
           ))}
         </div>
       ))}
+
+      {/* After the days and before the person's actions or the approver's check (the user, 19 Oct). */}
+      <Observations data={data} onGo={goTo} />
 
       {/* ---- the person's actions: one panel, the same shape on a phone and a computer ---- */}
       {c.can_edit && (
@@ -336,12 +351,14 @@ function Header({ data }: { data: ClaimData; onSaved?: () => void }) {
   )
 }
 
-function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDelete, onBills, onAdjust, need }: {
+function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDelete, onBills, onAdjust, need, focus }: {
   d: Day; data: ClaimData; tripDay: string | null; tol: number; over: number
   onEdit: () => void; onMap: () => void; onMapDays: (days: Day[], title: string) => void; onDelete: () => void; onBills: () => void
   onAdjust?: (t: AdjustTarget) => void
   /** Items whose bill Submit found missing: the card opens on them and marks them. */
   need?: Set<string>
+  /** The line an observation was tapped for. */
+  focus?: string | null
 }) {
   const c = data.claim, rule = data.rule
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
@@ -349,9 +366,12 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   // Open for whoever may change its figures, so the pencils are in sight.
   const [open, setOpen] = useState(!!onAdjust)
-  const needHere = [...(need ?? [])].some(id => id === d.hotel?.id || d.rides.some(r => r.id === id) || d.expenses.some(x => x.id === id))
-  useEffect(() => { if (needHere) setOpen(true) }, [needHere])
-  const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300' : '')
+  const mine = (id: string) => id === d.id || id === d.hotel?.id || d.rides.some(r => r.id === id) || d.expenses.some(x => x.id === id)
+  const needHere = [...(need ?? [])].some(mine) || (!!focus && mine(focus))
+  useEffect(() => { if (needHere) setOpen(true) }, [needHere, focus])
+  const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300'
+    : focus === id ? ' -mx-2 rounded-lg px-2' : '')
+  const lit = (id: string, color: string) => (focus === id && !(need?.has(id) && !data.bills.some(b => b.owner_id === id)) ? { boxShadow: `0 0 0 2px ${color}`, background: color + '14' } : undefined)
   const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
   // An amount: what was claimed struck through once an approver changed it, and their pencil.
   const amt = (id: string, now: number, t?: AdjustTarget, tone = 'text-ink-900') => {
@@ -415,7 +435,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null, bad = outOfPolicy(r.mode, rule)
             return (
               // On a phone the route on its own line and the figures under it; on a computer one line (the user, 18 Oct).
-              <div key={r.id} id={'bill-' + r.id} className={'py-2 text-sm' + mark(r.id)}>
+              <div key={r.id} id={'bill-' + r.id} className={'py-2 text-sm' + mark(r.id)} style={lit(r.id, m.color)}>
                <div className="sm:flex sm:items-center sm:gap-2">
                 <div className="flex min-w-0 items-center gap-2 sm:flex-1">
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
@@ -425,7 +445,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 <div className="mt-1.5 flex items-center gap-2 sm:mt-0">
                 {m.perKm && <span className={check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
                 <span className="ml-auto" />
-                {amt(r.id, rideAmount(r, rule), { kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined })}
+                {amt(r.id, rideAmount(r, rule), { kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol })}
                 <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm ? undefined : rideAmount(r, rule)} onChange={onBills} />
                 {r.from_lat != null && r.to_lat != null && (
                   <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-ink-200 text-teal-600 hover:bg-ink-100" title="This ride on the map" aria-label="This ride on the map"
@@ -458,7 +478,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {d.hotel && !d.room_by && (() => {
             const limit = hotelLimit(rule, d.hotel, outOfState, Number(data.policy.metro_extra_pct ?? 20))
             return (
-              <div id={'bill-' + d.hotel.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(d.hotel.id)}>
+              <div id={'bill-' + d.hotel.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(d.hotel.id)} style={lit(d.hotel.id, '#7C3AED')}>
                 <BedDouble className="h-4 w-4 text-violet-600" />
                 <span className="min-w-0 flex-1 truncate text-ink-800">{d.hotel.name || 'Hotel'} · {d.hotel.occupancy}{d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}</span>
                 {amt(d.hotel.id, d.hotel.amount, { kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
@@ -467,7 +487,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             )
           })()}
           {d.expenses.map(x => (
-            <div key={x.id} id={'bill-' + x.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(x.id)}>
+            <div key={x.id} id={'bill-' + x.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(x.id)} style={lit(x.id, '#D97706')}>
               <ReceiptIndianRupee className="h-4 w-4 text-amber-600" />
               <span className="min-w-0 flex-1 truncate text-ink-800">{x.category}{x.description ? ` · ${x.description}` : ''}</span>
               {amt(x.id, x.amount, { kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount })}
@@ -475,7 +495,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             </div>
           ))}
           {(d.da_kind !== 'none' || d.da_amount > 0) && (
-            <div className="flex flex-wrap items-center gap-2 py-2 text-sm">
+            <div id={'bill-' + d.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(d.id)} style={lit(d.id, '#0D9488')}>
               <HandCoins className="h-4 w-4 text-teal-600" />
               <span className="min-w-0 flex-1 truncate text-ink-800">DA · {daLabel?.toLowerCase()}</span>
               {amt(d.id, d.da_amount, { kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount })}
@@ -511,55 +531,139 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
   dates join it once BEMMP's tickets can be looked up (a visit before a ticket was logged, or after
   it was resolved).
 */
-function Observations({ data }: { data: ClaimData }) {
+/*
+  Each observation is a kind with a short title, its detail and its day, shown as a list rather than
+  coloured blocks (the user, 19 Oct: "make this more professional and beautiful"): what needs approval
+  first, then what to check, then what is for information.
+*/
+type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string }
+const OBS = {
+  policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert },
+  nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip },
+  twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy },
+  km:       { title: 'Over the km allowance',    level: 'check',   icon: Gauge },
+  billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
+  hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
+  reach:    { title: 'Hospital not reached',     level: 'check',   icon: MapPinOff },
+  da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
+  month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
+  changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
+  visit:    { title: 'Ticket visited before',    level: 'info',    icon: TicketIcon },
+} as const
+const LEVEL = {
+  approve: { label: 'need approval', chip: 'bg-cyrixRed-100 text-cyrixRed-700', dot: 'bg-cyrixRed-600' },
+  check:   { label: 'to check',      chip: 'bg-amber-100 text-amber-700',       dot: 'bg-amber-500' },
+  info:    { label: 'for information', chip: 'bg-sky-100 text-sky-700',         dot: 'bg-sky-500' },
+} as const
+
+function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => void }) {
   const rule = data.rule, tol = Number(data.policy.km_tolerance_pct ?? 10), over = Number(data.policy.bill_over ?? 300)
   const metro = Number(data.policy.metro_extra_pct ?? 20), near = Number(data.policy.place_near_km ?? 1)
-  const items: Array<{ tone: 'amber' | 'red' | 'sky' | 'rose'; text: string }> = []
-  for (const e of data.history ?? []) if (e.action === 'adjusted' && e.note) {
-    const [what, ...why] = e.note.split('\n')
-    items.push({ tone: 'rose', text: `${(e.actor ?? 'An approver').split(' ')[0]} changed ${what}${why.join(' ').trim() ? ` — “${why.join(' ').trim()}”` : ''}` })
-  }
+  const items: Obs[] = []
   const dn = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  const changedLines = (data.adjustments ?? []).map(a => a.item_id)
+  let nth = 0
+  for (const e of data.history ?? []) if (e.action === 'adjusted' && e.note) {
+    const to = changedLines[nth++]
+    const [what, ...why] = e.note.split('\n')
+    const [day, ...rest] = what.split(' · ')
+    items.push({ kind: 'changed', day, to, detail: `${(e.actor ?? 'An approver').split(' ')[0]}: ${rest.join(' · ') || what}${why.join(' ').trim() ? ` — “${why.join(' ').trim()}”` : ''}` })
+  }
   const billed = new Set(data.bills.map(b => b.owner_id))
   for (const d of data.days) {
+    const day = dn(d.day)
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
-      const leg = `${short(r.from_name)} → ${short(r.to_name)}`
-      if (k && k.over > 0) items.push({ tone: 'amber', text: `${dn(d.day)}: ${m.label} ${leg} claimed ${km(r.claimed_km)}, map ${km(r.map_km)} — ${km(k.over)} over the ${tol}% allowance` })
+      const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
+      if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
+      if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
+      if (k && k.over > 0) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · claimed ${km(r.claimed_km)}, map ${km(r.map_km)}, ${km(k.over)} over the ${tol}%` })
       const read = m.perKm ? null : billRead(data.bills, r.id)
-      if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ tone: 'amber', text: `${dn(d.day)}: ${m.label} ${leg} claimed ${money(r.fare)}, the bill reads ${money(read)}` })
-      if (outOfPolicy(r.mode, rule))
-        items.push({ tone: 'red', text: `${dn(d.day)}: ${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
-      if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no bill for the ${m.label.toLowerCase()} ride ${leg}` })
+      if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
     }
     if (d.hotel && !d.room_by) {
       const lim = hotelLimit(rule, d.hotel, d.da_kind === 'out_state' || d.da_kind === 'out_state_stay', metro)
-      if (lim != null && d.hotel.amount > lim) items.push({ tone: 'amber', text: `${dn(d.day)}: hotel ${money(d.hotel.amount)} is over the ${money(lim)} limit` })
-      if (!billed.has(d.hotel.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no hotel bill` })
+      if (lim != null && d.hotel.amount > lim) items.push({ kind: 'hotel', day, to: d.hotel.id, detail: `${money(d.hotel.amount)} against a limit of ${money(lim)}` })
+      if (!billed.has(d.hotel.id)) items.push({ kind: 'nobill', day, to: d.hotel.id, detail: 'Hotel night' })
       const hr = billRead(data.bills, d.hotel.id)
-      if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ tone: 'amber', text: `${dn(d.day)}: hotel claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
+      if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Hotel · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
     }
-    if (reachesPlace(d, near) === false) items.push({ tone: 'amber', text: `${dn(d.day)}: no ride reaches ${d.place} (within ${near} km)` })
-    if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ tone: 'amber', text: `${dn(d.day)}: DA ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
-    for (const x of d.expenses) { const xr = billRead(data.bills, x.id); if (xr != null && Math.abs(xr - x.amount) > 1) items.push({ tone: 'amber', text: `${dn(d.day)}: ${x.category.toLowerCase()} claimed ${money(x.amount)}, the bill reads ${money(xr)}` }) }
-    for (const x of d.expenses) if (needsBill('expense', x, over) && !billed.has(x.id)) items.push({ tone: 'red', text: `${dn(d.day)}: no bill for ${x.category.toLowerCase()} ${money(x.amount)}` })
+    if (reachesPlace(d, near) === false) items.push({ kind: 'reach', day, to: d.id, detail: `No ride starts or ends within ${near} km of ${d.place}` })
+    if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ kind: 'da', day, to: d.id, detail: `Claimed ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
+    for (const x of d.expenses) {
+      const xr = billRead(data.bills, x.id)
+      if (xr != null && Math.abs(xr - x.amount) > 1) items.push({ kind: 'billdiff', day, to: x.id, detail: `${x.category} · claimed ${money(x.amount)}, the bill reads ${money(xr)}` })
+      if (needsBill('expense', x, over) && !billed.has(x.id)) items.push({ kind: 'nobill', day, to: x.id, detail: `${x.category} · ${money(x.amount)}` })
+    }
     for (const t of d.tickets) {
       const earlier = (t as typeof t & { earlier?: Array<{ day: string; name: string; mine: boolean }> }).earlier ?? []
-      if (earlier.length) items.push({ tone: 'sky', text: `${dn(d.day)}: ticket ${t.ticket_no} was visited before on ${earlier.map(e => dn(e.day) + (e.mine ? '' : ' by ' + e.name)).join(', ')}` })
+      if (earlier.length) items.push({ kind: 'visit', day, to: d.id, detail: `Ticket ${t.ticket_no} · before on ${earlier.map(e => dn(e.day) + (e.mine ? '' : ' by ' + e.name)).join(', ')}` })
     }
   }
-  for (const b of data.bills) if (b.twin) items.push({ tone: 'red', text: `A bill looks like one already claimed on ${b.twin}` })
-  if (rule.bike_km_month && data.km_month.bike > rule.bike_km_month) items.push({ tone: 'amber', text: `Bike ${km(data.km_month.bike)} this month, over the ${rule.bike_km_month} km limit` })
-  if (rule.car_km_month && data.km_month.car > rule.car_km_month) items.push({ tone: 'amber', text: `Car ${km(data.km_month.car)} this month, over the ${rule.car_km_month} km limit` })
+  /*
+    Two bills alike on this claim are one observation, naming both lines (the user, 19 Oct: "can we merge
+    duplicate comments, like easy to understand"); one alike a bill on another claim says which.
+  */
+  const lineOf = (id: string | null | undefined) => {
+    for (const d of data.days) {
+      const r = d.rides.find(x => x.id === id)
+      if (r) return { day: dn(d.day), text: `${MODES[r.mode].label} ${short(r.from_name)} → ${short(r.to_name)}` }
+      if (d.hotel && d.hotel.id === id) return { day: dn(d.day), text: `Hotel night${d.hotel.name ? ' · ' + d.hotel.name : ''}` }
+      const x = d.expenses.find(e => e.id === id)
+      if (x) return { day: dn(d.day), text: x.category }
+    }
+    return null
+  }
+  const pairs = new Set<string>()
+  for (const b of data.bills) if (b.twin) {
+    const here = lineOf(b.owner_id)
+    if (b.twin_claim === data.claim.id && b.twin_owner) {
+      const key = [b.owner_id, b.twin_owner].sort().join('|')
+      if (pairs.has(key)) continue
+      pairs.add(key)
+      const there = lineOf(b.twin_owner)
+      items.push({ kind: 'twin', day: here?.day, to: b.owner_id, detail: b.twin_owner === b.owner_id
+        ? `Two bills on ${here?.text ?? 'one line'} look alike`
+        : `${here?.text ?? 'A line'} and ${there?.text ?? 'another line'} have the same-looking bill` })
+    } else items.push({ kind: 'twin', day: here?.day, to: b.owner_id, detail: `${here?.text ?? 'A bill'} · looks like the bill on ${b.twin}` })
+  }
+  if (rule.bike_km_month && data.km_month.bike > rule.bike_km_month) items.push({ kind: 'month', detail: `Bike ${km(data.km_month.bike)} this month, over ${rule.bike_km_month} km` })
+  if (rule.car_km_month && data.km_month.car > rule.car_km_month) items.push({ kind: 'month', detail: `Car ${km(data.km_month.car)} this month, over ${rule.car_km_month} km` })
   const autoCap = Number(data.policy.auto_month ?? 1000)
-  if (data.km_month.auto > autoCap) items.push({ tone: 'amber', text: `Auto ${money(data.km_month.auto)} this month, over the ${money(autoCap)} allowance` })
+  if (data.km_month.auto > autoCap) items.push({ kind: 'month', detail: `Auto ${money(data.km_month.auto)} this month, over ${money(autoCap)}` })
   if (!items.length) return data.days.length ? <p className="text-sm text-green-800"><Check className="mr-1 inline h-4 w-4" />Nothing to look at twice on this claim.</p> : null
-  const tone = { amber: 'bg-amber-100 text-amber-900', red: 'bg-cyrixRed-100 text-cyrixRed-900', sky: 'bg-sky-100 text-sky-900', rose: 'bg-rose-100 text-rose-900' }
+
+  const order = ['approve', 'check', 'info'] as const
+  const sorted = [...items].sort((x, y) => order.indexOf(OBS[x.kind].level) - order.indexOf(OBS[y.kind].level))
+  const count = (l: typeof order[number]) => items.filter(i => OBS[i.kind].level === l).length
   return (
-    <div className="card space-y-2 p-4">
-      <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink-900"><TriangleAlert className="h-4 w-4 text-amber-600" /> Observations · {items.length}</h2>
-      <ul className="space-y-1">
-        {items.map((it, i) => <li key={i} className={`rounded-lg px-3 py-1.5 text-sm ${tone[it.tone]}`}>{it.text}</li>)}
+    <div className="card overflow-hidden">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-ink-100 bg-ink-50 px-4 py-2.5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-900"><TriangleAlert className="h-4 w-4 text-amber-600" /> Observations</h2>
+        <span className="flex flex-wrap gap-1.5">
+          {order.filter(l => count(l)).map(l => (
+            <span key={l} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${LEVEL[l].chip}`}>
+              <i className={`h-1.5 w-1.5 rounded-full ${LEVEL[l].dot}`} />{count(l)} {LEVEL[l].label}
+            </span>
+          ))}
+        </span>
+      </div>
+      <ul className="divide-y divide-ink-100">
+        {sorted.map((it, i) => {
+          const o = OBS[it.kind], I = o.icon
+          return (
+            <li key={i} role={it.to ? 'button' : undefined} tabIndex={it.to ? 0 : undefined} onClick={it.to ? () => onGo(it.to!) : undefined}
+              onKeyDown={it.to ? e => { if (e.key === 'Enter') onGo(it.to!) } : undefined}
+              className={`flex items-start gap-3 px-4 py-2.5 ${it.to ? 'cursor-pointer transition-colors hover:bg-ink-100/60' : ''}`}>
+              <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${LEVEL[o.level].chip}`}><I className="h-4 w-4" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-ink-900">{o.title}</span>
+                <span className="block text-sm text-ink-600">{it.detail}</span>
+              </span>
+              {it.day && <span className="shrink-0 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-600">{it.day}</span>}
+            </li>
+          )
+        })}
       </ul>
     </div>
   )
