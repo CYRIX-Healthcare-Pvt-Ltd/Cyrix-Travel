@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, ChevronDown, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -364,11 +364,6 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
-  // Open for whoever may change its figures, so the pencils are in sight.
-  const [open, setOpen] = useState(!!onAdjust)
-  const mine = (id: string) => id === d.id || id === d.hotel?.id || d.rides.some(r => r.id === id) || d.expenses.some(x => x.id === id)
-  const needHere = [...(need ?? [])].some(mine) || (!!focus && mine(focus))
-  useEffect(() => { if (needHere) setOpen(true) }, [needHere, focus])
   const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300'
     : focus === id ? ' -mx-2 rounded-lg px-2' : '')
   const lit = (id: string, color: string) => (focus === id && !(need?.has(id) && !data.bills.some(b => b.owner_id === id)) ? { boxShadow: `0 0 0 2px ${color}`, background: color + '14' } : undefined)
@@ -391,14 +386,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   // A ticket sits under the ride that arrives at its hospital (the user, 17 Oct: "move the ticket under the hospital name").
   const rideOf = (t: Day['tickets'][number]) => t.place ? d.rides.find(r => (r.to_name ?? '').toLowerCase().includes(t.place!.toLowerCase().split(',')[0].trim())) : undefined
   const loose = d.tickets.filter(t => !rideOf(t))
-  const billed = new Set(data.bills.map(b => b.owner_id))
-  const missing = d.rides.filter(r => needsBill('ride', r, over, rule) && !billed.has(r.id)).length
-    + (d.hotel && !d.room_by && !billed.has(d.hotel.id) ? 1 : 0)
-    + d.expenses.filter(x => needsBill('expense', x, over) && !billed.has(x.id)).length
-  // Tapped anywhere but a button or the open details, the card opens or closes (the user, 19 Oct).
-  const toggle = (e: React.MouseEvent) => { if (!(e.target as HTMLElement).closest('button, a, input, select, textarea, [data-details]')) setOpen(o => !o) }
   return (
-    <div className="card cursor-pointer space-y-2 p-4 transition-shadow hover:shadow-md" onClick={toggle}>
+    <div className="card space-y-2 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold text-ink-900">{dayName(d.day)}{d.place ? ` · ${d.place}` : ''}{d.district ? `, ${d.district}` : ''}</p>
@@ -414,18 +403,30 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 
       <RouteStrip days={[d]} rule={rule} />
 
-      {/* One quiet line, the details behind a toggle (the user, 17 Oct: "looks overcrowded"). */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
-        {d.tickets.length > 0 && <span className="inline-flex items-center gap-1 text-sky-700"><TicketIcon className="h-3.5 w-3.5" />{d.tickets.map(t => t.ticket_no).join(', ')}</span>}
-        {d.hotel && !d.room_by && <span className="inline-flex items-center gap-1 text-violet-700"><BedDouble className="h-3.5 w-3.5" />{money(d.hotel.amount)}</span>}
-        {d.room_by && <span className="inline-flex items-center gap-1 text-green-700"><BedDouble className="h-3.5 w-3.5" />Room by {d.room_by.name.split(' ')[0]}</span>}
-        {d.expenses.length > 0 && <span className="inline-flex items-center gap-1 text-amber-700"><ReceiptIndianRupee className="h-3.5 w-3.5" />{money(d.expenses.reduce((t, x) => t + x.amount, 0))}</span>}
-        {missing > 0 && <span className="font-semibold text-amber-700">{missing} bill{missing > 1 ? 's' : ''} needed</span>}
-        <button type="button" className="ml-auto inline-flex items-center gap-1 rounded-full border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
-      </div>
+      {/* What the day's total is made of (the user, 19 Oct: "6116 in travel and others what, user should be clear"). */}
+      {(() => {
+        const parts = ([
+          ['Travel', d.rides.reduce((t, r) => t + rideAmount(r, rule), 0)],
+          ['DA', d.da_amount],
+          ['Hotel', d.room_by ? 0 : d.hotel?.amount ?? 0],
+          ['Other', d.expenses.reduce((t, x) => t + (x.amount || 0), 0)],
+        ] as const).filter(([, v]) => v > 0)
+        return parts.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            {parts.map(([label, v], i) => (
+              <span key={label} className="inline-flex items-center gap-1.5">
+                {i > 0 && <span className="text-ink-400">+</span>}
+                <span className="rounded-md bg-ink-100 px-2 py-1 text-ink-600">{label} <b className="font-semibold text-ink-900">{money(v)}</b></span>
+              </span>
+            ))}
+            <span className="text-ink-400">=</span>
+            <span className="rounded-md bg-ink-900 px-2 py-1 font-semibold text-[color:rgb(var(--surface))]">Total {money(parts.reduce((t, [, v]) => t + v, 0))}</span>
+          </div>
+        )
+      })()}
 
-      {open && (
-        <div data-details className="cursor-auto divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3">
+      {(
+        <div data-details className="divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3">
           {hasMap && (
             <div className="flex justify-end py-2">
               <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>
@@ -486,6 +487,13 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
               </div>
             )
           })()}
+          {d.room_by && (
+            <div className="flex flex-wrap items-center gap-2 py-2 text-sm">
+              <BedDouble className="h-4 w-4 text-green-600" />
+              <span className="min-w-0 flex-1 truncate text-ink-800">Room shared · claimed by {d.room_by.name} ({d.room_by.ecode}){d.room_by.number ? ` on ${d.room_by.number}` : ''}</span>
+              <span className="font-medium text-ink-500">{money(d.room_by.amount)}</span>
+            </div>
+          )}
           {d.expenses.map(x => (
             <div key={x.id} id={'bill-' + x.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(x.id)} style={lit(x.id, '#D97706')}>
               <ReceiptIndianRupee className="h-4 w-4 text-amber-600" />

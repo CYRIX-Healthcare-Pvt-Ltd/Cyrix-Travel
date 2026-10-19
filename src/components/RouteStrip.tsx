@@ -55,7 +55,6 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
   const below = Math.max(...stops.map((s, i) => names[i].length * 15 + (s.sub ? 15 : 0)))
   const H = 116 + below + 22
   const totalKm = rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0)
-  const totalCost = rides.reduce((t, r) => t + rideAmount(r, rule), 0)
   return (
     <div ref={box} className="overflow-x-auto">
       <svg viewBox={`0 0 ${w} ${H}`} width={w} height={H} role="img" className="max-w-none">
@@ -101,7 +100,7 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
           )
         })}
         <text x={w / 2} y={H - 10} textAnchor="middle" className="fill-ink-500" style={{ fontSize: 12 }}>
-          {km(totalKm)} · {money(totalCost)} travel{tickets.length ? ` · ${tickets.length} ticket${tickets.length > 1 ? 's' : ''}` : ''}
+          {km(totalKm)} by road{tickets.length ? ` · ${tickets.length} ticket${tickets.length > 1 ? 's' : ''}` : ''}
         </text>
       </svg>
     </div>
