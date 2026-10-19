@@ -33,6 +33,8 @@ export default function RouteMap({ days, rule, title, onClose }: { days: Day[]; 
       const L = (await import('leaflet')).default
       if (!box.current || !alive) return
       map = L.map(box.current)
+      // The box can still be settling its size (full screen on a computer): measured again once laid out.
+      window.setTimeout(() => map?.invalidateSize(), 250)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
       const stops: Array<{ name: string; lat: number; lng: number }> = []
       rides.forEach((r, i) => {
@@ -89,8 +91,8 @@ export default function RouteMap({ days, rule, title, onClose }: { days: Day[]; 
 
   const used = MODE_ORDER.filter(c => rides.some(r => r.mode === c))
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-shade/70 sm:items-center sm:p-4" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
-      <div className="flex max-h-full w-full flex-col overflow-hidden bg-surface sm:max-w-3xl sm:rounded-2xl" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-shade/70 sm:items-center sm:p-4 lg:p-6" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
+      <div className="flex max-h-full w-full flex-col overflow-hidden bg-surface sm:max-w-3xl sm:rounded-2xl lg:h-full lg:max-w-none" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 p-4">
           <div>
             <h2 className="text-base font-semibold text-ink-900">{title}</h2>
@@ -98,7 +100,10 @@ export default function RouteMap({ days, rule, title, onClose }: { days: Day[]; 
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="btn-icon"><X className="h-5 w-5" /></button>
         </div>
-        <div ref={box} className="h-[55vh] min-h-[280px] w-full" />
+        {/* On a computer the map fills the screen and the rides sit beside it (the user, 19 Oct); on a phone, under it. */}
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div ref={box} className="h-[55vh] min-h-[280px] w-full lg:h-auto lg:flex-1" />
+        <div className="flex min-h-0 flex-col lg:w-[420px] lg:shrink-0 lg:border-l lg:border-ink-100">
         <div className="flex flex-wrap gap-1.5 px-4 pt-3">
           {used.map(c => (
             <span key={c} className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-semibold" style={{ background: MODES[c].bg, color: MODES[c].fg }}>
@@ -106,7 +111,7 @@ export default function RouteMap({ days, rule, title, onClose }: { days: Day[]; 
             </span>
           ))}
         </div>
-        <div className="overflow-y-auto px-4 pb-4 pt-2">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-2">
           {rows.map((r, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border-t border-ink-100 px-1.5 py-2 text-sm hover:bg-ink-100/60"
               onMouseEnter={() => lift.current(i)} onMouseLeave={() => lift.current(null)}>
@@ -119,6 +124,8 @@ export default function RouteMap({ days, rule, title, onClose }: { days: Day[]; 
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">{money(r.cost)}</span>
             </div>
           ))}
+        </div>
+        </div>
         </div>
       </div>
     </div>,

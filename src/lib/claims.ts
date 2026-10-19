@@ -40,6 +40,11 @@ export type DaKind = typeof DA_KINDS[number]['code']
 
 export const EXPENSE_CATEGORIES = ['Courier', 'Printing & stationery', 'Tools', 'Toll', 'Client meal', 'Team meal', 'Phone', 'Spare purchase', 'Other']
 
+/** Each status as one strong hue: the claim header's stripe, and a claim row's edge. */
+export const STATUS_HUE: Record<string, string> = {
+  draft: '#94A3B8', with_manager: '#F59E0B', with_coordinator: '#8B5CF6', with_desk: '#0EA5E9',
+  approved: '#16A34A', paid: '#0D9488', returned: '#E30613', recalled: '#F97316',
+}
 export const STATUS: Record<string, { label: string; tone: string }> = {
   draft: { label: 'Draft', tone: 'bg-slate-100 text-slate-900' },
   with_manager: { label: 'With manager', tone: 'bg-amber-100 text-amber-900' },
@@ -164,7 +169,8 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
   if (kind === 'hotel') return true
   if (kind === 'ride') {
     const r = item as Ride
-    return r.mode === 'bus' || r.mode === 'train' || r.mode === 'flight' || rideAmount(r, rule) > over
+    // A bike or car is paid by its km, checked on the map: no bill, whatever it comes to (the user, 19 Oct).
+    return r.mode === 'bus' || r.mode === 'train' || r.mode === 'flight' || (!MODES[r.mode].perKm && rideAmount(r, rule) > over)
   }
   const x = item as Expense
   return x.amount > over || ['Courier', 'Toll', 'Client meal', 'Team meal'].includes(x.category)
@@ -396,7 +402,7 @@ const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
 }
 export const useMyClaims = () => useQuery({
   queryKey: ['te_my_claims'],
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number }>>('te_my_claims'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; bills_missing: number; submitted_at: string | null; returned_at: string | null }>>('te_my_claims'),
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
