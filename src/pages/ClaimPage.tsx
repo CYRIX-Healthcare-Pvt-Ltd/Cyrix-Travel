@@ -368,21 +368,32 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
     : focus === id ? ' -mx-2 rounded-lg px-2' : '')
   const lit = (id: string, color: string) => (focus === id && !(need?.has(id) && !data.bills.some(b => b.owner_id === id)) ? { boxShadow: `0 0 0 2px ${color}`, background: color + '14' } : undefined)
   const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
-  // An amount: what was claimed struck through once an approver changed it, and their pencil.
-  const amt = (id: string, now: number, t?: AdjustTarget, tone = 'text-ink-900') => {
+  // An amount: what was claimed struck through once an approver changed it.
+  const amt = (id: string, now: number, tone = 'text-ink-900') => {
     const a = changes(id), last = a[a.length - 1]
     return (
-      <span className="inline-flex shrink-0 items-center justify-end gap-1.5">
+      <span className="col-start-4 inline-flex items-center justify-end gap-1.5">
         {a.length > 0 && <s className="text-xs text-ink-400">{money(a[0].old_amount)}</s>}
-        <span className={`min-w-[3.5rem] text-right font-medium ${a.length ? 'font-semibold text-rose-700' : tone}`} title={last ? `Changed by ${last.by ?? 'an approver'}: ${last.reason}` : undefined}>{money(now)}</span>
-        {t && onAdjust && (
-          <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-violet-300 text-violet-700 hover:bg-violet-50" title="Change the amount" aria-label="Change the amount" onClick={() => onAdjust(t)}>
-            <PencilLine className="h-3.5 w-3.5" />
-          </button>
-        )}
+        <span className={`text-right font-medium ${a.length ? 'font-semibold text-rose-700' : tone}`} title={last ? `Changed by ${last.by ?? 'an approver'}: ${last.reason}` : undefined}>{money(now)}</span>
       </span>
     )
   }
+  /*
+    Every line's figures in the same columns: bill · amount · map · the approver's pencil last (the user,
+    19 Oct: "is this ok?" of figures that wandered; "keep edit at end"). The lines share the details'
+    columns, so each is as wide as its widest entry and an empty one keeps its place. On a phone the name
+    has its own line, the figures under it.
+  */
+  const cols = `minmax(0,1fr) auto auto auto${hasMap ? ' auto' : ''}${onAdjust ? ' auto' : ''}`
+  const pen = (t: AdjustTarget) => onAdjust && (
+    <button type="button" style={{ gridColumnStart: hasMap ? 6 : 5 }} className="grid h-7 w-7 place-items-center rounded-md border border-violet-300 text-violet-700 hover:bg-violet-50" title="Change the amount" aria-label="Change the amount" onClick={() => onAdjust(t)}>
+      <PencilLine className="h-3.5 w-3.5" />
+    </button>
+  )
+  const row = 'col-span-full grid grid-cols-subgrid items-center gap-y-1.5 py-2 text-sm'
+  const name = 'col-span-full flex min-w-0 items-center gap-2 sm:col-span-2'
+  // A bill's clip first for whoever attaches (the clips in one column); for an approver the bills beside the amount.
+  const billCell = 'col-start-3 flex items-center' + (c.can_edit ? '' : ' justify-end')
   // A ticket sits under the ride that arrives at its hospital (the user, 17 Oct: "move the ticket under the hospital name").
   const rideOf = (t: Day['tickets'][number]) => t.place ? d.rides.find(r => (r.to_name ?? '').toLowerCase().includes(t.place!.toLowerCase().split(',')[0].trim())) : undefined
   const loose = d.tickets.filter(t => !rideOf(t))
@@ -426,9 +437,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
       })()}
 
       {(
-        <div data-details className="divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3">
+        <div data-details className="grid gap-x-2 divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3" style={{ gridTemplateColumns: cols }}>
           {hasMap && (
-            <div className="flex justify-end py-2">
+            <div className="col-span-full flex justify-end py-2">
               <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>
             </div>
           )}
@@ -436,28 +447,26 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null, bad = outOfPolicy(r.mode, rule)
             return (
               // On a phone the route on its own line and the figures under it; on a computer one line (the user, 18 Oct).
-              <div key={r.id} id={'bill-' + r.id} className={'py-2 text-sm' + mark(r.id)} style={lit(r.id, m.color)}>
-               <div className="sm:flex sm:items-center sm:gap-2">
-                <div className="flex min-w-0 items-center gap-2 sm:flex-1">
+              <div key={r.id} id={'bill-' + r.id} className={row + mark(r.id)} style={lit(r.id, m.color)}>
+                <div className={'col-span-full flex min-w-0 items-center gap-2 ' + (m.perKm ? 'sm:col-span-1' : 'sm:col-span-2')}>
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
                   {bad && <span className="-ml-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white" title={`${m.label} is not in grade ${c.grade ?? '—'}'s policy`}>!</span>}
                   <span className="min-w-0 flex-1 truncate text-ink-800">{short(r.from_name)} → {short(r.to_name)}</span>
                 </div>
-                <div className="mt-1.5 flex items-center gap-2 sm:mt-0">
-                {m.perKm && <span className={check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
-                <span className="ml-auto" />
-                {amt(r.id, rideAmount(r, rule), { kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol })}
-                <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm ? undefined : rideAmount(r, rule)} onChange={onBills} />
+                {m.perKm && <span className={`col-start-1 sm:col-start-2 sm:text-right ${check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'}`} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
+                <span className={billCell}>
+                  <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm ? undefined : rideAmount(r, rule)} onChange={onBills} />
+                </span>
+                {amt(r.id, rideAmount(r, rule))}
                 {r.from_lat != null && r.to_lat != null && (
-                  <button type="button" className="grid h-7 w-7 place-items-center rounded-md border border-ink-200 text-teal-600 hover:bg-ink-100" title="This ride on the map" aria-label="This ride on the map"
+                  <button type="button" className="col-start-5 grid h-7 w-7 place-items-center rounded-md border border-ink-200 text-teal-600 hover:bg-ink-100" title="This ride on the map" aria-label="This ride on the map"
                     onClick={() => onMapDays([{ ...d, rides: [r] }], `${short(r.from_name)} → ${short(r.to_name)}`)}><MapIcon className="h-3.5 w-3.5" /></button>
                 )}
-                </div>
-               </div>
+                {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol })}
                 {d.tickets.filter(t => rideOf(t)?.id === r.id).map(t => {
                   const earlier = (t as typeof t & { earlier?: Array<{ day: string }> }).earlier ?? []
                   return (
-                    <span key={t.id} className="mt-1 flex w-full items-center gap-1.5 pl-1 text-xs text-sky-700">
+                    <span key={t.id} className="col-span-full flex items-center gap-1.5 pl-1 text-xs text-sky-700">
                       <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
                       {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
                     </span>
@@ -469,7 +478,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {loose.map(t => {
             const earlier = (t as typeof t & { earlier?: Array<{ day: string; name: string; mine: boolean }> }).earlier ?? []
             return (
-              <div key={t.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+              <div key={t.id} className="col-span-full flex flex-wrap items-center gap-2 py-2 text-sm">
                 <TicketIcon className="h-4 w-4 text-sky-600" />
                 <span className="text-ink-800">{t.ticket_no}{t.place ? ` · ${t.place}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}</span>
                 {earlier.length > 0 && <span className="text-xs font-semibold text-sky-700">{ordinal(earlier.length + 1)} visit</span>}
@@ -479,37 +488,44 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {d.hotel && !d.room_by && (() => {
             const limit = hotelLimit(rule, d.hotel, outOfState, Number(data.policy.metro_extra_pct ?? 20))
             return (
-              <div id={'bill-' + d.hotel.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(d.hotel.id)} style={lit(d.hotel.id, '#7C3AED')}>
-                <BedDouble className="h-4 w-4 text-violet-600" />
-                <span className="min-w-0 flex-1 truncate text-ink-800">{d.hotel.name || 'Hotel'} · {d.hotel.occupancy}{d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}</span>
-                {amt(d.hotel.id, d.hotel.amount, { kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
-                <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed claimed={d.hotel.amount} onChange={onBills} />
+              <div id={'bill-' + d.hotel.id} className={row + mark(d.hotel.id)} style={lit(d.hotel.id, '#7C3AED')}>
+                <span className={name}><BedDouble className="h-4 w-4 shrink-0 text-violet-600" />
+                  <span className="min-w-0 flex-1 truncate text-ink-800">{d.hotel.name || 'Hotel'} · {d.hotel.occupancy}{d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}</span></span>
+                <span className={billCell}>
+                  <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed claimed={d.hotel.amount} onChange={onBills} />
+                </span>
+                {amt(d.hotel.id, d.hotel.amount, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
+                {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount })}
               </div>
             )
           })()}
           {d.room_by && (
-            <div className="flex flex-wrap items-center gap-2 py-2 text-sm">
-              <BedDouble className="h-4 w-4 text-green-600" />
-              <span className="min-w-0 flex-1 truncate text-ink-800">Room shared · claimed by {d.room_by.name} ({d.room_by.ecode}){d.room_by.number ? ` on ${d.room_by.number}` : ''}</span>
-              <span className="font-medium text-ink-500">{money(d.room_by.amount)}</span>
+            <div className={row}>
+              <span className={name}><BedDouble className="h-4 w-4 shrink-0 text-green-600" />
+                <span className="min-w-0 flex-1 truncate text-ink-800">Room shared · claimed by {d.room_by.name} ({d.room_by.ecode}){d.room_by.number ? ` on ${d.room_by.number}` : ''}</span></span>
+              <span className="col-start-4 text-right font-medium text-ink-500">{money(d.room_by.amount)}</span>
             </div>
           )}
           {d.expenses.map(x => (
-            <div key={x.id} id={'bill-' + x.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(x.id)} style={lit(x.id, '#D97706')}>
-              <ReceiptIndianRupee className="h-4 w-4 text-amber-600" />
-              <span className="min-w-0 flex-1 truncate text-ink-800">{x.category}{x.description ? ` · ${x.description}` : ''}</span>
-              {amt(x.id, x.amount, { kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount })}
-              <BillButton compact claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable={c.can_edit} needed={needsBill('expense', x, over)} claimed={x.amount} onChange={onBills} />
+            <div key={x.id} id={'bill-' + x.id} className={row + mark(x.id)} style={lit(x.id, '#D97706')}>
+              <span className={name}><ReceiptIndianRupee className="h-4 w-4 shrink-0 text-amber-600" />
+                <span className="min-w-0 flex-1 truncate text-ink-800">{x.category}{x.description ? ` · ${x.description}` : ''}</span></span>
+              <span className={billCell}>
+                <BillButton compact claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable={c.can_edit} needed={needsBill('expense', x, over)} claimed={x.amount} onChange={onBills} />
+              </span>
+              {amt(x.id, x.amount)}
+              {pen({ kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount })}
             </div>
           ))}
           {(d.da_kind !== 'none' || d.da_amount > 0) && (
-            <div id={'bill-' + d.id} className={'flex flex-wrap items-center gap-2 py-2 text-sm' + mark(d.id)} style={lit(d.id, '#0D9488')}>
-              <HandCoins className="h-4 w-4 text-teal-600" />
-              <span className="min-w-0 flex-1 truncate text-ink-800">DA · {daLabel?.toLowerCase()}</span>
-              {amt(d.id, d.da_amount, { kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount })}
+            <div id={'bill-' + d.id} className={row + mark(d.id)} style={lit(d.id, '#0D9488')}>
+              <span className={name}><HandCoins className="h-4 w-4 shrink-0 text-teal-600" />
+                <span className="min-w-0 flex-1 truncate text-ink-800">DA · {daLabel?.toLowerCase()}</span></span>
+              {amt(d.id, d.da_amount)}
+              {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount })}
             </div>
           )}
-          {d.remarks && <p className="py-2 text-sm text-ink-600">{d.remarks}</p>}
+          {d.remarks && <p className="col-span-full py-2 text-sm text-ink-600">{d.remarks}</p>}
         </div>
       )}
     </div>

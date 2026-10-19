@@ -59,8 +59,17 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     onChange()
   }
 
+  // On a line of figures the clip comes first, so the clips stand in one column (the user, 19 Oct).
+  const clip = editable && part !== 'bills' && (
+    <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"
+      style={needed && !mine.length && accent ? { borderColor: accent.color + '99', background: accent.color + '14', ...inkVars(accent) } : undefined}
+      className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? (accent ? 'mode-ink' : 'border-amber-400 bg-amber-50 text-amber-700') : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
+      {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
+    </button>
+  )
   if (compact) return (
     <span className="inline-flex items-center gap-1">
+      {!large && clip}
       {/* Each bill says what it reads (the user, 18 Oct: "the approver should see easily that this is the
           amount fetched"): green when it matches the claim, amber with a mark when it does not. */}
       {part !== 'attach' && mine.map(b => {
@@ -74,13 +83,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
           </button>
         )
       })}
-      {editable && part !== 'bills' && (
-        <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"
-          style={needed && !mine.length && accent ? { borderColor: accent.color + '99', background: accent.color + '14', ...inkVars(accent) } : undefined}
-          className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? (accent ? 'mode-ink' : 'border-amber-400 bg-amber-50 text-amber-700') : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
-          {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
-        </button>
-      )}
+      {large && clip}
       {editable && part !== 'bills' && !large && needed && !mine.length && !busy && (
         <button type="button" onClick={() => input.current?.click()} className="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md bg-cyrixRed-100 px-2 text-xs font-semibold text-cyrixRed-800 hover:bg-cyrixRed-200">Bill needed</button>
       )}
