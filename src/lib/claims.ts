@@ -300,6 +300,29 @@ export async function dhash(file: Blob): Promise<string | null> {
   } catch { return null }
 }
 /*
+  The finer picture fingerprint (te_0032): a 17 × 16 difference hash, 256 bits as hex. The 9 × 8 one
+  called any two white slips with black lines alike; at this size a resized or re-saved copy of the same
+  photo came 7 bits apart and different receipts 18 to 28, so 12 or less is the same picture.
+*/
+export async function dhash256(file: Blob): Promise<string | null> {
+  if (!file.type.startsWith('image/')) return null
+  try {
+    const img = await createImageBitmap(file)
+    const c = document.createElement('canvas'); c.width = 17; c.height = 16
+    const g = c.getContext('2d')!; g.drawImage(img, 0, 0, 17, 16)
+    const px = g.getImageData(0, 0, 17, 16).data
+    let hex = '', nibble = 0, n = 0
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+      const i = (y * 17 + x) * 4, j = i + 4
+      const a = px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11, b = px[j] * 0.3 + px[j + 1] * 0.59 + px[j + 2] * 0.11
+      nibble = (nibble << 1) | (a > b ? 1 : 0)
+      if (++n === 4) { hex += nibble.toString(16); nibble = 0; n = 0 }
+    }
+    return hex
+  } catch { return null }
+}
+
+/*
   The amount (and, kept for the duplicate check, the bill number) read off a bill photo with the free reader in the phone
   (Tesseract; the user, 17 Oct). It is a guess the person checks, and it is shown on the bill for the
   approvers (18 Oct). The amount: the largest figure on a line that says total, else on a line that
@@ -347,7 +370,7 @@ export function outOfPolicy(mode: ModeCode, rule: Rule | undefined) {
 
 /** A bill into the private bucket, then recorded; the same file twice is refused by the database. */
 export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null }) {
-  const [hash, ph] = await Promise.all([sha256(file), dhash(file)])
+  const [hash, ph, ph2] = await Promise.all([sha256(file), dhash(file), dhash256(file)])
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/${newId()}.${ext}`
   const { data: dupe } = await supabase.rpc('te_bill_used', { p_sha256: hash })
@@ -356,7 +379,7 @@ export async function uploadBill(claimId: string, kind: Bill['owner_kind'], owne
   if (up) throw new Error(friendlyError(up))
   const { error } = await supabase.rpc('te_add_bill', {
     p_claim: claimId, p_kind: kind, p_owner: ownerId, p_path: path, p_name: file.name, p_sha256: hash,
-    p_phash: ph, p_amount: read.amount, p_date: read.date, p_billno: read.billno,
+    p_phash: ph, p_phash2: ph2, p_amount: read.amount, p_date: read.date, p_billno: read.billno,
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
 }

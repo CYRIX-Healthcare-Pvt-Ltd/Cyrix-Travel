@@ -51,11 +51,14 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
   const STEP = Math.max(MIN_STEP, stops.length > 1 ? (room - 2 * EDGE) / (stops.length - 1) : MIN_STEP)
   const w = Math.max(room || 300, (stops.length - 1) * STEP + 2 * EDGE)
   const names = fitNames(stops.map(x => x.name), STEP)
+  // Below the line: each name's one or two lines, then its ticket; the total under the tallest of them.
+  const below = Math.max(...stops.map((s, i) => names[i].length * 15 + (s.sub ? 15 : 0)))
+  const H = 116 + below + 22
   const totalKm = rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0)
   const totalCost = rides.reduce((t, r) => t + rideAmount(r, rule), 0)
   return (
     <div ref={box} className="overflow-x-auto">
-      <svg viewBox={`0 0 ${w} 172`} width={w} height={172} role="img" className="max-w-none">
+      <svg viewBox={`0 0 ${w} ${H}`} width={w} height={H} role="img" className="max-w-none">
         <title>Route</title>
         {segs.map(({ from, ride }) => {
           const m = MODES[ride.mode]
@@ -90,12 +93,14 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
             <g key={i}>
               <title>{s.name}</title>
               <circle cx={x} cy={84} r={filled ? 10 : 9} fill={filled ? c : 'rgb(var(--surface))'} stroke={filled ? 'rgb(var(--surface))' : c} strokeWidth={3} />
-              <text x={tx} y={116} textAnchor={anchor} className="fill-ink-900" style={{ fontSize: 12, fontWeight: 600 }}>{names[i]}</text>
-              {s.sub && <text x={tx} y={131} textAnchor={anchor} className="fill-ink-500" style={{ fontSize: 11 }}>{s.sub}</text>}
+              <text x={tx} y={116} textAnchor={anchor} className="fill-ink-900" style={{ fontSize: 12, fontWeight: 600 }}>
+                {names[i].map((line, k) => <tspan key={k} x={tx} dy={k ? 15 : 0}>{line}</tspan>)}
+              </text>
+              {s.sub && <text x={tx} y={116 + names[i].length * 15} textAnchor={anchor} className="fill-ink-500" style={{ fontSize: 11 }}>{s.sub}</text>}
             </g>
           )
         })}
-        <text x={w / 2} y={160} textAnchor="middle" className="fill-ink-500" style={{ fontSize: 12 }}>
+        <text x={w / 2} y={H - 10} textAnchor="middle" className="fill-ink-500" style={{ fontSize: 12 }}>
           {km(totalKm)} · {money(totalCost)} travel{tickets.length ? ` · ${tickets.length} ticket${tickets.length > 1 ? 's' : ''}` : ''}
         </text>
       </svg>
@@ -103,9 +108,11 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
   )
 }
 /*
-  The stops' names, each the place's own name (before the first comma), cut so that no two touch:
-  measured in the strip's own font, the first reading on from its dot, the last back to it, the
-  rest centred, and the room between two dots shared — a short name leaves its neighbour more.
+  The stops' names, each the place's own name (before the first comma), on one line or two so that
+  no two touch: measured in the strip's own font, the first reading on from its dot, the last back to
+  it, the rest centred, and the room between two dots shared — a short name leaves its neighbour
+  more. A name too wide for its room wraps at a space onto a second line (the user, 19 Oct: "better
+  wrap the locations if not fitting"); only when two lines are still not enough does it end in "…".
 */
 let ctx: CanvasRenderingContext2D | null = null
 function textWidth(t: string) {
@@ -115,10 +122,29 @@ function textWidth(t: string) {
   }
   return ctx ? ctx.measureText(t).width : t.length * 7.2
 }
-function fitNames(full: string[], step: number) {
+/** The narrowest two lines a name breaks into at a space: the wider line's width, and the lines. */
+function twoLines(t: string): { width: number; lines: string[] } {
+  const words = t.split(/\s+/)
+  let best = { width: textWidth(t), lines: [t] }
+  for (let k = 1; k < words.length; k++) {
+    const lines = [words.slice(0, k).join(' '), words.slice(k).join(' ')]
+    const width = Math.max(...lines.map(textWidth))
+    if (width < best.width) best = { width, lines }
+  }
+  return best
+}
+/** A line cut to the width, ending in "…". */
+function cut(t: string, limit: number) {
+  if (textWidth(t) <= limit) return t
+  let k = t.length
+  while (k > 1 && textWidth(t.slice(0, k).trimEnd() + '…') > limit) k--
+  return t.slice(0, k).trimEnd() + '…'
+}
+function fitNames(full: string[], step: number): string[][] {
   const n = full.length, GAP = 10
   const want = full.map(x => x.split(',')[0].trim() || x)
-  const wd = want.map(textWidth)
+  // The room each name asks for: its width on one line, or wrapped onto two.
+  const wd = want.map(t => Math.min(textWidth(t), twoLines(t).width))
   // How far each name reaches left and right of its dot.
   const left = wd.map((x, i) => (i === 0 ? 10 : i === n - 1 && n > 1 ? x - 10 : x / 2))
   const right = wd.map((x, i) => (i === 0 ? x - 10 : i === n - 1 && n > 1 ? 10 : x / 2))
@@ -132,9 +158,13 @@ function fitNames(full: string[], step: number) {
   }
   return want.map((t, i) => {
     const limit = i === 0 ? maxR[i] + 10 : i === n - 1 && n > 1 ? maxL[i] + 10 : 2 * Math.min(maxL[i], maxR[i])
-    if (wd[i] <= limit) return t
-    let k = t.length
-    while (k > 1 && textWidth(t.slice(0, k).trimEnd() + '…') > limit) k--
-    return t.slice(0, k).trimEnd() + '…'
+    if (textWidth(t) <= limit) return [t]
+    // Words onto the first line while they fit; the rest onto the second, cut there if need be.
+    const words = t.split(/\s+/)
+    let k = 0
+    while (k < words.length && textWidth(words.slice(0, k + 1).join(' ')) <= limit) k++
+    if (k === 0) return [cut(t, limit)]
+    const rest = words.slice(k).join(' ')
+    return rest ? [words.slice(0, k).join(' '), cut(rest, limit)] : [words.join(' ')]
   })
 }
