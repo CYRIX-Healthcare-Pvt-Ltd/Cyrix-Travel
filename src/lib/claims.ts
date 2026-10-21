@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bike, Bus, Car, CarTaxiFront, Plane, TrainFront, TramFront, Truck, type LucideIcon } from 'lucide-react'
+import { Bike, Bus, Car, CarTaxiFront, Cog, Construction, Package, Plane, Printer, ReceiptIndianRupee, Smartphone, TrainFront, TramFront, Truck, Users, Utensils, Wrench, type LucideIcon } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
 import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
@@ -40,6 +40,12 @@ export const DA_KINDS = [
 export type DaKind = typeof DA_KINDS[number]['code']
 
 export const EXPENSE_CATEGORIES = ['Courier', 'Printing & stationery', 'Tools', 'Toll', 'Client meal', 'Team meal', 'Phone', 'Spare purchase', 'Other']
+// Each kind of expense its own picture (the user, 21 Oct: "courier and phone having same icon?").
+const EXPENSE_ICONS: Record<string, LucideIcon> = {
+  Courier: Package, 'Printing & stationery': Printer, Tools: Wrench, Toll: Construction,
+  'Client meal': Utensils, 'Team meal': Users, Phone: Smartphone, 'Spare purchase': Cog,
+}
+export const expenseIcon = (category: string): LucideIcon => EXPENSE_ICONS[category] ?? ReceiptIndianRupee
 
 /** Each status as one strong hue: the claim header's stripe, and a claim row's edge. */
 export const STATUS_HUE: Record<string, string> = {
@@ -566,6 +572,9 @@ export function billRead(bills: Bill[], ownerId: string): number | null {
 export function outOfPolicy(mode: ModeCode, rule: Rule | undefined) {
   return !!rule && ((mode === 'car' && !rule.car_rate) || (mode === 'bike' && !rule.bike_rate) || (mode === 'flight' && !rule.flight) || (mode === 'taxi' && !rule.taxi))
 }
+/** What the red mark on such a ride means, said when it is pressed. */
+export const policyNote = (mode: string, grade: string | null | undefined) =>
+  `${mode} is not in ${grade ? `grade ${grade}'s` : 'this grade’s'} travel policy, so it needs the manager's prior approval.`
 
 /** A bill into the private bucket, then recorded; the same file twice is refused by the database. */
 export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null; refs?: string[] }) {

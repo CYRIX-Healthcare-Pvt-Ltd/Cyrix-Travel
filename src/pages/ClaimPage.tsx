@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -16,7 +16,7 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, companyOf, outOfPolicy, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
+  DA_KINDS, DA_RANK, MODES, billRead, companyOf, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -382,6 +382,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   focus?: string | null
 }) {
   const c = data.claim, rule = data.rule
+  const ask = useAsk()
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
@@ -453,7 +454,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         </div>
       </div>
 
-      <RouteStrip days={[d]} rule={rule} />
+      <RouteStrip days={[d]} rule={rule} grade={c.grade} />
 
       {/* What the day's total is made of (the user, 19 Oct: "6116 in travel and others what, user should be clear"). */}
       {(() => {
@@ -497,7 +498,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 <div className={'col-start-1 row-span-3 row-start-1 flex min-w-0 flex-col items-start gap-1 self-start sm:row-span-1 sm:row-start-auto sm:flex-row sm:items-center sm:gap-2 sm:self-auto ' + (m.perKm ? 'sm:col-span-1' : 'sm:col-span-2')}>
                   <span className="flex shrink-0 items-center gap-1">
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
-                    {bad && <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white" title={`${m.label} is not in grade ${c.grade ?? '—'}'s policy`}>!</span>}
+                    {/* A press says what the mark means — a phone has no hover (the user, 21 Oct). */}
+                    {bad && <button type="button" className="btn-press grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white hover:bg-cyrixRed-700" title={policyNote(m.label, c.grade)} aria-label="Why the red mark"
+                      onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, c.grade))}>!</button>}
                   </span>
                   {/* From, a small arrow, To (the user, 21 Oct: "show a small arrow also in the middle"). */}
                   <span className="grid min-w-0 grid-cols-[0.5rem_minmax(0,1fr)] items-start gap-x-2 text-ink-800 sm:hidden">
@@ -571,7 +574,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           )}
           {d.expenses.map(x => (
             <div key={x.id} id={'bill-' + x.id} className={row + mark(x.id)} style={lit(x.id, '#D97706')}>
-              <span className={name}>{lead(ReceiptIndianRupee, 'text-amber-600', x.category, 'bg-amber-100 text-amber-900', x.description ?? '', `${x.category}${x.description ? ` · ${x.description}` : ''}`)}</span>
+              <span className={name}>{lead(expenseIcon(x.category), 'text-amber-600', x.category, 'bg-amber-100 text-amber-900', x.description ?? '', `${x.category}${x.description ? ` · ${x.description}` : ''}`)}</span>
               {showsBill(x.id, needsBill('expense', x, over)) && <span className={billCell}>
                 <BillButton compact claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable={c.can_edit} needed={needsBill('expense', x, over)} claimed={x.amount} onChange={onBills} />
               </span>}
