@@ -14,12 +14,18 @@ import { MODES, MODE_ORDER, STATUS, claimName, dayRange, inkVars, km, money, use
 const TABS = [['waiting', 'To approve'], ['pending', 'To be paid'], ['paid', 'Paid']] as const
 type Tab = typeof TABS[number][0]
 const EMPTY: Record<Tab, string> = { waiting: 'Nothing for you to approve.', pending: 'Nothing waiting to be paid.', paid: 'Nothing paid yet.' }
+// Each tab's count in its own colour while it has any (the user, 21 Oct: to approve red, to be paid yellow, paid green).
+const COUNT: Record<Tab, string> = { waiting: 'bg-cyrixRed-600 text-white', pending: 'bg-amber-600 text-white', paid: 'bg-green-600 text-white' }
+// The tab chosen is kept for this browser tab, so coming back from a claim finds it again (the user, 21 Oct).
+const TAB_KEY = 'te.approvals.tab'
+const keptTab = (): Tab => { try { const t = sessionStorage.getItem(TAB_KEY); return TABS.some(([k]) => k === t) ? (t as Tab) : 'waiting' } catch { return 'waiting' } }
 
 export default function Inbox() {
   const { data, isLoading, error } = useInbox()
   const done = (useLocation().state as { done?: string } | null)?.done
   const find = useClaimFilter('te.approvals')
-  const [tab, setTab] = useState<Tab>('waiting')
+  const [tab, setTabState] = useState<Tab>(keptTab)
+  const setTab = (t: Tab) => { setTabState(t); try { sessionStorage.setItem(TAB_KEY, t) } catch { /* only a convenience */ } }
   if (isLoading) return <PageLoader />
   const found = (data ?? []).filter(find.test)
   /*
@@ -66,7 +72,7 @@ export default function Inbox() {
           <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
             className={`-mb-px flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2.5 pt-1 text-sm font-semibold sm:flex-none sm:px-4 ${tab === k ? 'border-ink-900 text-ink-900' : 'border-transparent text-ink-500 hover:text-ink-800'}`}>
             {l}
-            <span className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-xs font-bold ${k === 'waiting' && lists[k].length > 0 ? 'bg-cyrixRed-600 text-white' : 'bg-ink-100 text-ink-700'}`}>{lists[k].length}</span>
+            <span className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-xs font-bold ${lists[k].length > 0 ? COUNT[k] : 'bg-ink-100 text-ink-700'}`}>{lists[k].length}</span>
           </button>
         ))}
       </div>
