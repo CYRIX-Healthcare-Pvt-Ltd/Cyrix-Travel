@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Hospital, Settings2, Trash2 } from 'lucide-react'
+import { Hospital, Map as MapIcon, Settings2, Trash2 } from 'lucide-react'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { rpc, type Rule } from '@/lib/claims'
@@ -272,10 +272,13 @@ function DeleteClaim() {
   Places learned from tickets (Travel te_0038; the user, 21 Oct): every hospital a ticket was saved
   against, offered to everyone who searches. Nobody keeps this list; a wrong one is taken off here.
 */
+// The map only when a place is opened on it, so this page does not carry it otherwise.
+const PlaceMapDialog = lazy(() => import('@/components/PlaceMapDialog'))
 function LearnedPlaces() {
   const qc = useQueryClient()
   const ask = useAsk()
-  const { data, isLoading, error } = useQuery({ queryKey: ['te_admin_places'], queryFn: () => rpc<Array<{ id: string; name: string; full_name: string; district: string | null; visits: number; first_by: string | null; created_at: string }>>('te_admin_places') })
+  const { data, isLoading, error } = useQuery({ queryKey: ['te_admin_places'], queryFn: () => rpc<Array<{ id: string; name: string; full_name: string; district: string | null; visits: number; first_by: string | null; created_at: string; lat: number; lng: number }>>('te_admin_places') })
+  const [onMap, setOnMap] = useState<{ id: string; name: string; full_name: string; lat: number; lng: number } | null>(null)
   const [q, setQ] = useState('')
   const [fail, setFail] = useState<string | null>(null)
   const remove = async (id: string, name: string) => {
@@ -299,10 +302,17 @@ function LearnedPlaces() {
                 <p className="truncate font-medium text-ink-900">{p.name}{p.district && <span className="font-normal text-ink-500"> · {p.district}</span>}</p>
                 <p className="truncate text-xs text-ink-500">{p.visits} visit{p.visits === 1 ? '' : 's'} · first by {p.first_by ?? '—'} · {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
               </div>
+              <button type="button" className="btn-icon text-teal-600" aria-label={`${p.name} on the map`} title="See and move on the map" onClick={() => setOnMap(p)}><MapIcon className="h-4 w-4" /></button>
               <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => void remove(p.id, p.name)}><Trash2 className="h-4 w-4" /></button>
             </div>
           ))}
         </div>
+      )}
+      {onMap && (
+        <Suspense fallback={null}>
+          <PlaceMapDialog place={onMap} onClose={() => setOnMap(null)}
+            onSave={async p => { await rpc('te_edit_place', { p_id: onMap.id, p_name: p.name, p_lat: p.lat, p_lng: p.lng }); setOnMap(null); await qc.invalidateQueries({ queryKey: ['te_admin_places'] }) }} />
+        </Suspense>
       )}
     </div>
   )

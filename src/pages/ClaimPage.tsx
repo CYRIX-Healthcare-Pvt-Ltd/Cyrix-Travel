@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -575,6 +575,7 @@ const OBS = {
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
   away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff },
+  home:     { title: 'Home moved',               level: 'check',   icon: House },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
   month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
   changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
@@ -599,6 +600,8 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
     const [day, ...rest] = what.split(' · ')
     items.push({ kind: 'changed', day, to, detail: `${(e.actor ?? 'An approver').split(' ')[0]}: ${rest.join(' · ') || what}${why.join(' ').trim() ? ` — “${why.join(' ').trim()}”` : ''}` })
   }
+  // A home moved while the claim was open (te_0041; the user, 21 Oct: "showing to approver is enough").
+  for (const m of data.home_moves ?? []) items.push({ kind: 'home', day: dn(m.at.slice(0, 10)), detail: `Moved ${m.km != null ? km(Number(m.km)) : ''}` })
   const billed = new Set(data.bills.map(b => b.owner_id))
   for (const d of data.days) {
     const day = dn(d.day)

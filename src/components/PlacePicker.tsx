@@ -13,9 +13,11 @@ import { distanceKm, findLearned, nameOf, rpc, searchPlaces, type Learned, type 
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, quick, onPick, onClose, askName = false }: {
+export default function PlacePicker({ title, start, near, quick, onPick, onClose, askName = false }: {
   title: string
   start?: Place | null
+  /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
+  near?: Place | null
   quick: Array<Place & { label?: string; home?: boolean; hospital?: boolean }>
   onPick: (p: Place, name?: string) => void
   onClose: () => void
@@ -73,10 +75,10 @@ export default function PlacePicker({ title, start, quick, onPick, onClose, askN
       if (!box.current || !alive) return
       /*
         Opened where the engineer is, anywhere in India (the user, 21 Oct: "this module is going to be used by
-        pan-Indian engineers"): the place itself, else home or the day's last place, else where the phone is
+        pan-Indian engineers"): the place itself, else where the ride starts, else home or the day's last place, else where the phone is
         when location is already allowed, else all of India.
       */
-      const around = quick.find(p => p.home) ?? quick[0] ?? null
+      const around = near ?? quick.find(p => p.home) ?? quick[0] ?? null
       const map = L.map(box.current).setView(start ? [start.lat, start.lng] : around ? [around.lat, around.lng] : [22.6, 79.0], start ? 15 : around ? 12 : 5)
       if (!start && !around && navigator.permissions && navigator.geolocation) {
         void navigator.permissions.query({ name: 'geolocation' as PermissionName }).then(s => {

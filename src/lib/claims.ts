@@ -111,6 +111,8 @@ export interface ClaimData {
   history: HistoryStep[]
   /** Figures an approver changed (te_0027), oldest first. */
   adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>
+  /** Where the person moved their home while this claim was open (te_0041). */
+  home_moves?: Array<{ at: string; km: number | null; first: boolean }>
 }
 /** One step of a claim's history (te_0025): who did what, when, and the note given. */
 export interface HistoryStep { id: number; at: string; action: string; to_status: string | null; note: string | null; actor: string | null }
