@@ -34,7 +34,7 @@ export default function ClaimPage() {
   // Deleting any claim is SW Admin's alone (te_0028; the user, 18 Oct: "only for swadmin").
   const { isSwAdmin } = useAuth()
   const ask = useAsk()
-  const openDay = (d: Day, replace = false) => nav(`/claim/${id}/day`, { state: { day: d }, replace })
+  const openDay = (d: Day, replace = false, chosen = false) => nav(`/claim/${id}/day`, { state: { day: d, chosen }, replace })
   const [map, setMap] = useState<{ days: Day[]; title: string } | null>(null)
   const [note, setNote] = useState('')
   // The decision panel says its own result, where the button was pressed (the user, 17 Oct).
@@ -87,7 +87,7 @@ export default function ClaimPage() {
   const want = search.get('add')
   if (want && data) {
     const have = data.days.find(d => d.day === want)
-    window.setTimeout(() => { setSearch({}, { replace: true }); openDay(have ?? blankDay(want)) }, 0)
+    window.setTimeout(() => { setSearch({}, { replace: true }); openDay(have ?? blankDay(want), false, true) }, 0)
   }
   if (isLoading) return <PageLoader />
   if (error || !data) return <Alert kind="error">{(error as Error)?.message ?? 'That claim could not be opened.'}</Alert>
@@ -331,7 +331,7 @@ export default function ClaimPage() {
             {data.days.some(d => d.day === pickDay) && <p className="text-sm text-ink-600">{dayName(pickDay)} is already on this claim — Continue opens it.</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setPicking(false)}>Cancel</button>
-              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); openDay(data.days.find(d => d.day === pickDay) ?? blankDay(pickDay)) }}>Continue</button>
+              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); openDay(data.days.find(d => d.day === pickDay) ?? blankDay(pickDay), false, true) }}>Continue</button>
             </div>
           </div>
         </Dialog>

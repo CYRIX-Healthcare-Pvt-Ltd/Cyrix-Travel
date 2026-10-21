@@ -198,24 +198,86 @@ export async function roadKm(a: Place, b: Place): Promise<{ km: number; line: [n
   temple" finds nothing in Nominatim, where the map spells it Anchumana), and it prefers places near
   where the map is looking. Nominatim when Photon is down or finds nothing.
 */
+/*
+  Our facilities go by short forms — DH ALUVA, THQH PARASSALA, PHC NELLAYA — and the map knows them by
+  their full names (the user, 21 Oct: "DH aluva is in our asset but in map it is district hospital").
+  A short form typed is searched as its full name as well; a PHC also as a Family Health Centre, which
+  many in Kerala now are. The same short forms are used in every state.
+*/
+const SHORT: Record<string, string[]> = {
+  PHC: ['Primary Health Centre', 'Family Health Centre'], UPHC: ['Urban Primary Health Centre'],
+  BPHC: ['Block Primary Health Centre'], APHC: ['Additional Primary Health Centre'], NPHC: ['New Primary Health Centre'],
+  CHC: ['Community Health Centre'], UCHC: ['Urban Community Health Centre'],
+  FHC: ['Family Health Centre'], UFHC: ['Urban Family Health Centre'],
+  HWC: ['Health and Wellness Centre'], UHWC: ['Urban Health and Wellness Centre'],
+  THQH: ['Taluk Headquarters Hospital'], THQ: ['Taluk Headquarters Hospital'],
+  // Kerala's TH and MCH are a Taluk Hospital and a Medical College Hospital; Andhra's a Teaching Hospital and a Mother and Child Hospital.
+  TH: ['Taluk Hospital', 'Teaching Hospital'],
+  DH: ['District Hospital'], DHH: ['District Headquarters Hospital'], DWH: ['District Women Hospital'],
+  SDH: ['Sub District Hospital'], GH: ['General Hospital'], AH: ['Area Hospital'],
+  MCH: ['Medical College Hospital', 'Mother and Child Hospital'], GMC: ['Government Medical College'], GMCH: ['Government Medical College Hospital'],
+  GMHC: ['Government Mental Health Centre'], WCH: ['Women and Children Hospital'], 'W&C': ['Women and Children Hospital'],
+}
+// Words in our names that the map never has: "24X7 PHC", "AAM-UHWC".
+const NOISE = new Set(['24X7', 'AAM'])
+const words = (q: string) => q.trim().split(/[\s-]+/).filter(Boolean)
+/** The query with its short forms written out: none when it has none, two when a PHC may be either. */
+export function expandShort(q: string): string[] {
+  const ws = words(q)
+  if (!ws.some(w => SHORT[w.toUpperCase()])) return []
+  const kept = ws.filter(w => !NOISE.has(w.toUpperCase()))
+  const variant = (i: number) => kept.map(w => { const o = SHORT[w.toUpperCase()]; return o ? o[Math.min(i, o.length - 1)] : w }).join(' ')
+  return [...new Set([variant(0), variant(1)])]
+}
+// A search that is slow gives up after 5 s and the next one is tried (the public map search throttles at times).
+async function timed(url: string, init?: RequestInit, ms = 5000) {
+  const ctl = new AbortController(), t = window.setTimeout(() => ctl.abort(), ms)
+  try { return await fetch(url, { ...init, signal: ctl.signal }) } finally { window.clearTimeout(t) }
+}
+async function photon(q: string, near?: { lat: number; lng: number }): Promise<Place[]> {
+  // Near the engineer when the map knows where they are; otherwise anywhere in India.
+  const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : '&bbox=68.1,6.5,97.4,35.7'
+  const r = await timed(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lang=en${bias}`)
+  const j = await r.json() as { features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+  return j.features.filter(f => (f.properties.countrycode ?? '').toUpperCase() === 'IN').map(f => {
+    const p = f.properties
+    const where = [p.street && p.street !== p.name ? p.street : null, p.city ?? p.district ?? p.county, p.state].filter(Boolean)
+    return { name: [p.name ?? p.street, ...where].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
+  }).filter(x => x.name)
+}
 export async function searchPlaces(q: string, near?: { lat: number; lng: number }): Promise<Place[]> {
   if (q.trim().length < 3) return []
+  const full = expandShort(q)
   try {
-    const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : '&lat=10.0&lon=76.3'
-    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lang=en${bias}`)
-    const j = await r.json() as { features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
-    const out = j.features.filter(f => (f.properties.countrycode ?? '').toUpperCase() === 'IN').map(f => {
-      const p = f.properties
-      const where = [p.street && p.street !== p.name ? p.street : null, p.city ?? p.district ?? p.county, p.state].filter(Boolean)
-      return { name: [p.name ?? p.street, ...where].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
-    }).filter(x => x.name)
-    if (out.length) return out.slice(0, 8)
+    // The written-out names first, then what was typed; the same spot once.
+    const lists = await Promise.all([...full, q].map(x => photon(x, near).catch(() => [] as Place[])))
+    const seen = new Set<string>(), out: Place[] = []
+    // The map often holds one hospital twice (its building and its point): the same name within half a km is one.
+    for (const p of lists.flat()) {
+      const k = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`, nm = p.name.split(",")[0].trim().toLowerCase()
+      if (seen.has(k) || out.some(o => o.name.split(",")[0].trim().toLowerCase() === nm && distanceKm(o, p) < 0.5)) continue
+      seen.add(k); out.push(p)
+    }
+    // A place carrying the typed name (Aluva, Nellaya) above one the search only guessed at.
+    const named = words(q).filter(w => !SHORT[w.toUpperCase()] && !NOISE.has(w.toUpperCase()) && w.length >= 3).map(w => w.toLowerCase())
+    const hits = (p: Place) => named.filter(w => p.name.toLowerCase().includes(w)).length
+    const ranked = out.map((p, i) => ({ p, i, h: hits(p) })).sort((x, y) => y.h - x.h || x.i - y.i).map(x => x.p)
+    if (ranked.length) return ranked.slice(0, 8)
   } catch { /* fall through to Nominatim */ }
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&limit=6&q=${encodeURIComponent(q)}`, { headers: { 'Accept-Language': 'en' } })
+    const r = await timed(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=in&limit=6&q=${encodeURIComponent(full[0] ?? q)}`, { headers: { 'Accept-Language': 'en' } }, 6000)
     const j = await r.json() as Array<{ display_name: string; lat: string; lon: string; name?: string }>
     return j.map(p => ({ name: shortName(p.display_name), lat: Number(p.lat), lng: Number(p.lon) }))
   } catch { return [] }
+}
+/** A place our engineers have serviced (te_0038), offered before the map's own: its pin is where the ride went. */
+export interface Learned extends Place { id: string; short: string; district: string | null; visits: number }
+export async function findLearned(q: string, near?: { lat: number; lng: number }): Promise<Learned[]> {
+  if (q.trim().length < 3) return []
+  const { data, error } = await supabase.rpc('te_find_places', { p_q: q, p_lat: near?.lat ?? null, p_lng: near?.lng ?? null })
+  if (error) return []
+  return ((data ?? []) as Array<{ id: string; name: string; full_name: string; lat: number; lng: number; district: string | null; visits: number }>)
+    .map(x => ({ id: x.id, name: x.full_name, short: x.name, lat: x.lat, lng: x.lng, district: x.district, visits: x.visits }))
 }
 export async function nameOf(lat: number, lng: number): Promise<string> {
   try {

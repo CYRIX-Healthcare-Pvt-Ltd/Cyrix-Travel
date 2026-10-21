@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, Map as MapIcon, MapPin, Plus, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -31,15 +31,47 @@ const blankRide = (from?: Place | null): Ride => ({
   to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null,
 })
 
-export default function DayEditor({ data, initial, onClose }: { data: ClaimData; initial: Day; onClose: () => void }) {
+/*
+  What is typed is kept in this browser until it is saved, so going back and coming again finds it as
+  it was (the user, 21 Oct: "when I go back and click edit, purpose, project, all are gone, need to save
+  then back"). One copy for a day already on the claim, one for a day not saved yet.
+*/
+type Kept = { day: Day; hdr: { project: string; base: string; mobile: string } }
+const keptKey = (claim: string, day: string | null) => `te-form:${claim}:${day ?? 'new'}`
+function readKept(key: string): Kept | null {
+  try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as Kept) : null } catch { return null }
+}
+function writeKept(key: string, k: Kept | null) {
+  try { if (k) localStorage.setItem(key, JSON.stringify(k)); else localStorage.removeItem(key) } catch { /* a private window keeps nothing */ }
+}
+
+export default function DayEditor({ data, initial, chosen = false, onClose }: {
+  data: ClaimData; initial: Day
+  /** Opened on a date picked from the calendar: a kept new day takes that date. */
+  chosen?: boolean
+  onClose: () => void
+}) {
   const qc = useQueryClient()
   const { employee } = useAuth()
-  const [d, setD] = useState<Day>(initial)
+  const ask = useAsk()
+  const saved = data.days.some(x => x.id === initial.id)
+  const key = keptKey(data.claim.id, saved ? initial.id : null)
+  const header = { project: data.claim.project ?? '', base: data.claim.base_location ?? '', mobile: data.claim.mobile ?? '' }
+  const [kept] = useState(() => readKept(key))
+  const start: Day = kept ? { ...kept.day, ...(chosen && !saved ? { day: initial.day } : {}) } : initial
+  const [d, setD] = useState<Day>(start)
   const [picking, setPicking] = useState<{ ride: string; end: 'from' | 'to' } | null>(null)
   // One ride on the map, from its own card (the user, 21 Oct: "option to view in map in each mode").
   const [mapRide, setMapRide] = useState<Ride | null>(null)
   // The claim's details, kept in the form with everything else (the user, 17 Oct).
-  const [hdr, setHdr] = useState({ project: data.claim.project ?? '', base: data.claim.base_location ?? '', mobile: data.claim.mobile ?? '' })
+  const [hdr, setHdr] = useState(kept?.hdr ?? header)
+  const changed = JSON.stringify({ ...d, id: initial.id }) !== JSON.stringify(initial) || JSON.stringify(hdr) !== JSON.stringify(header)
+  useEffect(() => { writeKept(key, changed ? { day: d, hdr } : null) }, [key, changed, d, hdr])
+  // Back to how it was saved, or an empty form for a new day.
+  const undo = async () => {
+    if (!(await ask.confirm({ title: 'Undo your changes?', body: saved ? 'The day goes back to how it was saved.' : 'The form is cleared.', yes: 'Undo', danger: true }))) return
+    writeKept(key, null); setD(initial); setHdr(header); setErr(null)
+  }
   const [projects, setProjects] = useState<string[]>([])
   useEffect(() => { void supabase.rpc('te_projects').then(({ data: p }) => setProjects(((p ?? []) as Array<{ label: string }>).map(x => x.label))) }, [])
   const [busy, setBusy] = useState(false)
@@ -47,7 +79,6 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   const [home, setHome] = useState<Place | null>(null)
   const [homeReady, setHomeReady] = useState(false)
   const [who, setWho] = useState<Array<{ ecode: string; full_name: string }>>([])
-  const ask = useAsk()
   const nav = useNavigate()
   /*
     Discard (the user, 19 Oct: "when I'm clicking Add a claim the old draft is showing, which is good, still
@@ -63,6 +94,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       if (paths.length) await supabase.storage.from('te-bills').remove(paths)
       const { error: de } = await supabase.rpc('te_delete_claim', { p_claim: c.id })
       if (de) throw de
+      writeKept(key, null); writeKept(keptKey(c.id, null), null)
       const { data: fresh, error: oe } = await supabase.rpc('te_open_month', { p_month: c.month.slice(0, 8) + '01' })
       if (oe) throw oe
       void qc.invalidateQueries({ queryKey: ['te_my_claims'] }); void qc.invalidateQueries({ queryKey: ['te_summary'] })
@@ -104,7 +136,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
     night changes, and set. The person can still choose another; a day already saved keeps its choice
     until its places change.
   */
-  const [auto, setAuto] = useState<DaKind | null>(initial.da_auto ?? null)
+  const [auto, setAuto] = useState<DaKind | null>(start.da_auto ?? null)
   const stops = useMemo(() => {
     const ps: Place[] = []
     for (const r of d.rides) {
@@ -115,7 +147,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   }, [d.rides])
   const stay = !!(d.hotel || d.room_by)
   const stopsKey = stops.map(p => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`).join('|') + (stay ? '|stay' : '')
-  const applied = useRef(data.days.some(x => x.id === initial.id) ? stopsKey : '')
+  const applied = useRef(saved || kept ? stopsKey : '')
   useEffect(() => {
     if (!stops.length || !homeReady) return
     let live = true
@@ -179,7 +211,10 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       to 2-3 hospitals? … that we are showing in trip also, so that field needed there?").
     */
     const ends = d.rides.filter(r => r.to_lat != null && placeKey(r.to_name) !== 'home')
-    const dists = [...new Set((await Promise.all(ends.map(r => districtOf(r.to_lat!, r.to_lng!).catch(() => null)))).filter(Boolean))]
+    const distOf = new Map(await Promise.all(ends.map(async r => [r.id, await districtOf(r.to_lat!, r.to_lng!).catch(() => null)] as const)))
+    const dists = [...new Set([...distOf.values()].filter(Boolean))]
+    // Each ticket's district goes with it, for the place it teaches everyone (te_0038).
+    const tickets = d.tickets.map(t => { const r = ends.find(x => placeKey(x.to_name) === placeKey(t.place)); return { ...t, district: r ? distOf.get(r.id) ?? null : null } })
     const place = visited.length ? visited.join(' · ') : d.place
     const district = dists.length ? dists.join(', ') : d.district
     if (hdr.project !== (c.project ?? '') || hdr.base !== (c.base_location ?? '') || hdr.mobile !== (c.mobile ?? '')) {
@@ -190,7 +225,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       p_claim: c.id,
       p_day: {
         ...d,
-        place, district, place_lat: null, place_lng: null,
+        place, district, place_lat: null, place_lng: null, tickets,
         continues_day: joined,
         da_auto: auto,
         hotel: d.hotel && d.hotel.amount > 0 ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
@@ -198,6 +233,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
     })
     setBusy(false)
     if (error) { setErr(friendlyError(error)); return }
+    writeKept(key, null)
     refresh(); void qc.invalidateQueries({ queryKey: ['te_my_claims'] })
     onClose()
   }
@@ -208,9 +244,12 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       <div>
         <div className="flex items-center justify-between gap-3">
           <button type="button" onClick={onClose} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.number ? `Back to ${c.number}` : `Back to the ${monthName(c.month)} claim`}</button>
-          {c.status === 'draft' && <button type="button" disabled={busy} onClick={() => void discard()} className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline"><Trash2 className="h-4 w-4" /> Discard draft</button>}
+          <span className="flex items-center gap-4">
+            {changed && <button type="button" disabled={busy} onClick={() => void undo()} className="inline-flex items-center gap-1 text-sm font-medium text-ink-600 hover:underline"><RotateCcw className="h-4 w-4" /> Undo changes</button>}
+            {c.status === 'draft' && <button type="button" disabled={busy} onClick={() => void discard()} className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline"><Trash2 className="h-4 w-4" /> Discard draft</button>}
+          </span>
         </div>
-        <h1 className="mt-2 text-xl font-semibold text-ink-900">{data.days.some(x => x.id === initial.id) ? 'Edit claim' : 'Add a claim'}</h1>
+        <h1 className="mt-2 text-xl font-semibold text-ink-900">{saved ? 'Edit claim' : 'Add a claim'}</h1>
       </div>
       <Budget title={`Left in ${monthLong(c.month)}`} lines={budget} />
       <div className="card">

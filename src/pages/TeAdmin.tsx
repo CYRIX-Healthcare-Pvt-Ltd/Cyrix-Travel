@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Settings2, Trash2 } from 'lucide-react'
+import { Hospital, Settings2, Trash2 } from 'lucide-react'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { rpc, type Rule } from '@/lib/claims'
+import { useAsk } from '@/components/Ask'
 
 /*
   The travel policy as SW Admin and ACC_ADMIN keep it (the user, 17 Oct): allowances by grade, the
@@ -21,7 +22,7 @@ type AdminData = {
   /** SW Admin, who alone deletes claims (te_0028). */
   sw?: boolean
 }
-const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk']] as const
+const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk'], ['places', 'Places']] as const
 const RULE_COLS: Array<[keyof Rule, string]> = [
   ['da_in_district', 'DA in district'], ['da_out_district', 'DA out of district'], ['da_out_state', 'DA out of state'], ['da_out_state_stay', 'DA out of state, staying'],
   ['hotel_in_single', 'Hotel in state S'], ['hotel_in_double', 'Hotel in state D'], ['hotel_out_single', 'Hotel out of state S'], ['hotel_out_double', 'Hotel out of state D'],
@@ -65,6 +66,7 @@ export default function TeAdmin() {
       {tab === 'projects' && <Projects list={data.projects} call={call} />}
       {tab === 'coord' && <Coordinators list={data.coordinators} call={call} />}
       {tab === 'desk' && <Desk list={data.desk} call={call} />}
+      {tab === 'places' && <LearnedPlaces />}
       {tab === 'delete' && data.sw && <DeleteClaim />}
     </div>
   )
@@ -262,6 +264,46 @@ function DeleteClaim() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/*
+  Places learned from tickets (Travel te_0038; the user, 21 Oct): every hospital a ticket was saved
+  against, offered to everyone who searches. Nobody keeps this list; a wrong one is taken off here.
+*/
+function LearnedPlaces() {
+  const qc = useQueryClient()
+  const ask = useAsk()
+  const { data, isLoading, error } = useQuery({ queryKey: ['te_admin_places'], queryFn: () => rpc<Array<{ id: string; name: string; full_name: string; district: string | null; visits: number; first_by: string | null; created_at: string }>>('te_admin_places') })
+  const [q, setQ] = useState('')
+  const [fail, setFail] = useState<string | null>(null)
+  const remove = async (id: string, name: string) => {
+    if (!(await ask.confirm({ title: `Remove ${name}?`, body: 'It is no longer offered when engineers search. Claims that used it keep it.', yes: 'Remove', danger: true }))) return
+    try { await rpc('te_hide_place', { p_id: id }); await qc.invalidateQueries({ queryKey: ['te_admin_places'] }) } catch (e) { setFail((e as Error).message) }
+  }
+  if (isLoading) return <PageLoader />
+  const list = (data ?? []).filter(p => !q.trim() || `${p.name} ${p.full_name} ${p.district ?? ''}`.toLowerCase().includes(q.trim().toLowerCase()))
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200 bg-ink-50 px-4 py-2.5">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-800"><Hospital className="h-4 w-4 text-cyrixRed-600" /> Learned places <span className="font-normal text-ink-500">· {data?.length ?? 0}</span></h3>
+        <input className="input h-9 w-full sm:w-56" placeholder="Search" value={q} onChange={e => setQ(e.target.value)} />
+      </div>
+      {(fail || error) && <div className="p-3"><Alert kind="error">{fail ?? (error as Error).message}</Alert></div>}
+      {list.length === 0 ? <p className="p-6 text-center text-sm text-ink-500">No places yet.</p> : (
+        <div className="divide-y divide-ink-100">
+          {list.map(p => (
+            <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-ink-900">{p.name}{p.district && <span className="font-normal text-ink-500"> · {p.district}</span>}</p>
+                <p className="truncate text-xs text-ink-500">{p.visits} visit{p.visits === 1 ? '' : 's'} · first by {p.first_by ?? '—'} · {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
+              </div>
+              <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => void remove(p.id, p.name)}><Trash2 className="h-4 w-4" /></button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
