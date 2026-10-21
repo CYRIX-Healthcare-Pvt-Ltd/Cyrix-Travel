@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, Building2, House, LocateFixed, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -11,7 +11,6 @@ import { useAsk } from '@/components/Ask'
 import Budget, { budgetLines, dayUse, monthLong } from '@/components/Budget'
 import { Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
-import { whereAmI } from '@/lib/geo'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -84,20 +83,6 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
   const [err, setErr] = useState<string | null>(null)
   const [home, setHome] = useState<Place | null>(null)
   const [homeReady, setHomeReady] = useState(false)
-  /*
-    A home before the first claim is sent (te_0041; the user, 21 Oct): marked by standing there and pressing,
-    so it cannot be put anywhere else. The DA and each day's first ride are reckoned from it.
-  */
-  const [marking, setMarking] = useState(false)
-  const markHome = async () => {
-    setMarking(true); setErr(null)
-    try {
-      const at = await whereAmI()
-      const { error } = await supabase.rpc('travel_set_home', { p_lat: at.lat, p_lng: at.lng })
-      if (error) throw error
-      setHome({ name: 'Home', lat: at.lat, lng: at.lng })
-    } catch (e) { setErr(friendlyError(e as never)) } finally { setMarking(false) }
-  }
   const [who, setWho] = useState<Array<{ ecode: string; full_name: string }>>([])
   const nav = useNavigate()
   /*
@@ -325,12 +310,6 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
         </div>
         <h1 className="mt-2 text-xl font-semibold text-ink-900">{saved ? 'Edit claim' : 'Add a claim'}</h1>
       </div>
-      {homeReady && !home && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-300 bg-teal-50 px-4 py-3">
-          <span className="flex items-center gap-2 font-semibold text-teal-900"><House className="h-5 w-5 text-teal-700" /> Mark your home</span>
-          <button type="button" className="btn-primary" disabled={marking} onClick={() => void markHome()}>{marking ? <Spinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />} I'm at home</button>
-        </div>
-      )}
       <Budget title={`Left in ${monthLong(c.month)}`} lines={budget} />
       <div className="card">
         <div className="space-y-5 px-4 py-4">

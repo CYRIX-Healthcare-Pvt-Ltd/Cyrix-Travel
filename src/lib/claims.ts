@@ -136,7 +136,9 @@ export interface ClaimData {
   /** Figures an approver changed (te_0027), oldest first. */
   adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>
   /** Where the person moved their home while this claim was open (te_0041). */
-  home_moves?: Array<{ at: string; km: number | null; first: boolean }>
+  home_moves?: Array<{ at: string; km: number | null; first: boolean; how?: 'here' | 'map' }>
+  /** How the home in use was set: by standing there, or on the map (te_0053). */
+  home?: { how: 'here' | 'map'; set_at: string } | null
   /** The company's bookings for this person in the month that no bill carries (te_0042). */
   company_unlinked?: CompanyBooking[]
 }

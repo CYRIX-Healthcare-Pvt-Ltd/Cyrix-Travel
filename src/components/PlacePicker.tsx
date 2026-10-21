@@ -13,7 +13,7 @@ import { distanceKm, findLearned, nameOf, rpc, searchPlaces, type Learned, type 
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, near, quick, onPick, onClose, askName = false }: {
+export default function PlacePicker({ title, start, near, quick, onPick, onClose, askName = false, plain = false, yes }: {
   title: string
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
@@ -23,6 +23,9 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
   onClose: () => void
   /** Adding a saved place: the name is asked for, not offered. */
   askName?: boolean
+  /** Only a spot is wanted (a home): no name to write and nothing to save. */
+  plain?: boolean
+  yes?: string
 }) {
   // Saved places first (te_0023; the user, 17 Oct), and saving the one chosen with a name.
   const { data: saved } = useMyPlaces()
@@ -88,7 +91,8 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
       mapRef.current = map
       if (start) void put(start.lat, start.lng, start.name, false)
-      map.on('click', e => void put(e.latlng.lat, e.latlng.lng, undefined, false))
+      // A home tapped on a far view is brought close, to be put right to the street.
+      map.on('click', e => void put(e.latlng.lat, e.latlng.lng, undefined, plain && map.getZoom() < 15))
     })()
     return () => { alive = false; mapRef.current?.remove(); mapRef.current = null; pinRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,15 +165,15 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
         <div ref={box} className="h-64 w-full overflow-hidden rounded-xl border border-ink-200 sm:h-[55vh]" />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={here}><Crosshair className="h-4 w-4" /> Use my location</button>
-          {!(fromMap && picked && !askName) && <span className="min-w-0 flex-1 truncate text-right text-sm text-ink-600">{picked ? picked.name : 'Tap the map or search'}</span>}
+          {!(fromMap && picked && !askName && !plain) && <span className="min-w-0 flex-1 truncate text-right text-sm text-ink-600">{picked ? picked.name : 'Tap the map or search'}</span>}
         </div>
-        {fromMap && picked && !askName && (
+        {fromMap && picked && !askName && !plain && (
           <label className="block"><span className="label">Name</span>
             <input className="input mt-1" value={picked.name === '…' ? '' : picked.name} placeholder="Hospital or place name"
               onChange={e => { edited.current = true; setPicked({ ...picked, name: e.target.value }) }} /></label>
         )}
         {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
-        {picked && picked.name !== '…' && (saveAs === null ? (
+        {picked && picked.name !== '…' && !plain && (saveAs === null ? (
           <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline" onClick={() => setSaveAs(picked.name.split(',')[0])}><Star className="h-4 w-4" /> Save to my places</button>
         ) : (
           <label className="block"><span className="label">{askName ? 'Name this place' : 'Save to my places as'}</span>
@@ -178,7 +182,7 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
         {saveErr && <p className="text-sm text-cyrixRed-700">{saveErr}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={!picked || picked.name === '…' || !picked.name.trim() || (askName && !(saveAs ?? '').trim())} onClick={async () => {
+          <button type="button" className="btn-primary" disabled={!picked || (!plain && (picked.name === '…' || !picked.name.trim())) || (askName && !(saveAs ?? '').trim())} onClick={async () => {
             if (!picked) return
             const name = (saveAs ?? '').trim()
             if (name && !askName) {
@@ -187,7 +191,7 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
               catch (e) { setSaveErr((e as Error).message); return }
               onPick({ ...picked, name }, name)
             } else onPick(picked, name || undefined)
-          }}>{askName ? 'Save place' : 'Use this place'}</button>
+          }}>{yes ?? (askName ? 'Save place' : 'Use this place')}</button>
         </div>
       </div>
     </Dialog>

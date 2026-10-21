@@ -51,7 +51,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             : <HelpCircle className="h-5 w-5 text-violet-600" />}
         >
           <div className="mt-3 space-y-4">
-            {open.opts.body && <p className="text-sm text-ink-700">{open.opts.body}</p>}
+            {open.opts.body && <p className="whitespace-pre-line text-sm text-ink-700">{open.opts.body}</p>}
             {open.kind === 'prompt' && (
               <label className="block">
                 {open.opts.label && <span className="label">{open.opts.label}</span>}

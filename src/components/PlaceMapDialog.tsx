@@ -6,9 +6,10 @@ import { Spinner } from '@/components/ui'
 
 /*
   A learned place on the map, for a Travel admin (the user, 21 Oct: "how to check in map or reallocate?"):
-  its pin dragged, or the right spot tapped, and its name put right, then saved for everyone.
+  its pin dragged, or the right spot tapped, and its name put right, then saved for everyone. Also one of
+  a person's own saved places (the user, 21 Oct: "editing also cannot change pin in map").
 */
-export interface MapPlace { id: string; name: string; full_name: string; lat: number; lng: number }
+export interface MapPlace { id: string; name: string; full_name?: string; lat: number; lng: number }
 
 export default function PlaceMapDialog({ place, onSave, onClose }: {
   place: MapPlace
@@ -47,7 +48,7 @@ export default function PlaceMapDialog({ place, onSave, onClose }: {
   return (
     <Dialog title={place.name} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} huge>
       <div className="mt-3 space-y-3">
-        <p className="truncate text-sm text-ink-500">{place.full_name}</p>
+        {place.full_name && <p className="truncate text-sm text-ink-500">{place.full_name}</p>}
         <div ref={box} className="h-72 w-full overflow-hidden rounded-xl border border-ink-200 sm:h-[55vh]" />
         <label className="block"><span className="label">Name</span>
           <input className="input mt-1" value={name} onChange={e => setName(e.target.value)} /></label>

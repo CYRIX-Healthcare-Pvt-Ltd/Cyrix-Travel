@@ -597,6 +597,7 @@ const OBS = {
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
   away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff },
   home:     { title: 'Home moved',               level: 'check',   icon: House },
+  homemap:  { title: 'Home set on the map',      level: 'check',   icon: House },
   company:  { title: 'Booked by company',        level: 'info',    icon: Building2 },
   cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange },
   cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2 },
@@ -626,7 +627,9 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
     items.push({ kind: 'changed', day, to, detail: `${(e.actor ?? 'An approver').split(' ')[0]}${e.role ? ` (${e.role})` : ''}: ${rest.join(' · ') || what}${why.join(' ').trim() ? ` — “${why.join(' ').trim()}”` : ''}` })
   }
   // A home moved while the claim was open (te_0041; the user, 21 Oct: "showing to approver is enough").
-  for (const m of data.home_moves ?? []) items.push({ kind: 'home', day: dn(m.at.slice(0, 10)), detail: `Moved ${m.km != null ? km(Number(m.km)) : ''}` })
+  for (const m of data.home_moves ?? []) items.push({ kind: 'home', day: dn(m.at.slice(0, 10)), detail: `Moved ${m.km != null ? km(Number(m.km)) : ''}${m.how === 'map' ? ' · set on the map' : ''}` })
+  // A home set on the map, not by standing there (te_0053), until the person presses I'm at home there.
+  if (data.home?.how === 'map' && !(data.home_moves ?? []).some(m => m.how === 'map')) items.push({ kind: 'homemap', day: dn(data.home.set_at.slice(0, 10)), detail: 'Not marked standing at home' })
   // The company's bookings for this person in the month that are on no claim (te_0042).
   for (const b of data.company_unlinked ?? []) items.push({ kind: 'cmiss', day: b.travel_date ? dn(b.travel_date) : undefined,
     detail: `${b.mode === 'hotel' ? `Hotel ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
