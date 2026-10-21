@@ -61,11 +61,14 @@ export interface Ride {
   from_name: string | null; from_lat: number | null; from_lng: number | null
   to_name: string | null; to_lat: number | null; to_lng: number | null
   claimed_km: number | null; map_km: number | null; fare: number | null; amount?: number; note?: string | null
+  /** Booked by the company (te_0042): it claims nothing, and its company cost is kept beside it. */
+  company_booking?: string | null; company_amount?: number | null
 }
 export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null }
 export interface Hotel {
   id: string; name: string | null; amount: number; occupancy: 'single' | 'double'; metro: boolean
   shared_ecode?: string | null; shared_name?: string | null
+  note?: string | null; company_booking?: string | null; company_amount?: number | null
 }
 export interface Expense { id: string; category: string; description: string | null; amount: number }
 export interface Day {
@@ -82,6 +85,20 @@ export interface Bill {
   ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
   /** The line and claim of the bill it looks like (te_0036). */
   twin_owner?: string | null; twin_claim?: string | null
+  /** What was read off it (booking ids, PNRs), and the company booking it is (te_0042). */
+  refs?: string[]; company?: CompanyBooking | null
+}
+/** A booking the company made (MakeMyTrip myBiz), from the Travel Desk's monthly report (te_0042). */
+export interface CompanyBooking {
+  booking_id: string; mode: string; pnr: string | null; travel_date: string | null; end_date: string | null
+  from: string | null; to: string | null; hotel: string | null; passengers: string | null; net: number; cancelled: boolean
+}
+/** The company booking a ride or hotel night carries: saved on it, or read off a bill not saved yet. */
+export function companyOf(bills: Bill[], line: { id: string; company_booking?: string | null; company_amount?: number | null }): { booking_id: string; net: number; card: CompanyBooking | null } | null {
+  const b = bills.find(x => x.owner_id === line.id && x.company)
+  if (b?.company) return { booking_id: b.company.booking_id, net: Number(b.company.net), card: b.company }
+  if (line.company_booking) return { booking_id: line.company_booking, net: Number(line.company_amount ?? 0), card: null }
+  return null
 }
 export interface Rule {
   grade: string; da_in_district: number; da_out_district: number; da_out_state: number; da_out_state_stay: number
@@ -113,9 +130,15 @@ export interface ClaimData {
   adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>
   /** Where the person moved their home while this claim was open (te_0041). */
   home_moves?: Array<{ at: string; km: number | null; first: boolean }>
+  /** The company's bookings for this person in the month that no bill carries (te_0042). */
+  company_unlinked?: CompanyBooking[]
 }
 /** One step of a claim's history (te_0025): who did what, when, and the note given. */
-export interface HistoryStep { id: number; at: string; action: string; to_status: string | null; note: string | null; actor: string | null }
+export interface HistoryStep {
+  id: number; at: string; action: string; to_status: string | null; note: string | null; actor: string | null
+  /** Travel Desk or Coordinator when the step was taken as one; nothing for the reporting manager (te_0044). */
+  role?: string | null
+}
 
 export const money = (n: number | null | undefined) =>
   n == null ? '—' : '₹' + Math.round(n).toLocaleString('en-IN')
@@ -141,7 +164,9 @@ export const dayName = (iso: string) =>
 export const newId = () => crypto.randomUUID()
 
 /** What a ride is paid: km x the grade's rate on a bike or a car, else its fare. As the database works it out. */
-export function rideAmount(r: Pick<Ride, 'mode' | 'claimed_km' | 'fare'>, rule: Rule | undefined) {
+export function rideAmount(r: Pick<Ride, 'mode' | 'claimed_km' | 'fare'> & { company_booking?: string | null }, rule: Rule | undefined) {
+  // What the company booked is not claimed (te_0042).
+  if (r.company_booking) return 0
   if (r.mode === 'bike') return (r.claimed_km ?? 0) * (rule?.bike_rate ?? 5)
   if (r.mode === 'car') return (r.claimed_km ?? 0) * (rule?.car_rate ?? 11)
   return r.fare ?? 0
@@ -408,11 +433,45 @@ export async function dhash256(file: Blob): Promise<string | null> {
   says amount, fare or paid, else the largest figure written with paise. The rupee sign comes out as
   ¥, % or =, which does not matter: only the figures are read.
 */
-export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null }> {
-  if (!file.type.startsWith('image/')) return { amount: null, date: null, billno: null }
-  const { recognize } = await import('tesseract.js')
-  const { data } = await recognize(await shrink(file), 'eng')
-  const text = data.text.replace(/[Oo](?=\d)/g, '0').replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
+/*
+  The booking ids and PNRs on a ticket (te_0042; the user, 21 Oct): MakeMyTrip's are N and a letter, then
+  digits and letters — NF… a flight, NH… a hotel, NU… a bus, NR… a train. They are matched against the
+  company's bookings, so a ticket the company paid for is not claimed again.
+*/
+export function refsIn(text: string): string[] {
+  const t = text.toUpperCase()
+  const ids = [...t.matchAll(/\bN[A-Z][A-Z0-9]{12,20}\b/g)].map(m => m[0])
+  const pnr = [...t.matchAll(/PNR\s*(?:NO\.?|NUMBER)?\s*[:-]?\s*([A-Z0-9]{5,12})/g)].map(m => m[1])
+  return [...new Set([...ids, ...pnr])]
+}
+// A PDF ticket's own text, its first pages, line by line (the reader is loaded only when a PDF comes).
+async function pdfText(file: Blob): Promise<string> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise
+  let text = ''
+  for (let p = 1; p <= Math.min(doc.numPages, 3); p++) {
+    const c = await (await doc.getPage(p)).getTextContent()
+    let line = '', lastY: number | null = null
+    for (const it of c.items as Array<{ str?: string; transform?: number[] }>) {
+      const y = it.transform?.[5] ?? 0
+      if (lastY !== null && Math.abs(y - lastY) > 2) { text += line.trim() + '\n'; line = '' }
+      line += (it.str ?? '') + ' '; lastY = y
+    }
+    text += line.trim() + '\n'
+  }
+  return text
+}
+export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[] }> {
+  let raw = ''
+  if (file.type === 'application/pdf') raw = await pdfText(file).catch(() => '')
+  else if (file.type.startsWith('image/')) {
+    const { recognize } = await import('tesseract.js')
+    raw = (await recognize(await shrink(file), 'eng')).data.text
+  }
+  if (!raw.trim()) return { amount: null, date: null, billno: null, refs: [] }
+  const refs = refsIn(raw)
+  const text = raw.replace(/[Oo](?=\d)/g, '0').replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
   const lines = text.split('\n')
   const figs = (s: string) => [...s.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => n > 0 && n < 200000)
   let amount: number | null = null
@@ -424,7 +483,7 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   }
   const bm = text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
   // No date: the person enters the day, and the bill's own date is not needed (the user, 19 Oct).
-  return { amount, date: null, billno: bm ? bm[1] : null }
+  return { amount, date: null, billno: refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null), refs }
 }
 /** A phone photo made no wider than 2000px first: read as well, and many times faster. */
 async function shrink(file: Blob): Promise<Blob> {
@@ -448,7 +507,7 @@ export function outOfPolicy(mode: ModeCode, rule: Rule | undefined) {
 }
 
 /** A bill into the private bucket, then recorded; the same file twice is refused by the database. */
-export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null }) {
+export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null; refs?: string[] }) {
   const [hash, ph, ph2] = await Promise.all([sha256(file), dhash(file), dhash256(file)])
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/${newId()}.${ext}`
@@ -458,7 +517,7 @@ export async function uploadBill(claimId: string, kind: Bill['owner_kind'], owne
   if (up) throw new Error(friendlyError(up))
   const { error } = await supabase.rpc('te_add_bill', {
     p_claim: claimId, p_kind: kind, p_owner: ownerId, p_path: path, p_name: file.name, p_sha256: hash,
-    p_phash: ph, p_phash2: ph2, p_amount: read.amount, p_date: read.date, p_billno: read.billno,
+    p_phash: ph, p_phash2: ph2, p_amount: read.amount, p_date: read.date, p_billno: read.billno, p_refs: read.refs ?? [],
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
 }

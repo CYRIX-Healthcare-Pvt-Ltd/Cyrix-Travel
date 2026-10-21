@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
-import { BarChart3, ClipboardCheck, Grid2x2, LogOut, MapPin, Navigation, ReceiptText, Settings2 } from 'lucide-react'
+import { BarChart3, Building2, ClipboardCheck, Grid2x2, LogOut, MapPin, Navigation, ReceiptText, Settings2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInbox } from '@/lib/claims'
 import { TONE_TEXT, type Tone } from '@/lib/tones'
@@ -24,6 +24,8 @@ export default function Shell() {
     { to: '/claims', label: 'My claims', short: 'Claims', icon: ReceiptText, tone: 'amber' },
     { to: '/places', label: 'My places', short: 'Places', icon: MapPin, tone: 'teal' },
     ...(manages || isAdmin ? [{ to: '/approvals', label: 'Approvals', short: 'Approve', icon: ClipboardCheck, tone: 'green' as Tone, badge: waiting }] : []),
+    // The Travel Desk's MakeMyTrip report (te_0042).
+    ...(isDesk || isAdmin ? [{ to: '/bookings', label: 'Bookings', short: 'Bookings', icon: Building2, tone: 'sky' as Tone }] : []),
     ...(isAdmin ? [{ to: '/policy', label: 'Travel policy', short: 'Policy', icon: Settings2, tone: 'violet' as Tone }] : []),
   ]
 

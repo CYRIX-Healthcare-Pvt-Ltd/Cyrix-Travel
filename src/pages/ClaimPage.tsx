@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2 } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -16,7 +16,7 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, outOfPolicy, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
+  DA_KINDS, DA_RANK, MODES, billRead, companyOf, outOfPolicy, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -93,6 +93,8 @@ export default function ClaimPage() {
   if (error || !data) return <Alert kind="error">{(error as Error)?.message ?? 'That claim could not be opened.'}</Alert>
   const c = data.claim, rule = data.rule
   const total = data.days.reduce((t, d) => t + dayTotal({ ...d, hotel: d.room_by ? null : d.hotel }, rule), 0)
+  // What the company paid for this claim's rides and nights (te_0042): in the trip's cost, not claimed.
+  const company = data.days.reduce((t, d) => t + d.rides.reduce((u, r) => u + (companyOf(data.bills, r)?.net ?? 0), 0) + (d.hotel && !d.room_by ? companyOf(data.bills, d.hotel)?.net ?? 0 : 0), 0)
   const late = Math.round(total * (c.late_pct / 100))
   const net = total - late - (c.advance ?? 0)
   const status = STATUS[c.status] ?? STATUS.draft
@@ -203,6 +205,7 @@ export default function ClaimPage() {
           )}
           <p className="text-xs text-ink-500">Total claimed</p>
           <p className="text-3xl font-bold text-ink-900">{money(total)}</p>
+          {company > 0 && <p className="text-xs text-ink-500">Trip cost {money(total + company)} · company paid {money(company)}</p>}
           {data.days.some(d => d.rides.length > 0) && <p className="text-xs text-ink-500">{km(data.days.reduce((t, d) => t + d.rides.reduce((u, r) => u + (r.map_km ?? r.claimed_km ?? 0), 0), 0))}</p>}
           {c.late_pct > 0 && <p className="text-xs text-cyrixRed-700">Late {c.late_pct}% · −{money(late)}</p>}
           {c.advance > 0 && <p className="text-xs text-ink-600">Advance −{money(c.advance)}</p>}
@@ -407,6 +410,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           <p className="text-sm text-ink-500">{[d.purpose, d.da_kind !== 'none' ? `DA ${daLabel?.toLowerCase()} ${money(d.da_amount)}` : null, tripDay].filter(Boolean).join(' · ')}</p>
         </div>
         <div className="flex items-center gap-1">
+          {/* The day's km beside its money, as weighty (the user, 21 Oct: "km by modes, emphasise km also like the amount"). */}
+          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}</span><span className="text-ink-300">·</span></>}
           <span className="mr-1 font-semibold text-ink-900">{money(dayTotal({ ...d, hotel: d.room_by ? null : d.hotel }, rule))}</span>
           {hasMap && <button type="button" className="btn-icon" title="See on map" aria-label="See on map" onClick={onMap}><MapIcon className="h-4 w-4 text-teal-600" /></button>}
           {c.can_edit && <button type="button" className="btn-icon" title="Edit" aria-label="Edit day" onClick={onEdit}><Pencil className="h-4 w-4" /></button>}
@@ -434,8 +439,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             ))}
             <span className="text-ink-400">=</span>
             <span className="rounded-md bg-ink-900 px-2 py-1 font-semibold text-[color:rgb(var(--surface))]">Total {money(parts.reduce((t, [, v]) => t + v, 0))}</span>
-            {/* The day's km, every mode together, after the money (the user, 21 Oct: "by road? flight is 515"). */}
-            {d.rides.length > 0 && <span className="ml-1 text-ink-500">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}</span>}
+            {(() => { const co = d.rides.reduce((t, r) => t + (companyOf(data.bills, r)?.net ?? 0), 0) + (d.hotel && !d.room_by ? companyOf(data.bills, d.hotel)?.net ?? 0 : 0); return co > 0 && <span className="text-ink-500">· trip cost {money(parts.reduce((t, [, v]) => t + v, 0) + co)}</span> })()}
           </div>
         )
       })()}
@@ -459,7 +463,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 </div>
                 {m.perKm && <span className={`col-start-1 sm:col-start-2 sm:text-right ${check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'}`} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
                 <span className={billCell}>
-                  <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm ? undefined : rideAmount(r, rule)} onChange={onBills} />
+                  <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm || r.company_booking ? undefined : rideAmount(r, rule)} onChange={onBills} />
                 </span>
                 {amt(r.id, rideAmount(r, rule))}
                 {r.from_lat != null && r.to_lat != null && (
@@ -468,6 +472,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 )}
                 {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol })}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
+                {(() => { const co = companyOf(data.bills, r); const when = co?.card?.travel_date; return co && (
+                  <span className="col-span-full flex flex-wrap items-center gap-1.5 pl-1 text-xs font-semibold text-sky-800"><Building2 className="h-3.5 w-3.5" />Booked by company · {money(co.net)} · {co.booking_id}
+                    {when && when !== d.day && <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-amber-900">booked for {new Date(when + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>}</span>) })()}
                 {d.tickets.filter(t => rideOf(t)?.id === r.id).map(t => {
                   const earlier = (t as typeof t & { earlier?: Array<{ day: string }> }).earlier ?? []
                   return (
@@ -505,6 +512,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 </span>
                 {amt(d.hotel.id, d.hotel.amount, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
                 {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount })}
+                {d.hotel.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{d.hotel.note}</span>}
+                {(() => { const co = companyOf(data.bills, d.hotel!); return co && <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-sky-800"><Building2 className="h-3.5 w-3.5" />Booked by company · {money(co.net)} · {co.booking_id}</span> })()}
               </div>
             )
           })()}
@@ -579,6 +588,9 @@ const OBS = {
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
   away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff },
   home:     { title: 'Home moved',               level: 'check',   icon: House },
+  company:  { title: 'Booked by company',        level: 'info',    icon: Building2 },
+  cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange },
+  cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2 },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
   month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
   changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
@@ -601,10 +613,13 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
     const to = changedLines[nth++]
     const [what, ...why] = e.note.split('\n')
     const [day, ...rest] = what.split(' · ')
-    items.push({ kind: 'changed', day, to, detail: `${(e.actor ?? 'An approver').split(' ')[0]}: ${rest.join(' · ') || what}${why.join(' ').trim() ? ` — “${why.join(' ').trim()}”` : ''}` })
+    items.push({ kind: 'changed', day, to, detail: `${(e.actor ?? 'An approver').split(' ')[0]}${e.role ? ` (${e.role})` : ''}: ${rest.join(' · ') || what}${why.join(' ').trim() ? ` — “${why.join(' ').trim()}”` : ''}` })
   }
   // A home moved while the claim was open (te_0041; the user, 21 Oct: "showing to approver is enough").
   for (const m of data.home_moves ?? []) items.push({ kind: 'home', day: dn(m.at.slice(0, 10)), detail: `Moved ${m.km != null ? km(Number(m.km)) : ''}` })
+  // The company's bookings for this person in the month that are on no claim (te_0042).
+  for (const b of data.company_unlinked ?? []) items.push({ kind: 'cmiss', day: b.travel_date ? dn(b.travel_date) : undefined,
+    detail: `${b.mode === 'hotel' ? `Hotel ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
   const billed = new Set(data.bills.map(b => b.owner_id))
   for (const d of data.days) {
     const day = dn(d.day)
@@ -614,6 +629,12 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
       if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
       if (k && k.over > 0) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · claimed ${km(r.claimed_km)}, map ${km(r.map_km)}, ${km(k.over)} over the ${tol}%` })
+      // A ride the company booked: not claimed; its date set against the booking's (te_0042).
+      const co = companyOf(data.bills, r)
+      if (co) {
+        items.push({ kind: 'company', day, to: r.id, detail: `${leg} · ${co.booking_id} · ${money(co.net)} not claimed` })
+        if (co.card?.travel_date && co.card.travel_date !== d.day) items.push({ kind: 'cdate', day, to: r.id, detail: `${leg} · booked for ${dn(co.card.travel_date)}, claimed on ${day}` })
+      }
       const read = m.perKm ? null : billRead(data.bills, r.id)
       if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
     }
@@ -621,6 +642,12 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
       const lim = hotelLimit(rule, d.hotel, d.da_kind === 'out_state' || d.da_kind === 'out_state_stay', metro)
       if (lim != null && d.hotel.amount > lim) items.push({ kind: 'hotel', day, to: d.hotel.id, detail: `${money(d.hotel.amount)} against a limit of ${money(lim)}` })
       if (!billed.has(d.hotel.id)) items.push({ kind: 'nobill', day, to: d.hotel.id, detail: 'Hotel night' })
+      const hc = companyOf(data.bills, d.hotel)
+      if (hc) {
+        items.push({ kind: 'company', day, to: d.hotel.id, detail: `Hotel night · ${hc.booking_id} · ${money(hc.net)} not claimed` })
+        const from = hc.card?.travel_date, to = hc.card?.end_date
+        if (from && (d.day < from || (to ? d.day >= to : d.day !== from))) items.push({ kind: 'cdate', day, to: d.hotel.id, detail: `Hotel night · booked ${dn(from)}${to ? ' – ' + dn(to) : ''}, claimed on ${day}` })
+      }
       const hr = billRead(data.bills, d.hotel.id)
       if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Hotel · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
     }

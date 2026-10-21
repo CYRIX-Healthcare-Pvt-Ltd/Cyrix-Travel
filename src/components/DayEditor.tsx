@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, House, LocateFixed, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, House, LocateFixed, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -15,7 +15,7 @@ import { whereAmI } from '@/lib/geo'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  billRead, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
+  billRead, companyOf, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -26,6 +26,8 @@ import {
 export function blankDay(day: string): Day {
   return { id: newId(), day, place: '', district: '', purpose: null, da_kind: 'in_district', da_amount: 0, continues_day: null, remarks: '', rides: [], tickets: [], hotel: null, expenses: [] }
 }
+// A flight, a train and a hotel night always say why (the user, 21 Oct: "remarks mandatory").
+const REMARKS_NEEDED = new Set(['flight', 'train'])
 const placeKey = (s: string | null | undefined) => (s ?? '').split(',')[0].trim().toLowerCase()
 const blankRide = (from?: Place | null): Ride => ({
   id: newId(), mode: 'bike', from_name: from?.name ?? null, from_lat: from?.lat ?? null, from_lng: from?.lng ?? null,
@@ -213,7 +215,9 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       if (r.from_lat == null || r.to_lat == null) { setErr('Pick the from and to place of every ride on the map'); return }
       if (MODES[r.mode].perKm && !r.claimed_km) { setErr(`Type the km for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
       if (!MODES[r.mode].perKm && r.fare == null) { setErr(`Type the fare for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
+      if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) { setErr(`Write the remarks for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
     }
+    if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel)) && !d.hotel.note?.trim()) { setErr('Write the remarks for the hotel night'); return }
     const away = d.tickets.filter(t => t.ticket_no.trim() && ticketVisited(t, d.rides) === false)
     if (away.length && !(await ask.confirm({
       title: away.length === 1 ? `You didn't visit ${away[0].place} on this day's rides` : "Some tickets' hospitals are not on this day's rides",
@@ -243,7 +247,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
         place, district, place_lat: null, place_lng: null, tickets,
         continues_day: joined,
         da_auto: auto,
-        hotel: d.hotel && d.hotel.amount > 0 ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
+        hotel: d.hotel && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel)) ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
       },
     })
     setBusy(false)
@@ -361,8 +365,10 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                     )}
                     {/* Anything about the ride, in the engineer's words (the user, 21 Oct). */}
                     <div className="mt-2 pl-6">
-                      <input className="input h-10 w-full text-sm" aria-label="Remarks" placeholder="Remarks" value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
+                      <input className={`input h-10 w-full text-sm ${REMARKS_NEEDED.has(r.mode) && !r.note?.trim() ? '!border-amber-400' : ''}`} aria-label="Remarks" placeholder={REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
                     </div>
+                    {/* A ticket the company booked: shown, and not claimed (te_0042). */}
+                    {(() => { const co = companyOf(data.bills, r); return co && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
                     {notAllowed && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-cyrixRed-100 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
                   </div>
                 )
@@ -453,6 +459,8 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                       </div>
                     </div>
                   </div>
+                  <input className={`input h-10 w-full text-sm ${!h.note?.trim() ? '!border-amber-400' : ''}`} aria-label="Remarks" placeholder="Remarks (required)" value={h.note ?? ''} onChange={e => setH({ note: e.target.value })} />
+                  {(() => { const co = companyOf(data.bills, h); return co && <p className="flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
                   <label className="flex h-10 items-center gap-2 text-sm text-ink-800"><input type="checkbox" className="h-5 w-5" checked={h.metro} onChange={e => setH({ metro: e.target.checked })} /> In a metro city (limit +{metroPct}%)</label>
                   {h.occupancy === 'double' && (
                     <div className="relative">
@@ -523,7 +531,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
         </div>
       </div>
         <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
-          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + rideAmount(r, rule), 0) + da + (d.room_by ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}</span></span>
+          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : rideAmount(r, rule)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}</span></span>
           <div className="flex items-center gap-2">
             {err && <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>}
             <button type="button" className="btn-primary h-11 px-6 text-base" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>

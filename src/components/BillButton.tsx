@@ -41,7 +41,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     setErr(null)
     try {
       setBusy('Reading the bill…')
-      const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null }))
+      const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null, refs: [] as string[] }))
       if (read.amount && onRead) onRead(read.amount)
       setBusy('Attaching…')
       await uploadBill(claimId, kind, ownerId, f, read)

@@ -65,7 +65,7 @@ export default function History({ data }: { data: ClaimData }) {
     with Approve or Send back, so the step says the approval is still to come.
   */
   const waiting = c.status === 'with_manager' ? `Waiting for ${c.manager ?? 'the manager'} to approve`
-    : c.status === 'with_coordinator' ? `Waiting for ${c.coordinator ?? 'the coordinator'} to approve`
+    : c.status === 'with_coordinator' ? `Waiting for ${c.coordinator ? `${c.coordinator} - Coordinator` : 'the coordinator'} to approve`
     : c.status === 'with_desk' ? 'Waiting for the Travel Desk to approve'
     : c.status === 'approved' ? 'Waiting to be paid' : null
   const rows: Array<{ e: HistoryStep | null; title: string; icon: LucideIcon; tone: keyof typeof TONE; note: string | null; change?: Change }> =
@@ -92,7 +92,7 @@ export default function History({ data }: { data: ClaimData }) {
               <span className={`relative grid h-8 w-8 shrink-0 place-items-center rounded-full ${TONE[s.tone]} ${s.e ? '' : 'ring-2 ring-amber-300 ring-offset-2 ring-offset-surface'}`}><I className="h-4 w-4" /></span>
               <div className="min-w-0 flex-1 pt-1">
                 <p className="text-sm font-medium text-ink-900">{s.title}</p>
-                {s.e && <p className="mt-0.5 text-xs text-ink-500">{when(s.e.at)} · {s.e.actor ?? 'System'}</p>}
+                {s.e && <p className="mt-0.5 text-xs text-ink-500">{when(s.e.at)} · {s.e.actor ?? 'System'}{s.e.role ? ` - ${s.e.role}` : ''}</p>}
                 {s.note && <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-ink-50 px-2.5 py-1.5 text-sm text-ink-700">{s.note}</p>}
                 {s.change && (
                   <div className="mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-sm">
