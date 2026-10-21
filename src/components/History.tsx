@@ -29,7 +29,8 @@ function look(e: HistoryStep): { title: string; icon: LucideIcon; tone: keyof ty
     case 'manager_approved': return { title: `Manager approved${ON[e.to_status ?? ''] ?? ''}`, icon: Check, tone: 'green', note: e.note }
     case 'coordinator_approved': return { title: `Coordinator approved${ON[e.to_status ?? ''] ?? ''}`, icon: Check, tone: 'green', note: e.note }
     case 'desk_approved': return { title: 'Travel Desk approved', icon: BadgeCheck, tone: 'sky', note: e.note }
-    case 'paid': return { title: 'Paid', icon: Wallet, tone: 'teal', note: null }
+    // When and by which transfer (te_0045).
+    case 'paid': return { title: 'Paid', icon: Wallet, tone: 'teal', note: e.note }
     case 'returned': return { title: 'Sent back', icon: CornerUpLeft, tone: 'red', note: e.note }
     case 'coordinator_removed': return { title: 'Coordinator removed · on to the Travel Desk', icon: UserMinus, tone: 'slate', note: null }
     case 'delete_requested': return { title: 'Asked to delete it', icon: Trash2, tone: 'red', note: e.note }

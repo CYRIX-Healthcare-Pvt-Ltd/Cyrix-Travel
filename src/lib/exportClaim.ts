@@ -72,7 +72,7 @@ export async function exportClaim(data: ClaimData) {
     `Claimed by: ${c.name}${sent ? '\n' + at(sent.at) : ''}`, null, null, null, null,
     `Approved by (manager): ${mgr?.actor ?? c.manager ?? ''}${mgr ? '\n' + at(mgr.at) : ''}`, null, null, null, null,
     `Coordinator: ${coord?.actor ?? c.coordinator ?? '—'}${coord ? '\n' + at(coord.at) : ''}`, null, null, null,
-    `Travel Desk: ${desk?.actor ?? ''}${desk ? '\n' + at(desk.at) : ''}${paid ? '\nPaid ' + at(paid.at) : ''}`, null, null, null,
+    `Travel Desk: ${desk?.actor ?? ''}${desk ? '\n' + at(desk.at) : ''}${paid ? '\nPaid ' + (c.paid_on ? new Date(c.paid_on + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : at(paid.at)) + (c.paid_ref ? ' · UTR ' + c.paid_ref : '') : ''}`, null, null, null,
   ])
   ws.mergeCells(sign.number, 1, sign.number, 5); ws.mergeCells(sign.number, 6, sign.number, 10)
   ws.mergeCells(sign.number, 11, sign.number, 14); ws.mergeCells(sign.number, 15, sign.number, 18)

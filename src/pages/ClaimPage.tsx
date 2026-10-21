@@ -352,6 +352,7 @@ function Header({ data }: { data: ClaimData; onSaved?: () => void }) {
   return (
     <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-500">
       <span>Project: <b className="font-medium text-ink-800">{c.project || '—'}</b></span>
+      {c.status === 'paid' && c.paid_on && <span className="font-medium text-teal-700">Paid on {new Date(c.paid_on + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{c.paid_ref ? ` · UTR ${c.paid_ref}` : ''}</span>}
     </p>
   )
 }
@@ -554,6 +555,8 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
   const c = data.claim
   const act = useClaimAction()
   const [adv, setAdv] = useState(String(c.advance ?? 0))
+  const [paidOn, setPaidOn] = useState(todayIso())
+  const [utr, setUtr] = useState('')
   const [err, setErr] = useState<string | null>(null)
   return (
     <div className="card flex flex-wrap items-end gap-3 p-4">
@@ -561,7 +564,13 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
       <label className="block"><span className="label">Advance given ₹</span>
         <input type="number" min={0} max={20000} className="input mt-1 w-36" value={adv} onChange={e => setAdv(e.target.value)} /></label>
       <button type="button" className="btn-secondary" onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_set_advance', args: { p_claim: c.id, p_advance: Number(adv) || 0 } }); onDone('Advance saved.') } catch (e) { setErr((e as Error).message) } }}>Save advance</button>
-      {c.status === 'approved' && <button type="button" className="btn-primary" onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>}
+      {c.status === 'approved' && <>
+        <label className="block"><span className="label">Paid on</span>
+          <input type="date" className="input mt-1 w-44" max={todayIso()} value={paidOn} onChange={e => setPaidOn(e.target.value)} /></label>
+        <label className="block"><span className="label">UTR</span>
+          <input className="input mt-1 w-56 font-mono uppercase" value={utr} onChange={e => setUtr(e.target.value)} placeholder="Transaction reference" /></label>
+      </>}
+      {c.status === 'approved' && <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>}
       {err && <span className="text-sm text-cyrixRed-700">{err}</span>}
     </div>
   )

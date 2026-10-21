@@ -113,6 +113,8 @@ export interface ClaimData {
     submitted_at: string | null; late_pct: number; advance: number
     manager_note: string | null; coordinator_note: string | null; desk_note: string | null
     return_note: string | null; returned_at: string | null
+    /** When it was paid and the transfer's UTR, given by the Travel Desk (te_0045). */
+    paid_on?: string | null; paid_ref?: string | null
     name: string; ecode: string; manager: string | null; coordinator: string | null
     mine: boolean; can_edit: boolean; can_decide: boolean; is_desk: boolean; is_manager: boolean
     delete_requested_at: string | null; delete_reason: string | null
