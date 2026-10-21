@@ -77,7 +77,8 @@ export interface Day {
   room_by?: { name: string; ecode: string; amount: number; number: string | null } | null
 }
 export interface Bill {
-  id: string; owner_kind: 'ride' | 'hotel' | 'expense'; owner_id: string; path: string; name: string | null
+  /** A ticket's service report is kept with the bills (te_0037). */
+  id: string; owner_kind: 'ride' | 'hotel' | 'expense' | 'report'; owner_id: string; path: string; name: string | null
   ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
   /** The line and claim of the bill it looks like (te_0036). */
   twin_owner?: string | null; twin_claim?: string | null
@@ -269,18 +270,24 @@ export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; ln
   return 12742 * Math.asin(Math.sqrt(h))
 }
 /*
-  Whether a ride starts or ends at the day's hospital, or near it (the user, 18 Oct: "hosp/place we
-  enter first in form should be also in his rides … at least near, because location fetching may
-  vary"). Null when there is nothing to compare: no pin, or no ride placed.
+  The places a day's rides went to and came from, home left out: what its tickets' hospitals are
+  chosen from (the user, 21 Oct: "ticket attended, hospital in that should match hospital in claim
+  ride"), and what the day's place is made of now that it is not typed (the user, 21 Oct: "what if
+  I went to 2-3 hospitals?").
 */
-export function reachesPlace(d: Pick<Day, 'place_lat' | 'place_lng' | 'rides'>, nearKm: number): boolean | null {
-  if (d.place_lat == null || d.place_lng == null) return null
-  const ends = d.rides.flatMap(r => [
-    r.from_lat != null ? { lat: r.from_lat, lng: r.from_lng! } : null,
-    r.to_lat != null ? { lat: r.to_lat, lng: r.to_lng! } : null,
-  ]).filter((p): p is { lat: number; lng: number } => !!p)
-  if (!ends.length) return null
-  return ends.some(p => distanceKm(p, { lat: d.place_lat!, lng: d.place_lng! }) <= nearKm)
+const placeKey = (s: string | null | undefined) => (s ?? '').split(',')[0].trim().toLowerCase()
+export function visitedPlaces(rides: Ride[]): string[] {
+  const seen = new Map<string, string>()
+  for (const r of rides) for (const n of [r.from_name, r.to_name]) {
+    const k = placeKey(n)
+    if (k && k !== 'home' && !seen.has(k)) seen.set(k, n!.split(',')[0].trim())
+  }
+  return [...seen.values()]
+}
+/** Null with no hospital named; otherwise whether one of the day's rides went there. */
+export function ticketVisited(t: Pick<Ticket, 'place'>, rides: Ride[]): boolean | null {
+  if (!placeKey(t.place)) return null
+  return visitedPlaces(rides).some(p => placeKey(p) === placeKey(t.place))
 }
 
 // ---------------------------------------------------------------- bills
@@ -388,6 +395,21 @@ export async function uploadBill(claimId: string, kind: Bill['owner_kind'], owne
   const { error } = await supabase.rpc('te_add_bill', {
     p_claim: claimId, p_kind: kind, p_owner: ownerId, p_path: path, p_name: file.name, p_sha256: hash,
     p_phash: ph, p_phash2: ph2, p_amount: read.amount, p_date: read.date, p_billno: read.billno,
+  })
+  if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
+}
+/** A ticket's service report, a PDF or a photo (te_0037): kept like a bill, never read for an amount. */
+export async function uploadReport(claimId: string, ticketId: string, file: File) {
+  const hash = await sha256(file)
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+  const path = `${claimId}/${newId()}.${ext}`
+  const { data: dupe } = await supabase.rpc('te_bill_used', { p_sha256: hash })
+  if (dupe) throw new Error(`Same file as ${dupe}`)
+  const { error: up } = await supabase.storage.from('te-bills').upload(path, file, { contentType: file.type || 'application/octet-stream' })
+  if (up) throw new Error(friendlyError(up))
+  const { error } = await supabase.rpc('te_add_bill', {
+    p_claim: claimId, p_kind: 'report', p_owner: ticketId, p_path: path, p_name: file.name, p_sha256: hash,
+    p_phash: null, p_phash2: null, p_amount: null, p_date: null, p_billno: null,
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
 }

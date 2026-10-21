@@ -3,19 +3,20 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
 import BillButton from '@/components/BillButton'
+import ReportButton from '@/components/ReportButton'
 import History from '@/components/History'
 import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, outOfPolicy, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, reachesPlace, rideAmount,
+  DA_KINDS, DA_RANK, MODES, billRead, outOfPolicy, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -463,12 +464,14 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     onClick={() => onMapDays([{ ...d, rides: [r] }], `${short(r.from_name)} → ${short(r.to_name)}`)}><MapIcon className="h-3.5 w-3.5" /></button>
                 )}
                 {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol })}
+                {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
                 {d.tickets.filter(t => rideOf(t)?.id === r.id).map(t => {
                   const earlier = (t as typeof t & { earlier?: Array<{ day: string }> }).earlier ?? []
                   return (
-                    <span key={t.id} className="col-span-full flex items-center gap-1.5 pl-1 text-xs text-sky-700">
+                    <span key={t.id} className="col-span-full flex flex-wrap items-center gap-1.5 pl-1 text-xs text-sky-700">
                       <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
                       {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
+                      <ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit} onChange={onBills} />
                     </span>
                   )
                 })}
@@ -478,10 +481,13 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {loose.map(t => {
             const earlier = (t as typeof t & { earlier?: Array<{ day: string; name: string; mine: boolean }> }).earlier ?? []
             return (
-              <div key={t.id} className="col-span-full flex flex-wrap items-center gap-2 py-2 text-sm">
+              <div key={t.id} id={'bill-' + t.id} className={'col-span-full flex flex-wrap items-center gap-2 py-2 text-sm' + mark(t.id)} style={lit(t.id, '#0284C7')}>
                 <TicketIcon className="h-4 w-4 text-sky-600" />
                 <span className="text-ink-800">{t.ticket_no}{t.place ? ` · ${t.place}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}</span>
                 {earlier.length > 0 && <span className="text-xs font-semibold text-sky-700">{ordinal(earlier.length + 1)} visit</span>}
+                {/* A hospital none of the day's rides went to (the user, 21 Oct). */}
+                {ticketVisited(t, d.rides) === false && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not visited on this day's rides</span>}
+                <span className="ml-auto"><ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit} onChange={onBills} /></span>
               </div>
             )
           })}
@@ -568,7 +574,7 @@ const OBS = {
   km:       { title: 'Over the km allowance',    level: 'check',   icon: Gauge },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
-  reach:    { title: 'Hospital not reached',     level: 'check',   icon: MapPinOff },
+  away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
   month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
   changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
@@ -582,7 +588,7 @@ const LEVEL = {
 
 function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => void }) {
   const rule = data.rule, tol = Number(data.policy.km_tolerance_pct ?? 10), over = Number(data.policy.bill_over ?? 300)
-  const metro = Number(data.policy.metro_extra_pct ?? 20), near = Number(data.policy.place_near_km ?? 1)
+  const metro = Number(data.policy.metro_extra_pct ?? 20)
   const items: Obs[] = []
   const dn = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
   const changedLines = (data.adjustments ?? []).map(a => a.item_id)
@@ -612,7 +618,6 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
       const hr = billRead(data.bills, d.hotel.id)
       if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Hotel · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
     }
-    if (reachesPlace(d, near) === false) items.push({ kind: 'reach', day, to: d.id, detail: `No ride starts or ends within ${near} km of ${d.place}` })
     if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ kind: 'da', day, to: d.id, detail: `Claimed ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
     for (const x of d.expenses) {
       const xr = billRead(data.bills, x.id)
@@ -621,6 +626,7 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
     }
     for (const t of d.tickets) {
       const earlier = (t as typeof t & { earlier?: Array<{ day: string; name: string; mine: boolean }> }).earlier ?? []
+      if (ticketVisited(t, d.rides) === false) items.push({ kind: 'away', day, to: t.id, detail: `Ticket ${t.ticket_no} · ${t.place} is not on this day's rides` })
       if (earlier.length) items.push({ kind: 'visit', day, to: d.id, detail: `Ticket ${t.ticket_no} · before on ${earlier.map(e => dn(e.day) + (e.mine ? '' : ' by ' + e.name)).join(', ')}` })
     }
   }

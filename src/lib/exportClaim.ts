@@ -46,7 +46,7 @@ export async function exportClaim(data: ClaimData) {
         r ? MODE_CODE[r.mode] : '', perKm ? r!.claimed_km : null, ta, auto,
         first && d.da_amount ? d.da_amount : null, first && spare ? spare : null, first && hotel ? hotel : null,
         first ? others.map(x => x.description || x.category).join('; ') || null : null, first && otherAmt ? otherAmt : null,
-        line, d.purpose ?? '', first ? tickets : '', first ? srs : '', first ? d.remarks ?? '' : '',
+        line, d.purpose ?? '', first ? tickets : '', first ? srs : '', [first ? d.remarks : null, r?.note].filter(Boolean).join(' · '),
       ])
       if (perKm) sums.km += r!.claimed_km ?? 0
       sums.ta += ta ?? 0; sums.auto += auto ?? 0; sums.total += line

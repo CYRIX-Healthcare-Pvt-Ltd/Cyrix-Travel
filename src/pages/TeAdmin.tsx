@@ -31,7 +31,7 @@ const POLICY: Array<[string, string]> = [
   ['km_tolerance_pct', 'Km over the map allowed, %'], ['bill_over', 'Bill needed above ₹'], ['auto_month', 'Auto allowance a month ₹'],
   ['phone_month', 'Phone allowance a month ₹'], ['tool_max', 'Tools above ₹ go to petty cash'], ['metro_extra_pct', 'Metro city hotel extra %'],
   ['bike_two_way_km', 'Bike two-way limit km'], ['car_two_way_km', 'Car two-way limit km'], ['submit_by_day', 'Submit by day of next month'],
-  ['late_pct', 'Late deduction % (1, 2, 3 months)'], ['place_near_km', 'A ride reaches the hospital within km'],
+  ['late_pct', 'Late deduction % (1, 2, 3 months)'],
 ]
 
 export default function TeAdmin() {

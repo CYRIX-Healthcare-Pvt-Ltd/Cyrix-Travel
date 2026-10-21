@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, MapPin, Plus, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Map as MapIcon, MapPin, Plus, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
+import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
+import ReportButton from '@/components/ReportButton'
 import ModePicker from '@/components/ModePicker'
 import { useAsk } from '@/components/Ask'
 import Budget, { budgetLines, dayUse, monthLong } from '@/components/Budget'
@@ -12,17 +14,18 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  billRead, outOfPolicy, reachesPlace, rideAmount, roadKm, searchPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
+  billRead, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
-  One day of the claim (the user, 17 Oct: day cards): where, why, the rides with their places picked
+  One day of the claim (the user, 17 Oct: day cards): when, why, the rides with their places picked
   on the map, the tickets attended, the DA, a hotel night and other expenses, each with its bills.
   Saved as a whole with te_save_day.
 */
 export function blankDay(day: string): Day {
   return { id: newId(), day, place: '', district: '', purpose: null, da_kind: 'in_district', da_amount: 0, continues_day: null, remarks: '', rides: [], tickets: [], hotel: null, expenses: [] }
 }
+const placeKey = (s: string | null | undefined) => (s ?? '').split(',')[0].trim().toLowerCase()
 const blankRide = (from?: Place | null): Ride => ({
   id: newId(), mode: 'bike', from_name: from?.name ?? null, from_lat: from?.lat ?? null, from_lng: from?.lng ?? null,
   to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null,
@@ -33,8 +36,8 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
   const { employee } = useAuth()
   const [d, setD] = useState<Day>(initial)
   const [picking, setPicking] = useState<{ ride: string; end: 'from' | 'to' } | null>(null)
-  // The day's hospital, picked on the map: its name and its district filled in (the user, 17 Oct).
-  const [pickingPlace, setPickingPlace] = useState(false)
+  // One ride on the map, from its own card (the user, 21 Oct: "option to view in map in each mode").
+  const [mapRide, setMapRide] = useState<Ride | null>(null)
   // The claim's details, kept in the form with everything else (the user, 17 Oct).
   const [hdr, setHdr] = useState({ project: data.claim.project ?? '', base: data.claim.base_location ?? '', mobile: data.claim.mobile ?? '' })
   const [projects, setProjects] = useState<string[]>([])
@@ -66,11 +69,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       nav(`/claim/${fresh as string}?add=${d.day}`, { replace: true })
     } catch (e) { setErr(friendlyError(e as never)) } finally { setBusy(false) }
   }
-  // Places offered while the hospital is typed (the user, 18 Oct: "when typing hospital / place can we get place suggestion from map").
-  const [typing, setTyping] = useState(false)
-  const [hits, setHits] = useState<Place[]>([])
   const c = data.claim, rule = data.rule
-  const nearKm = Number(data.policy.place_near_km ?? 1)
   const over = Number(data.policy.bill_over ?? 300), tol = Number(data.policy.km_tolerance_pct ?? 10), metroPct = Number(data.policy.metro_extra_pct ?? 20)
   const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
   const da = daFor(rule, d.da_kind, d.purpose, data.office_purposes)
@@ -89,10 +88,9 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       .then(({ data: h }) => { if (h) setHome({ name: 'Home', lat: h.lat, lng: h.lng }); setHomeReady(true) })
   }, [employee])
 
-  // The day's hospital first (the user, 18 Oct: "should be also in his rides"), then places already used this month.
+  // Home, then places already used this month.
   const quick = useMemo(() => {
-    const seen = new Map<string, Place & { home?: boolean; hospital?: boolean; label?: string }>()
-    if (d.place && d.place_lat != null) seen.set('@hospital', { name: [d.place, d.district].filter(Boolean).join(', '), lat: d.place_lat, lng: d.place_lng!, hospital: true, label: d.place })
+    const seen = new Map<string, Place & { home?: boolean; label?: string }>()
     if (home) seen.set('Home', { ...home, home: true })
     for (const day of [...data.days, d]) for (const r of day.rides) {
       if (r.from_name && r.from_lat != null && !seen.has(r.from_name)) seen.set(r.from_name, { name: r.from_name, lat: r.from_lat, lng: r.from_lng! })
@@ -100,25 +98,6 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
     }
     return [...seen.values()].slice(0, 10).map(p => ({ ...p, label: p.label ?? p.name.split(',')[0] }))
   }, [home, data.days, d])
-
-  // The hospital chosen from the list or the map: its name, its pin, and its district filled in.
-  const choosePlace = async (p: Place) => {
-    setTyping(false); setHits([])
-    set({ place: p.name.split(',')[0], place_lat: p.lat, place_lng: p.lng })
-    const dist = await districtOf(p.lat, p.lng)
-    if (dist) setD(x => ({ ...x, district: dist }))
-  }
-  useEffect(() => {
-    const q = d.place ?? ''
-    if (!typing || q.trim().length < 3) { setHits([]); return }
-    const t = window.setTimeout(async () => {
-      const r0 = d.rides.find(r => r.from_lat != null)
-      const near = home ?? (r0 ? { lat: r0.from_lat!, lng: r0.from_lng! } : undefined)
-      setHits((await searchPlaces(q, near)).slice(0, 6))
-    }, 400)
-    return () => window.clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d.place, typing])
 
   /*
     The DA follows the day's places (the user, 18 Oct): worked out again whenever a place or the hotel
@@ -132,9 +111,8 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       if (r.from_lat != null) ps.push({ name: '', lat: r.from_lat, lng: r.from_lng! })
       if (r.to_lat != null) ps.push({ name: '', lat: r.to_lat, lng: r.to_lng! })
     }
-    if (d.place_lat != null) ps.push({ name: '', lat: d.place_lat, lng: d.place_lng! })
     return ps
-  }, [d.rides, d.place_lat, d.place_lng])
+  }, [d.rides])
   const stay = !!(d.hotel || d.room_by)
   const stopsKey = stops.map(p => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`).join('|') + (stay ? '|stay' : '')
   const applied = useRef(data.days.some(x => x.id === initial.id) ? stopsKey : '')
@@ -149,7 +127,8 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopsKey, homeReady])
-  const reached = reachesPlace(d, nearKm)
+  // The hospitals a ticket is chosen from: where the day's rides went (the user, 21 Oct).
+  const visited = visitedPlaces(d.rides)
   // The month's budget with this day as it is now in the form: saved use, less this day as saved, plus this day now.
   const was = dayUse(data.days.find(x => x.id === initial.id)), now = dayUse(d), km0 = data.km_month
   const budget = budgetLines(rule, data.policy, {
@@ -165,10 +144,6 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng }
       : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng }
     setRide(rideId, { ...next, map_km: null })
-    if (end === 'to' && !d.place?.trim()) {
-      set({ place: p.name.split(',')[0], place_lat: p.lat, place_lng: p.lng })
-      void districtOf(p.lat, p.lng).then(dist => { if (dist) setD(x => (x.district?.trim() ? x : { ...x, district: dist })) })
-    }
     if (next.from_lat != null && next.to_lat != null) {
       const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! })
       setRide(rideId, { map_km: road?.km ?? null })
@@ -192,12 +167,21 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       if (MODES[r.mode].perKm && !r.claimed_km) { setErr(`Type the km for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
       if (!MODES[r.mode].perKm && r.fare == null) { setErr(`Type the fare for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
     }
-    if (reached === false && !(await ask.confirm({
-      title: `No ride reaches ${d.place}`,
-      body: `None of the rides starts or ends within ${nearKm} km of it. Your approvers will see this.`,
+    const away = d.tickets.filter(t => t.ticket_no.trim() && ticketVisited(t, d.rides) === false)
+    if (away.length && !(await ask.confirm({
+      title: away.length === 1 ? `You didn't visit ${away[0].place} on this day's rides` : "Some tickets' hospitals are not on this day's rides",
+      body: `${away.map(t => `Ticket ${t.ticket_no} · ${t.place}`).join(', ')}. Your approvers will see this.`,
       yes: 'Save anyway',
     }))) return
     setBusy(true)
+    /*
+      The day's place is where its rides went, and its district theirs (the user, 21 Oct: "what if I went
+      to 2-3 hospitals? … that we are showing in trip also, so that field needed there?").
+    */
+    const ends = d.rides.filter(r => r.to_lat != null && placeKey(r.to_name) !== 'home')
+    const dists = [...new Set((await Promise.all(ends.map(r => districtOf(r.to_lat!, r.to_lng!).catch(() => null)))).filter(Boolean))]
+    const place = visited.length ? visited.join(' · ') : d.place
+    const district = dists.length ? dists.join(', ') : d.district
     if (hdr.project !== (c.project ?? '') || hdr.base !== (c.base_location ?? '') || hdr.mobile !== (c.mobile ?? '')) {
       const { error: he } = await supabase.rpc('te_set_header', { p_claim: c.id, p_project: hdr.project, p_base: hdr.base, p_mobile: hdr.mobile })
       if (he) { setBusy(false); setErr(friendlyError(he)); return }
@@ -206,6 +190,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
       p_claim: c.id,
       p_day: {
         ...d,
+        place, district, place_lat: null, place_lng: null,
         continues_day: joined,
         da_auto: auto,
         hotel: d.hotel && d.hotel.amount > 0 ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
@@ -238,34 +223,9 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
               </select></label>
           </div>
           {d.continues_day && <p className="rounded-lg bg-violet-100 px-3 py-2 text-sm text-violet-900">Continues the trip of {new Date(d.continues_day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block"><span className="label">Date</span>
               <input type="date" className="input mt-1 h-11" min={firstDay} max={lastDay} value={d.day} onChange={e => set({ day: e.target.value })} /></label>
-            {/* pt-1, not mt-1: a margin here folds into the label's and sat the box 4px higher than its row (the user, 18 Oct: "alignment"). */}
-            <label className="block"><span className="label">Hospital / place</span>
-              <span className="block pt-1">
-                <span className="relative block">
-                  <input className="input h-11 pr-10" value={d.place ?? ''} placeholder="Hospital name" autoComplete="off"
-                    onChange={e => { setTyping(true); set({ place: e.target.value, place_lat: null, place_lng: null }) }}
-                    onBlur={() => window.setTimeout(() => setTyping(false), 150)} />
-                  <button type="button" className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-cyrixRed-600 hover:bg-ink-100"
-                    title="Find on the map" aria-label="Find on the map" onClick={() => setPickingPlace(true)}><MapPin className="h-4 w-4" /></button>
-                  {typing && hits.length > 0 && (
-                    <span className="absolute inset-x-0 top-full z-20 mt-1 block overflow-hidden rounded-xl border border-ink-200 bg-surface shadow-lg sm:w-[200%] sm:max-w-[28rem]">
-                      {hits.map((p, i) => (
-                        <button key={i} type="button" className="flex w-full items-start gap-2 border-b border-ink-100 px-3 py-2.5 text-left text-sm last:border-0 hover:bg-ink-100"
-                          onMouseDown={e => e.preventDefault()} onClick={() => void choosePlace(p)}>
-                          <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-cyrixRed-600" />
-                          <span className="min-w-0"><span className="block truncate font-medium text-ink-900">{p.name.split(',')[0]}</span>
-                            <span className="block truncate text-xs text-ink-500">{p.name.split(',').slice(1).join(',').trim()}</span></span>
-                        </button>
-                      ))}
-                    </span>
-                  )}
-                </span>
-              </span></label>
-            <label className="block"><span className="label">District</span>
-              <input className="input mt-1 h-11" value={d.district ?? ''} onChange={e => set({ district: e.target.value })} placeholder="District" /></label>
             <label className="block"><span className="label">Purpose</span>
               <select className="input mt-1 h-11" value={d.purpose ?? ''} onChange={e => set({ purpose: e.target.value || null })}>
                 <option value="">Choose…</option>
@@ -319,12 +279,17 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
                     </div>
                     {/* One short line about the map, amber when the km is over (no chips). */}
-                    {m.perKm && r.claimed_km != null && check && (
-                      <p className={`mt-1.5 pl-6 text-xs ${check.over ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                        {check.over ? `${km(check.over)} over the allowed ${km(check.allowed)} (map ${km(r.map_km)}) — needs approval` : `Map ${km(r.map_km)} · allowed ${km(check.allowed)}`}
-                      </p>
+                    {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
+                    {r.map_km != null && (
+                      <div className="mt-1.5 flex items-center gap-3 pl-6">
+                        <p className={`min-w-0 flex-1 text-xs ${check?.over ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
+                          {!m.perKm ? `Map ${km(r.map_km)}` : check?.over ? `${km(check.over)} over the allowed ${km(check.allowed)} (map ${km(r.map_km)}) — needs approval` : `Map ${km(r.map_km)} · allowed ${km(r.map_km * (1 + tol / 100))}`}
+                        </p>
+                        <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
+                          <MapIcon className="h-3.5 w-3.5" /> View on map
+                        </button>
+                      </div>
                     )}
-                    {!m.perKm && r.map_km != null && <p className="mt-1.5 pl-6 text-xs text-ink-500">Map {km(r.map_km)}</p>}
                     {/* The bill and what it reads, on a line of its own (the user, 18 Oct). */}
                     {data.bills.some(b => b.owner_id === r.id) && (
                       <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
@@ -334,11 +299,14 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
                         )}
                       </div>
                     )}
+                    {/* Anything about the ride, in the engineer's words (the user, 21 Oct). */}
+                    <div className="mt-2 pl-6">
+                      <input className="input h-10 w-full text-sm" aria-label="Remarks" placeholder="Remarks" value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
+                    </div>
                     {notAllowed && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-cyrixRed-100 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
                   </div>
                 )
               })}
-              {reached === false && <p className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900">No ride reaches {d.place}</p>}
               <button type="button" className="btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
@@ -354,24 +322,30 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
               <div className="mb-2 overflow-hidden rounded-xl border border-ink-200">
                 {d.tickets.map(t => {
                   const put = (p: Partial<typeof t>) => set({ tickets: d.tickets.map(x => (x.id === t.id ? { ...x, ...p } : x)) })
+                  const off = ticketVisited(t, d.rides) === false
                   return (
                     // Each box says what it is, on a phone too (the user, 17 Oct: "show what field is this").
-                    <div key={t.id} className="grid grid-cols-2 items-end gap-2 border-t border-ink-100 px-3 py-2.5 first:border-t-0 sm:grid-cols-[1fr_1fr_1.6fr]">
+                    <div key={t.id} className="grid grid-cols-2 items-end gap-2 border-t border-ink-100 px-3 py-2.5 first:border-t-0 sm:grid-cols-[1fr_1fr_1.6fr_auto]">
                       <label className="block min-w-0"><span className="label block truncate">Ticket ID</span>
                         <input className="input mt-1 h-10" value={t.ticket_no} onChange={e => put({ ticket_no: e.target.value })} /></label>
                       <label className="block min-w-0"><span className="label block truncate">SR No</span>
                         <input className="input mt-1 h-10" value={t.service_report ?? ''} onChange={e => put({ service_report: e.target.value })} /></label>
-                      <div className="col-span-2 flex items-end gap-2 sm:col-span-1">
-                        <label className="block min-w-0 flex-1"><span className="label">Hospital</span>
-                          <input className="input mt-1 h-10" value={t.place ?? ''} onChange={e => put({ place: e.target.value })} /></label>
-                        <button type="button" className="btn-icon mb-1 text-ink-400" aria-label="Remove ticket" onClick={() => set({ tickets: d.tickets.filter(x => x.id !== t.id) })}><Trash2 className="h-4 w-4" /></button>
+                      <label className="col-span-2 block min-w-0 sm:col-span-1"><span className="label">Hospital</span>
+                        <select className={`input mt-1 h-10 ${off ? '!border-amber-400' : ''}`} value={t.place ?? ''} onChange={e => put({ place: e.target.value || null })}>
+                          <option value="">{visited.length ? 'Choose…' : 'Add the ride first'}</option>
+                          {[...visited, ...(off ? [t.place!] : [])].map(p => <option key={p} value={p}>{p}</option>)}
+                        </select></label>
+                      <div className="col-span-2 flex items-center gap-2 sm:col-span-1">
+                        <ReportButton large claimId={c.id} ticketId={t.id} bills={data.bills} editable onChange={refresh} />
+                        <button type="button" className="btn-icon ml-auto text-ink-400" aria-label="Remove ticket" onClick={() => set({ tickets: d.tickets.filter(x => x.id !== t.id) })}><Trash2 className="h-4 w-4" /></button>
                       </div>
+                      {off && <p className="col-span-full text-xs font-semibold text-amber-800">You didn't visit {t.place} on this day's rides</p>}
                     </div>
                   )
                 })}
               </div>
             )}
-            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ tickets: [...d.tickets, { id: newId(), ticket_no: '', service_report: null, place: d.place || null }] })}><Plus className="h-4 w-4" /> Ticket</button>
+            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ tickets: [...d.tickets, { id: newId(), ticket_no: '', service_report: null, place: visited[visited.length - 1] ?? null }] })}><Plus className="h-4 w-4" /> Ticket</button>
           </section>
 
           {/* ---- DA ---- */}
@@ -484,7 +458,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
             <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ expenses: [...d.expenses, { id: newId(), category: 'Courier', description: '', amount: 0 }] })}><Plus className="h-4 w-4" /> Expense</button>
           </section>
 
-          <label className="block"><span className="label">Remarks</span>
+          <label className="block"><span className="label">Claim remarks</span>
             <textarea rows={2} className="input mt-1" value={d.remarks ?? ''} onChange={e => set({ remarks: e.target.value })} placeholder="What was done" /></label>
         </div>
       </div>
@@ -495,11 +469,7 @@ export default function DayEditor({ data, initial, onClose }: { data: ClaimData;
             <button type="button" className="btn-primary h-11 px-6 text-base" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
           </div>
         </div>
-      {pickingPlace && (
-        <PlacePicker title="Hospital / place" start={d.place_lat != null ? { name: d.place ?? '', lat: d.place_lat, lng: d.place_lng! } : null} quick={quick.filter(p => !p.hospital)}
-          onPick={p => { setPickingPlace(false); void choosePlace(p) }}
-          onClose={() => setPickingPlace(false)} />
-      )}
+      {mapRide && <RouteMap days={[{ ...d, rides: [mapRide] }]} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
       {picking && ride && (
         <PlacePicker
           title={picking.end === 'from' ? 'From' : 'To'}
