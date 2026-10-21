@@ -499,9 +499,16 @@ async function pdfText(file: Blob): Promise<string> {
 export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null }> {
   let raw = ''
   if (file.type === 'application/pdf') raw = await pdfText(file).catch(() => '')
-  else if (file.type.startsWith('image/')) {
-    const { recognize } = await import('tesseract.js')
-    raw = (await recognize(await shrink(file), 'eng')).data.text
+  // A photo is read word by word, each with how sure the reader is of it (0–100).
+  let words: Array<{ text: string; confidence: number }> | null = null
+  if (file.type.startsWith('image/')) {
+    const { createWorker } = await import('tesseract.js')
+    const worker = await createWorker('eng')
+    try {
+      const { data } = await worker.recognize(await shrink(file), {}, { text: true, blocks: true })
+      raw = data.text
+      words = (data.words ?? []).map(w => ({ text: w.text, confidence: w.confidence }))
+    } finally { void worker.terminate() }
   }
   if (!raw.trim()) return { amount: null, date: null, billno: null, refs: [] }
   const refs = refsIn(raw)
@@ -519,8 +526,24 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   }
   const bm = text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
   // No date: the person enters the day, and the bill's own date is not needed (the user, 19 Oct).
-  return { amount, date: null, billno: refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null), refs, route, stay }
+  /*
+    A photo's amount and bill number are used only when the words that hold them were read surely (the
+    user, 21 Oct: "bill reader confidence fix"): a handwritten or blurred figure read wrongly would fill a
+    wrong amount and tell the approver the bill differs when it does not. Unsure, it counts as not read,
+    and the person types the amount. A PDF's text is exact and always used.
+  */
+  const sure = (value: string | number | null) => {
+    if (value == null || !words) return value != null
+    const want = String(value).replace(/\.0+$/, '').replace(/[^0-9A-Z]/gi, '').toUpperCase()
+    if (!want) return false
+    const hits = words.filter(w => { const t = w.text.replace(/[^0-9A-Z]/gi, '').toUpperCase(); return t.length > 0 && (t === want || t.includes(want)) })
+    return hits.length > 0 && Math.max(...hits.map(w => w.confidence)) >= SURE
+  }
+  const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null)
+  return { amount: sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay }
 }
+/** How sure the reader must be of a photo's figure (0–100) for it to be used. */
+const SURE = 80
 /** A phone photo made no wider than 2000px first: read as well, and many times faster. */
 async function shrink(file: Blob): Promise<Blob> {
   try {
