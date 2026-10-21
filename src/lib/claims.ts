@@ -610,7 +610,7 @@ const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
 }
 export const useMyClaims = () => useQuery({
   queryKey: ['te_my_claims'],
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; bills_missing: number; submitted_at: string | null; returned_at: string | null }>>('te_my_claims'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; bills_missing: number; submitted_at: string | null; returned_at: string | null; places: string[]; find: string }>>('te_my_claims'),
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
@@ -618,7 +618,7 @@ export const useClaim = (id: string | undefined) => useQuery({
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number }>>('te_inbox'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string }>>('te_inbox'),
 })
 export interface Summary {
   mine: { claimed: number; sent_back: number; pending: number; approved: number; paid: number; claims: number

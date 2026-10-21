@@ -1,24 +1,55 @@
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { ChevronRight, ClipboardCheck } from 'lucide-react'
+import { ChevronRight, ClipboardCheck, Ticket as TicketIcon } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
-import { STATUS, claimName, dayRange, km, money, useInbox } from '@/lib/claims'
+import { PlaceChips, useClaimFilter } from '@/components/ClaimRows'
+import { MODES, MODE_ORDER, STATUS, claimName, dayRange, inkVars, km, money, useInbox } from '@/lib/claims'
 
-/** Claims waiting on this person — manager, coordinator or Travel Desk — and the ones they passed on. */
+/**
+ * Claims waiting on this person — manager, coordinator or Travel Desk — and the ones they passed on, still to
+ * be paid or paid, each under its own tab (the user, 21 Oct: "if many claims come we should not have to go
+ * down to see the others").
+ */
+// Named by what the person does (the user, 21 Oct: "does the manager know the waiting tab is for him, to approve?"); short enough to fit across a phone.
+const TABS = [['waiting', 'To approve'], ['pending', 'To be paid'], ['paid', 'Paid']] as const
+type Tab = typeof TABS[number][0]
+const EMPTY: Record<Tab, string> = { waiting: 'Nothing for you to approve.', pending: 'Nothing waiting to be paid.', paid: 'Nothing paid yet.' }
+
 export default function Inbox() {
   const { data, isLoading, error } = useInbox()
   const done = (useLocation().state as { done?: string } | null)?.done
+  const find = useClaimFilter('te.approvals')
+  const [tab, setTab] = useState<Tab>('waiting')
   if (isLoading) return <PageLoader />
-  const waiting = (data ?? []).filter(c => c.waiting), rest = (data ?? []).filter(c => !c.waiting)
+  const found = (data ?? []).filter(find.test)
+  /*
+    Passed on and not yet paid, and paid (the user, 21 Oct: "it is what the manager approves, the pending
+    payment"); a claim sent back sits with the unpaid ones, its chip saying where it is.
+  */
+  const lists: Record<Tab, typeof found> = {
+    waiting: found.filter(c => c.waiting),
+    pending: found.filter(c => !c.waiting && c.status !== 'paid'),
+    paid: found.filter(c => !c.waiting && c.status === 'paid'),
+  }
+  const shown = lists[tab]
   const Row = ({ c }: { c: NonNullable<typeof data>[number] }) => {
     const s = STATUS[c.status] ?? STATUS.draft
     return (
-      // The same grid as My claims: on a phone the person and amount on top, the status under; on a computer fixed columns.
-      <Link to={`/claim/${c.id}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-ink-100/60 sm:grid-cols-[minmax(0,1fr)_11rem_6rem_1rem]">
+      // The same grid as My claims: on a phone the person and amount on top, the places and status under; on a computer fixed columns.
+      <Link to={`/claim/${c.id}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-ink-100/60 sm:grid-cols-[minmax(0,1fr)_11rem_6rem_1rem] lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)_11rem_6rem_1rem]">
         <div className="min-w-0">
           <p className="truncate font-medium text-ink-900">{c.name} <span className="text-xs text-ink-500">{c.ecode}</span></p>
           <p className="truncate text-xs text-ink-600"><b className="text-ink-900">{c.number}</b> · {claimName(c.month, c.part)} · {dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
+          {((c.modes ?? []).length > 0 || c.tickets > 0) && (
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+              {(c.modes ?? []).length > 0 && <span className="flex items-center gap-1">{MODE_ORDER.filter(m => c.modes.includes(m)).map(m => { const I = MODES[m].icon; return <span key={m} title={MODES[m].label}><I className="mode-ink h-3.5 w-3.5" style={inkVars(MODES[m])} /></span> })}</span>}
+              {c.tickets > 0 && <span className="inline-flex items-center gap-1 text-sky-700"><TicketIcon className="h-3.5 w-3.5" />{c.tickets}</span>}
+            </p>
+          )}
         </div>
         <span className="text-right text-base font-semibold text-ink-900 sm:order-3">{money(c.total)}</span>
+        {/* The places, in the middle on a computer, under the person on a phone (the user, 21 Oct). */}
+        <span className={`col-span-2 min-w-0 sm:order-5 sm:col-span-4 lg:order-1 lg:col-span-1 ${c.places?.length ? '' : 'hidden lg:block'}`}><PlaceChips places={c.places} /></span>
         <span className="justify-self-start sm:order-2"><span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span></span>
         <ChevronRight className="h-4 w-4 justify-self-end text-ink-400 sm:order-4" />
       </Link>
@@ -29,17 +60,18 @@ export default function Inbox() {
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
       {done && <Alert kind="success">{done}</Alert>}
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-ink-700">Waiting on you · {waiting.length}</h2>
-        {waiting.length ? <div className="card divide-y divide-ink-100 overflow-hidden">{waiting.map(c => <Row key={c.id} c={c} />)}</div>
-          : <div className="card p-6 text-center text-sm text-ink-500">Nothing waiting on you.</div>}
-      </section>
-      {rest.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-sm font-semibold text-ink-700">Your team's other claims</h2>
-          <div className="card divide-y divide-ink-100 overflow-hidden">{rest.map(c => <Row key={c.id} c={c} />)}</div>
-        </section>
-      )}
+      {(data?.length ?? 0) > 0 && find.bar}
+      <div className="flex border-b border-ink-200" role="tablist">
+        {TABS.map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+            className={`-mb-px flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2.5 pt-1 text-sm font-semibold sm:flex-none sm:px-4 ${tab === k ? 'border-ink-900 text-ink-900' : 'border-transparent text-ink-500 hover:text-ink-800'}`}>
+            {l}
+            <span className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-xs font-bold ${k === 'waiting' && lists[k].length > 0 ? 'bg-cyrixRed-600 text-white' : 'bg-ink-100 text-ink-700'}`}>{lists[k].length}</span>
+          </button>
+        ))}
+      </div>
+      {shown.length ? <div className="card divide-y divide-ink-100 overflow-hidden">{shown.map(c => <Row key={c.id} c={c} />)}</div>
+        : <div className="card p-6 text-center text-sm text-ink-500">{find.active ? find.empty : EMPTY[tab]}</div>}
     </div>
   )
 }

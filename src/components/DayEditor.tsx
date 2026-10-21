@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, Building2, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -8,6 +8,8 @@ import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import ModePicker from '@/components/ModePicker'
 import { useAsk } from '@/components/Ask'
+import Dialog from '@/components/Dialog'
+import MonthCalendar from '@/components/MonthCalendar'
 import Budget, { budgetLines, dayUse, monthLong } from '@/components/Budget'
 import { Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
@@ -24,7 +26,8 @@ import {
   Saved as a whole with te_save_day.
 */
 export function blankDay(day: string): Day {
-  return { id: newId(), day, place: '', district: '', purpose: null, da_kind: 'in_district', da_amount: 0, continues_day: null, remarks: '', rides: [], tickets: [], hotel: null, expenses: [] }
+  // No DA until the day's places decide it, or the person chooses one (the user, 21 Oct): none claimed unnoticed.
+  return { id: newId(), day, place: '', district: '', purpose: null, da_kind: 'none', da_amount: 0, continues_day: null, remarks: '', rides: [], tickets: [], hotel: null, expenses: [] }
 }
 // A flight, a train and a hotel night always say why (the user, 21 Oct: "remarks mandatory").
 const REMARKS_NEEDED = new Set(['flight', 'train'])
@@ -80,6 +83,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
   const [projects, setProjects] = useState<string[]>([])
   useEffect(() => { void supabase.rpc('te_projects').then(({ data: p }) => setProjects(((p ?? []) as Array<{ label: string }>).map(x => x.label))) }, [])
   const [busy, setBusy] = useState(false)
+  const [dating, setDating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [home, setHome] = useState<Place | null>(null)
   const [homeReady, setHomeReady] = useState(false)
@@ -322,8 +326,13 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
           </div>
           {d.continues_day && <p className="rounded-lg bg-violet-100 px-3 py-2 text-sm text-violet-900">Continues the trip of {new Date(d.continues_day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block"><span className="label">Date</span>
-              <input type="date" className="input mt-1 h-11" min={firstDay} max={lastDay} value={d.day} onChange={e => set({ day: e.target.value })} /></label>
+            {/* The date chosen on the calendar shown, not asked again; a press changes it (the user, 21 Oct). */}
+            <div><span className="label">Date</span>
+              <button type="button" onClick={() => setDating(true)}
+                className="input mt-1 flex h-11 items-center justify-between gap-2 text-left">
+                {d.day ? new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Choose…'}
+                <CalendarDays className="h-4 w-4 shrink-0 text-ink-400" />
+              </button></div>
             <label className="block"><span className="label">Purpose</span>
               <select className="input mt-1 h-11" value={d.purpose ?? ''} onChange={e => set({ purpose: e.target.value || null })}>
                 <option value="">Choose…</option>
@@ -572,7 +581,15 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
             <button type="button" className="btn-primary h-11 px-6 text-base" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
           </div>
         </div>
-      {mapRide && <RouteMap days={[{ ...d, rides: [mapRide] }]} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
+      {dating && (
+        <Dialog title="Date" icon={<CalendarDays className="h-5 w-5 text-amber-600" />} onClose={() => setDating(false)}>
+          <div className="mt-3">
+            <MonthCalendar value={d.day} min={firstDay} max={lastDay} marked={data.days.filter(x => x.id !== initial.id).map(x => x.day)}
+              onChange={v => { set({ day: v }); setDating(false) }} />
+          </div>
+        </Dialog>
+      )}
+      {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
       {picking && ride && (
         <PlacePicker
           title={picking.end === 'from' ? 'From' : 'To'}

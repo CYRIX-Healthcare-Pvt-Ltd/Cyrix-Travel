@@ -70,7 +70,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
   const clip = editable && part !== 'bills' && (
     <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"
       style={needed && !mine.length && accent ? { borderColor: accent.color + '99', background: accent.color + '14', ...inkVars(accent) } : undefined}
-      className={`grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? (accent ? 'mode-ink' : 'border-amber-400 bg-amber-50 text-amber-700') : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
+      className={`btn-lift grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? (accent ? 'mode-ink' : 'border-amber-400 bg-amber-50 text-amber-700') : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
       {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
     </button>
   )
@@ -85,7 +85,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
         return (
           <button key={b.id} type="button" onClick={() => void open(b)}
             title={b.twin ? `Looks like ${b.twin}` : off ? `The bill reads ${money(read)} · claimed ${money(claimed)}` : read != null ? `The bill reads ${money(read)}` : 'Bill · the amount could not be read'}
-            className={`inline-flex shrink-0 items-center gap-1 font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-800' : off ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-400' : 'bg-green-100 text-green-800'}`}>
+            className={`btn-lift inline-flex shrink-0 items-center gap-1 font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-800 hover:bg-cyrixRed-200' : off ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-400 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'}`}>
             <FileText className="h-3.5 w-3.5" />{read != null ? money(read) : 'Bill'}{off && <TriangleAlert className="h-3.5 w-3.5" />}
           </button>
         )

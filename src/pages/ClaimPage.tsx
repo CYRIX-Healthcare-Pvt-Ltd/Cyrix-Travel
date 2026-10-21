@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -35,7 +35,7 @@ export default function ClaimPage() {
   const { isSwAdmin } = useAuth()
   const ask = useAsk()
   const openDay = (d: Day, replace = false, chosen = false) => nav(`/claim/${id}/day`, { state: { day: d, chosen }, replace })
-  const [map, setMap] = useState<{ days: Day[]; title: string } | null>(null)
+  const [map, setMap] = useState<{ days: Day[]; title: string; focus?: string } | null>(null)
   const [note, setNote] = useState('')
   // The decision panel says its own result, where the button was pressed (the user, 17 Oct).
   const [panel, setPanel] = useState<{ ok: boolean; text: string } | null>(null)
@@ -46,8 +46,6 @@ export default function ClaimPage() {
   const [fail, setFail] = useState<string | null>(null)
   // An approver changing one figure (te_0027).
   const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
-  // The bills still needed, named, when Submit finds them (the user, 19 Oct: "don't know in which is having error").
-  const [need, setNeed] = useState<Array<{ id: string; label: string }> | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
   const goTo = (id: string) => { setFocus(id); showBill(id) }
   // The outline goes at the next tap anywhere (the user, 19 Oct).
@@ -101,6 +99,15 @@ export default function ClaimPage() {
   const tol = Number(data.policy.km_tolerance_pct ?? 10)
   const over = Number(data.policy.bill_over ?? 300)
   const lastDay = data.days[data.days.length - 1]
+  /*
+    The bills still needed, named and marked on their days as soon as a day is saved, not only when sending
+    (the user, 19 Oct: "don't know in which is having error"; 21 Oct: show problems as soon as a day is saved).
+  */
+  const need = c.mine && c.can_edit ? missingBills(data, over) : []
+  const send = async () => {
+    if (need.length) { setMsg(null); setFail(null); showBill(need[0].id); return }
+    if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send' })) void run('te_submit', { p_claim: c.id }, 'Sent.')
+  }
   const monthLast = (() => { const d = new Date(c.month + 'T00:00:00'); const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString('en-CA'); return end < todayIso() ? end : todayIso() })()
   // Delete / request deletion / Excel: one row with the person's buttons (the user, 17 Oct).
   const excel = data.days.length > 0 && (
@@ -196,7 +203,7 @@ export default function ClaimPage() {
             <button type="button" className="btn-lift mb-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
               onClick={async () => {
                 if (c.status === 'with_manager') {
-                  if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change it. Submit it again when done.`, yes: 'Recall' }))) return
+                  if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change it. Send it again when done.`, yes: 'Recall' }))) return
                   try { await act.mutateAsync({ fn: 'te_recall', args: { p_claim: c.id } }) } catch (e) { setFail((e as Error).message); return }
                 }
                 const last = data.days[data.days.length - 1]
@@ -216,7 +223,7 @@ export default function ClaimPage() {
       {data.days.length > 0 && <Budget title={`${c.mine ? 'Left' : `${c.name.split(' ')[0]}'s budget left`} in ${monthLong(c.month)}`}
         lines={budgetLines(rule, data.policy, { bike: data.km_month.bike, car: data.km_month.car, auto: data.km_month.auto, phone: data.km_month.phone ?? 0 })} />}
       {c.status === 'returned' && c.return_note && <Alert kind="warning" title="Sent back to you">{c.return_note}</Alert>}
-      {c.mine && c.status === 'recalled' && <Alert kind="info" title="Recalled to edit">Change what you need, then press Submit to manager again. It keeps its number.</Alert>}
+      {c.mine && c.status === 'recalled' && <Alert kind="info" title="Recalled to edit">Change what you need, then press Send to manager again. It keeps its number.</Alert>}
       {!c.mine && c.recalls > 0 && <p className="text-sm text-orange-800">Recalled {c.recalls}× by {c.name.split(' ')[0]} after sending{c.last_recalled_at ? ` · last on ${new Date(c.last_recalled_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</p>}
       {/* Deleting a sent claim needs the manager (te_0016; the user, 17 Oct). */}
       {c.delete_requested_at && (
@@ -243,7 +250,7 @@ export default function ClaimPage() {
       {(() => {
         // Gone as each is attached.
         const billedNow = new Set(data.bills.map(b => b.owner_id))
-        const left = (need ?? []).filter(x => !billedNow.has(x.id))
+        const left = need.filter(x => !billedNow.has(x.id))
         return left.length > 0 && (
           <div className="card border-cyrixRed-300 bg-cyrixRed-50 p-4">
             <p className="flex items-center gap-2 font-semibold text-cyrixRed-900"><Paperclip className="h-4 w-4" /> Attach {left.length === 1 ? 'this bill' : `these ${left.length} bills`} before sending</p>
@@ -268,9 +275,9 @@ export default function ClaimPage() {
           {g.map((d, i) => (
             <DayCard key={d.id} d={d} data={data} tripDay={g.length > 1 ? `Trip day ${i + 1} of ${g.length}` : null} tol={tol} over={over}
               onEdit={() => openDay(d)} onMap={() => setMap({ days: [d], title: `${dayName(d.day)}${d.place ? ' · ' + d.place : ''}` })}
-              onMapDays={(days, title) => setMap({ days, title })}
+              onMapDays={(days, title, focus) => setMap({ days, title, focus })}
               onDelete={async () => { if (await ask.confirm({ title: `Remove ${dayName(d.day)}?`, body: 'The day, its rides, tickets, expenses and bills come off the claim.', yes: 'Remove day', danger: true })) void run('te_delete_day', { p_day: d.id }, 'Day removed.') }}
-              onBills={() => void refetch()} onAdjust={c.can_decide && !c.mine ? setAdjust : undefined} need={new Set((need ?? []).map(x => x.id))} focus={focus} />
+              onBills={() => void refetch()} onAdjust={c.can_decide && !c.mine ? setAdjust : undefined} need={new Set(need.map(x => x.id))} focus={focus} />
           ))}
         </div>
       ))}
@@ -278,21 +285,29 @@ export default function ClaimPage() {
       {/* After the days and before the person's actions or the approver's check (the user, 19 Oct). */}
       <Observations data={data} onGo={goTo} />
 
+      {/*
+        One clear bar to send, kept in sight at the foot of the screen once a day is saved (the user, 21 Oct:
+        "on the claim page show one clear Send to manager bar"); the bills still needed said on it.
+      */}
+      {c.can_edit && data.days.length > 0 && (
+        <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-teal-300 bg-teal-50 px-4 py-3 shadow-lg lg:bottom-4">
+          <span className="min-w-0 leading-tight">
+            <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Claim total</span>
+            <span className="block text-2xl font-bold tabular-nums text-ink-900">{money(total)}</span>
+            <span className={`block text-xs ${need.length ? 'font-semibold text-cyrixRed-700' : 'text-ink-500'}`}>
+              {need.length ? `${need.length} bill${need.length === 1 ? '' : 's'} needed` : `${data.days.length} day${data.days.length === 1 ? '' : 's'}`}
+            </span>
+          </span>
+          <button type="button" className="btn-primary h-11 shrink-0 px-5 text-base" disabled={act.isPending} onClick={() => void send()}>
+            {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Send to manager
+          </button>
+        </div>
+      )}
+
       {/* ---- the person's actions: one panel, the same shape on a phone and a computer ---- */}
       {c.can_edit && (
         <div className="card space-y-3 p-3 sm:p-4">
           <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-            {data.days.length > 0 && (
-              <button type="button" className="btn-primary col-span-2 h-11 justify-center sm:order-last sm:ml-auto" disabled={act.isPending}
-                onClick={async () => {
-                  const miss = missingBills(data, over)
-                  if (miss.length) { setNeed(miss); setMsg(null); setFail(null); showBill(miss[0].id); return }
-                  setNeed(null)
-                  if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Submit' })) void run('te_submit', { p_claim: c.id }, 'Sent.')
-                }}>
-                {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Submit to manager
-              </button>
-            )}
             {lastDay ? (
               <button type="button" className="btn-secondary col-span-2 h-11 justify-center whitespace-nowrap text-sm sm:col-span-1" onClick={() => continueFrom(lastDay)}>
                 <Plus className="h-4 w-4" /> Continue from {new Date(lastDay.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
@@ -340,7 +355,7 @@ export default function ClaimPage() {
           </div>
         </Dialog>
       )}
-      {map && <RouteMap days={map.days} rule={rule} title={map.title} onClose={() => setMap(null)} />}
+      {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)} />}
       {adjust && <AdjustDialog claimId={c.id} target={adjust} onClose={() => setAdjust(null)} />}
     </div>
   )
@@ -359,9 +374,9 @@ function Header({ data }: { data: ClaimData; onSaved?: () => void }) {
 
 function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDelete, onBills, onAdjust, need, focus }: {
   d: Day; data: ClaimData; tripDay: string | null; tol: number; over: number
-  onEdit: () => void; onMap: () => void; onMapDays: (days: Day[], title: string) => void; onDelete: () => void; onBills: () => void
+  onEdit: () => void; onMap: () => void; onMapDays: (days: Day[], title: string, focus?: string) => void; onDelete: () => void; onBills: () => void
   onAdjust?: (t: AdjustTarget) => void
-  /** Items whose bill Submit found missing: the card opens on them and marks them. */
+  /** Items whose bill is still needed: marked on the card. */
   need?: Set<string>
   /** The line an observation was tapped for. */
   focus?: string | null
@@ -375,10 +390,10 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const lit = (id: string, color: string) => (focus === id && !(need?.has(id) && !data.bills.some(b => b.owner_id === id)) ? { boxShadow: `0 0 0 2px ${color}`, background: color + '14' } : undefined)
   const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
   // An amount: what was claimed struck through once an approver changed it.
-  const amt = (id: string, now: number, tone = 'text-ink-900') => {
+  const amt = (id: string, now: number, tone = 'text-ink-900', place = 'col-start-4') => {
     const a = changes(id), last = a[a.length - 1]
     return (
-      <span className="col-start-4 inline-flex items-center justify-end gap-1.5">
+      <span className={`${place} inline-flex items-center justify-end gap-1.5`}>
         {a.length > 0 && <s className="text-xs text-ink-400">{money(a[0].old_amount)}</s>}
         <span className={`text-right font-medium ${a.length ? 'font-semibold text-rose-700' : tone}`} title={last ? `Changed by ${last.by ?? 'an approver'}: ${last.reason}` : undefined}>{money(now)}</span>
       </span>
@@ -391,15 +406,33 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
     has its own line, the figures under it.
   */
   const cols = `minmax(0,1fr) auto auto auto${hasMap ? ' auto' : ''}${onAdjust ? ' auto' : ''}`
-  const pen = (t: AdjustTarget) => onAdjust && (
-    <button type="button" style={{ gridColumnStart: hasMap ? 6 : 5 }} className="grid h-7 w-7 place-items-center rounded-md border border-violet-300 text-violet-700 hover:bg-violet-50" title="Change the amount" aria-label="Change the amount" onClick={() => onAdjust(t)}>
+  const pen = (t: AdjustTarget, place = hasMap ? 'col-start-6' : 'col-start-5') => onAdjust && (
+    <button type="button" className={`${place} btn-lift grid h-7 w-7 place-items-center rounded-md border border-violet-300 text-violet-700 hover:bg-violet-100`} title="Change the amount" aria-label="Change the amount" onClick={() => onAdjust(t)}>
       <PencilLine className="h-3.5 w-3.5" />
     </button>
   )
-  const row = 'col-span-full grid grid-cols-subgrid items-center gap-y-1.5 py-2 text-sm'
-  const name = 'col-span-full flex min-w-0 items-center gap-2 sm:col-span-2'
+  /*
+    On a phone every line looks the same (the user, 21 Oct: "make it same for hotel and others also", "let it
+    have a standardised look"): its kind as a chip, what it is written out in full under it, and on the right
+    the amount, then the bill and the pencil. A ride stacks a third row on the right, for its map.
+  */
+  const row = 'col-span-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1.5 py-2 text-sm sm:grid-cols-subgrid'
+  const name = 'col-start-1 row-span-2 row-start-1 flex min-w-0 flex-col items-start gap-1 self-start sm:col-span-2 sm:row-span-1 sm:row-start-auto sm:flex-row sm:items-center sm:gap-2 sm:self-auto'
   // A bill's clip first for whoever attaches (the clips in one column); for an approver the bills beside the amount.
-  const billCell = 'col-start-3 flex items-center' + (c.can_edit ? '' : ' justify-end')
+  // The bill on its own row under the amount and the pencil under it, as on a ride (the user, 21 Oct: "make it same like modes").
+  const billCell = `col-span-2 col-start-2 row-start-2 flex items-center justify-end sm:col-span-1 sm:col-start-3 sm:row-start-auto${c.can_edit ? ' sm:justify-start' : ''}`
+  const amtAt = 'col-span-2 col-start-2 row-start-1 sm:col-span-1 sm:col-start-4 sm:row-start-auto'
+  // Whether a line has a bill to show; without one its pencil moves up into the bill's row.
+  const showsBill = (id: string, needed: boolean) => c.can_edit || needed || data.bills.some(b => b.owner_id === id)
+  const penAt = (r: 2 | 3 = 3) => `col-start-3 ${r === 2 ? 'row-start-2' : 'row-start-3'} ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`
+  // The kind and what it is: a chip with the words under it on a phone, the icon and one line on a computer.
+  const lead = (Icon: LucideIcon, ink: string, label: string, tone: string, text: string, wide: string) => (
+    <>
+      <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold sm:hidden ${tone}`}><Icon className="h-3.5 w-3.5" />{label}</span>
+      {text && <span className="text-ink-800 sm:hidden">{text}</span>}
+      <span className="hidden min-w-0 flex-1 items-center gap-2 sm:flex"><Icon className={`h-4 w-4 shrink-0 ${ink}`} /><span className="min-w-0 flex-1 truncate text-ink-800">{wide}</span></span>
+    </>
+  )
   // A ticket sits under the ride that arrives at its hospital (the user, 17 Oct: "move the ticket under the hospital name").
   const rideOf = (t: Day['tickets'][number]) => t.place ? d.rides.find(r => (r.to_name ?? '').toLowerCase().includes(t.place!.toLowerCase().split(',')[0].trim())) : undefined
   const loose = d.tickets.filter(t => !rideOf(t))
@@ -455,23 +488,36 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {d.rides.map(r => {
             const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null, bad = outOfPolicy(r.mode, rule)
             return (
-              // On a phone the route on its own line and the figures under it; on a computer one line (the user, 18 Oct).
+              /*
+                On a computer one line in the shared columns (the user, 18 Oct). On a phone the mode, then From and To
+                one under the other, whole; the amount, the bill and the map and pencil stacked on the right beside
+                them (the user, 21 Oct: "should we make from to up and down, so other things in right can be stacked").
+              */
               <div key={r.id} id={'bill-' + r.id} className={row + mark(r.id)} style={lit(r.id, m.color)}>
-                <div className={'col-span-full flex min-w-0 items-center gap-2 ' + (m.perKm ? 'sm:col-span-1' : 'sm:col-span-2')}>
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
-                  {bad && <span className="-ml-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white" title={`${m.label} is not in grade ${c.grade ?? '—'}'s policy`}>!</span>}
-                  <span className="min-w-0 flex-1 truncate text-ink-800">{short(r.from_name)} → {short(r.to_name)}</span>
+                <div className={'col-start-1 row-span-3 row-start-1 flex min-w-0 flex-col items-start gap-1 self-start sm:row-span-1 sm:row-start-auto sm:flex-row sm:items-center sm:gap-2 sm:self-auto ' + (m.perKm ? 'sm:col-span-1' : 'sm:col-span-2')}>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
+                    {bad && <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white" title={`${m.label} is not in grade ${c.grade ?? '—'}'s policy`}>!</span>}
+                  </span>
+                  {/* From, a small arrow, To (the user, 21 Oct: "show a small arrow also in the middle"). */}
+                  <span className="grid min-w-0 grid-cols-[0.5rem_minmax(0,1fr)] items-start gap-x-2 text-ink-800 sm:hidden">
+                    <i className="mt-[0.4rem] h-2 w-2 rounded-full border-2 border-ink-400" /><span>{short(r.from_name)}</span>
+                    <ArrowDown className="h-3 w-3 justify-self-center text-ink-400" /><span />
+                    <i className="mt-[0.4rem] h-2 w-2 rounded-full bg-ink-600" /><span>{short(r.to_name)}</span>
+                  </span>
+                  <span className="hidden min-w-0 flex-1 truncate text-ink-800 sm:inline">{short(r.from_name)} → {short(r.to_name)}</span>
                 </div>
-                {m.perKm && <span className={`col-start-1 sm:col-start-2 sm:text-right ${check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'}`} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
-                <span className={billCell}>
+                {m.perKm && <span className={`col-start-1 row-start-4 sm:col-start-2 sm:row-start-auto sm:text-right ${check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'}`} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
+                <span className={'col-span-2 col-start-2 row-start-2 flex items-center justify-end sm:col-span-1 sm:col-start-3 sm:row-start-auto' + (c.can_edit ? ' sm:justify-start' : '')}>
                   <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm || r.company_booking ? undefined : rideAmount(r, rule)} onChange={onBills} />
                 </span>
-                {amt(r.id, rideAmount(r, rule))}
+                {amt(r.id, rideAmount(r, rule), 'text-ink-900', 'col-span-2 col-start-2 row-start-1 sm:col-span-1 sm:col-start-4 sm:row-start-auto')}
                 {r.from_lat != null && r.to_lat != null && (
-                  <button type="button" className="col-start-5 grid h-7 w-7 place-items-center rounded-md border border-ink-200 text-teal-600 hover:bg-ink-100" title="This ride on the map" aria-label="This ride on the map"
-                    onClick={() => onMapDays([{ ...d, rides: [r] }], `${short(r.from_name)} → ${short(r.to_name)}`)}><MapIcon className="h-3.5 w-3.5" /></button>
+                  <button type="button" className={`${onAdjust ? 'col-start-2' : 'col-start-3'} row-start-3 btn-lift grid h-7 w-7 place-items-center justify-self-end rounded-md border border-ink-200 text-teal-600 hover:border-teal-300 hover:bg-teal-50 sm:col-start-5 sm:row-start-auto`} title="This ride on the map" aria-label="This ride on the map"
+                    onClick={() => onMapDays([d], `${short(r.from_name)} → ${short(r.to_name)}`, r.id)}><MapIcon className="h-3.5 w-3.5" /></button>
                 )}
-                {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol })}
+                {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol },
+                  `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
                 {(() => { const co = companyOf(data.bills, r); const when = co?.card?.travel_date; return co && (
                   <span className="col-span-full flex flex-wrap items-center gap-1.5 pl-1 text-xs font-semibold text-sky-800"><Building2 className="h-3.5 w-3.5" />Booked by company · {money(co.net)} · {co.booking_id}
@@ -506,13 +552,12 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             const limit = hotelLimit(rule, d.hotel, outOfState, Number(data.policy.metro_extra_pct ?? 20))
             return (
               <div id={'bill-' + d.hotel.id} className={row + mark(d.hotel.id)} style={lit(d.hotel.id, '#7C3AED')}>
-                <span className={name}><BedDouble className="h-4 w-4 shrink-0 text-violet-600" />
-                  <span className="min-w-0 flex-1 truncate text-ink-800">{d.hotel.name || 'Hotel'} · {d.hotel.occupancy}{d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}</span></span>
+                <span className={name}>{(() => { const t = `${d.hotel.name || 'Hotel'} · ${d.hotel.occupancy}${d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}`; return lead(BedDouble, 'text-violet-600', 'Hotel', 'bg-violet-100 text-violet-900', t, t) })()}</span>
                 <span className={billCell}>
                   <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed claimed={d.hotel.amount} onChange={onBills} />
                 </span>
-                {amt(d.hotel.id, d.hotel.amount, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900')}
-                {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount })}
+                {amt(d.hotel.id, d.hotel.amount, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900', amtAt)}
+                {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, penAt())}
                 {d.hotel.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{d.hotel.note}</span>}
                 {(() => { const co = companyOf(data.bills, d.hotel!); return co && <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-sky-800"><Building2 className="h-3.5 w-3.5" />Booked by company · {money(co.net)} · {co.booking_id}</span> })()}
               </div>
@@ -520,28 +565,25 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           })()}
           {d.room_by && (
             <div className={row}>
-              <span className={name}><BedDouble className="h-4 w-4 shrink-0 text-green-600" />
-                <span className="min-w-0 flex-1 truncate text-ink-800">Room shared · claimed by {d.room_by.name} ({d.room_by.ecode}){d.room_by.number ? ` on ${d.room_by.number}` : ''}</span></span>
-              <span className="col-start-4 text-right font-medium text-ink-500">{money(d.room_by.amount)}</span>
+              <span className={name}>{(() => { const t = `Room shared · claimed by ${d.room_by.name} (${d.room_by.ecode})${d.room_by.number ? ` on ${d.room_by.number}` : ''}`; return lead(BedDouble, 'text-green-600', 'Hotel', 'bg-green-100 text-green-900', t, t) })()}</span>
+              <span className={`${amtAt} text-right font-medium text-ink-500`}>{money(d.room_by.amount)}</span>
             </div>
           )}
           {d.expenses.map(x => (
             <div key={x.id} id={'bill-' + x.id} className={row + mark(x.id)} style={lit(x.id, '#D97706')}>
-              <span className={name}><ReceiptIndianRupee className="h-4 w-4 shrink-0 text-amber-600" />
-                <span className="min-w-0 flex-1 truncate text-ink-800">{x.category}{x.description ? ` · ${x.description}` : ''}</span></span>
-              <span className={billCell}>
+              <span className={name}>{lead(ReceiptIndianRupee, 'text-amber-600', x.category, 'bg-amber-100 text-amber-900', x.description ?? '', `${x.category}${x.description ? ` · ${x.description}` : ''}`)}</span>
+              {showsBill(x.id, needsBill('expense', x, over)) && <span className={billCell}>
                 <BillButton compact claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable={c.can_edit} needed={needsBill('expense', x, over)} claimed={x.amount} onChange={onBills} />
-              </span>
-              {amt(x.id, x.amount)}
-              {pen({ kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount })}
+              </span>}
+              {amt(x.id, x.amount, 'text-ink-900', amtAt)}
+              {pen({ kind: 'expense', id: x.id, label: `${x.category}${x.description ? ' · ' + x.description : ''}`, unit: '₹', value: x.amount, amount: x.amount }, penAt(showsBill(x.id, needsBill('expense', x, over)) ? 3 : 2))}
             </div>
           ))}
           {(d.da_kind !== 'none' || d.da_amount > 0) && (
             <div id={'bill-' + d.id} className={row + mark(d.id)} style={lit(d.id, '#0D9488')}>
-              <span className={name}><HandCoins className="h-4 w-4 shrink-0 text-teal-600" />
-                <span className="min-w-0 flex-1 truncate text-ink-800">DA · {daLabel?.toLowerCase()}</span></span>
-              {amt(d.id, d.da_amount)}
-              {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount })}
+              <span className={name}>{lead(HandCoins, 'text-teal-600', 'DA', 'bg-teal-100 text-teal-800', daLabel ?? '', `DA · ${daLabel?.toLowerCase()}`)}</span>
+              {amt(d.id, d.da_amount, 'text-ink-900', amtAt)}
+              {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount }, penAt(2))}
             </div>
           )}
           {d.remarks && <p className="col-span-full py-2 text-sm text-ink-600">{d.remarks}</p>}
