@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Copy, FileText, Paperclip, TriangleAlert, X } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import { billUrl, inkVars, readBill, uploadBill, money, type Bill } from '@/lib/claims'
+import type { HotelStay, TicketRoute } from '@/lib/ticket'
 import { supabase } from '@/lib/supabase'
 import BillView from '@/components/BillView'
 import { useAsk } from '@/components/Ask'
@@ -11,7 +12,10 @@ import { useAsk } from '@/components/Ask'
   free reader in the phone (the user, 17 Oct) and hands it back to fill the amount; the same file
   twice is refused, naming the claim it was used on; a look-alike is flagged for the approvers.
 */
-export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onChange, compact = false, large = false, claimed, part = 'both', accent }: {
+export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onChange, compact = false, large = false, claimed, part = 'both', accent }: {
+  /** Where a ticket goes, and a voucher's hotel, read off it (the user, 21 Oct). */
+  onTicket?: (route: TicketRoute) => void
+  onStay?: (stay: HotelStay) => void
   /** Only the paperclip, or only the bills (the day form shows the bills on their own line). */
   part?: 'both' | 'attach' | 'bills'
   /** The colour a needed bill's paperclip wears: a ride's mode, instead of amber. */
@@ -41,10 +45,13 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     setErr(null)
     try {
       setBusy('Reading the bill…')
-      const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null, refs: [] as string[] }))
-      if (read.amount && onRead) onRead(read.amount)
+      const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null, refs: [] as string[], route: null, stay: null }))
       setBusy('Attaching…')
       await uploadBill(claimId, kind, ownerId, f, read)
+      // Filled only once the bill is in: one already added is refused, and fills nothing.
+      if (read.amount && onRead) onRead(read.amount)
+      if (read.route && onTicket) onTicket(read.route)
+      if (read.stay && onStay) onStay(read.stay)
       onChange()
     } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Bill not attached', (e as Error).message) } finally { setBusy(null) }
   }

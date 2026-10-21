@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBackCloses } from '@/lib/useBackCloses'
-import { Crosshair, Home, Hospital, MapPin, Search, Star } from 'lucide-react'
+import { BedDouble, Crosshair, Home, Hospital, MapPin, Search, Star } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMyPlaces } from '@/pages/MyPlaces'
 import 'leaflet/dist/leaflet.css'
@@ -18,7 +18,7 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
   near?: Place | null
-  quick: Array<Place & { label?: string; home?: boolean; hospital?: boolean }>
+  quick: Array<Place & { label?: string; home?: boolean; hospital?: boolean; stay?: boolean }>
   onPick: (p: Place, name?: string) => void
   onClose: () => void
   /** Adding a saved place: the name is asked for, not offered. */
@@ -131,7 +131,7 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
             {quick.map((p, i) => (
               <button key={i} type="button" className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs hover:bg-ink-100 ${p.hospital ? 'border-cyrixRed-300 font-semibold text-ink-900' : 'border-ink-200 text-ink-800'}`}
                 onClick={() => void put(p.lat, p.lng, p.name)}>
-                {p.home && <Home className="h-3.5 w-3.5 text-teal-600" />}{p.hospital && <Hospital className="h-3.5 w-3.5 text-cyrixRed-600" />}{p.label ?? p.name}
+                {p.home && <Home className="h-3.5 w-3.5 text-teal-600" />}{p.stay && <BedDouble className="h-3.5 w-3.5 text-violet-600" />}{p.hospital && <Hospital className="h-3.5 w-3.5 text-cyrixRed-600" />}{p.label ?? p.name}
               </button>
             ))}
           </div>

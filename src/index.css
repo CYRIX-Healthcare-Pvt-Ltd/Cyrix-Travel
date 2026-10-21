@@ -1823,3 +1823,12 @@
 .mode-fill { fill: var(--mc); }
 .dark .mode-ink { color: var(--mcd); }
 .dark .mode-fill { fill: var(--mcd); }
+
+/*
+  A phone's browser zooms into a box whose text is under 16px when it is tapped (the user, 21 Oct: "when
+  clicking any field the site is zooming"). On a touch screen every box is 16px, so it does not; pinching
+  still zooms.
+*/
+@media (hover: none) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px !important; }
+}

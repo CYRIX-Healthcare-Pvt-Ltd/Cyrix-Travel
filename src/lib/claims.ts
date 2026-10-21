@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bike, Bus, Car, CarTaxiFront, Plane, TrainFront, TramFront, Truck, type LucideIcon } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
+import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
 
 /*
   The month's claim by the day (te_0012; the user, 17 Oct 2026): the expense reimbursement Excel
@@ -63,6 +64,8 @@ export interface Ride {
   claimed_km: number | null; map_km: number | null; fare: number | null; amount?: number; note?: string | null
   /** Booked by the company (te_0042): it claims nothing, and its company cost is kept beside it. */
   company_booking?: string | null; company_amount?: number | null
+  /** A bus that leaves its district or state (te_0048); null while not known. */
+  inter?: boolean | null
 }
 export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null }
 export interface Hotel {
@@ -202,7 +205,8 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
   if (kind === 'ride') {
     const r = item as Ride
     // A bike or car is paid by its km, checked on the map: no bill, whatever it comes to (the user, 19 Oct).
-    return r.mode === 'bus' || r.mode === 'train' || r.mode === 'flight' || (!MODES[r.mode].perKm && rideAmount(r, rule) > over)
+    // A bus ticket only when it leaves the district or the state, or while that is not known (the user, 21 Oct).
+    return r.mode === 'train' || r.mode === 'flight' || (r.mode === 'bus' && r.inter !== false) || (!MODES[r.mode].perKm && rideAmount(r, rule) > over)
   }
   const x = item as Expense
   return x.amount > over || ['Courier', 'Toll', 'Client meal', 'Team meal'].includes(x.category)
@@ -262,6 +266,32 @@ export function expandShort(q: string): string[] {
 async function timed(url: string, init?: RequestInit, ms = 5000) {
   const ctl = new AbortController(), t = window.setTimeout(() => ctl.abort(), ms)
   try { return await fetch(url, { ...init, signal: ctl.signal }) } finally { window.clearTimeout(t) }
+}
+/*
+  A ticket's place on the map (the user, 21 Oct): an airport for a flight, a station for a train, the area
+  or bus stand for a bus — the map says what kind each result is, so a university named like an airport or
+  a spa in Madiwala is passed over. The plainer query is tried when the first finds nothing of the kind.
+*/
+export async function lookupPlace(queries: string[], want: 'airport' | 'station' | 'area' | 'any', near?: { lat: number; lng: number }): Promise<Place | null> {
+  const fits = (k: string, v: string) => want === 'any' ? true
+    : want === 'airport' ? v === 'aerodrome'
+    : want === 'station' ? k === 'railway' || v === 'station' || v === 'train_station'
+    : ['bus_station', 'bus_stop', 'quarter', 'suburb', 'neighbourhood', 'city', 'town', 'village', 'locality', 'hamlet', 'district', 'county'].includes(v)
+  for (const q of queries) {
+    try {
+      const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : '&bbox=68.1,6.5,97.4,35.7'
+      const r = await timed(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8&lang=en${bias}`)
+      const j = await r.json() as { features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+      const f = j.features.filter(x => (x.properties.countrycode ?? '').toUpperCase() === 'IN').find(x => fits(x.properties.osm_key ?? '', x.properties.osm_value ?? ''))
+      if (f) {
+        const p = f.properties, parts = [p.name ?? p.street, p.city ?? p.district ?? p.county, p.state].filter(Boolean)
+        // "Madiwala, Madiwala": a name said once.
+        const name = parts.filter((x, i) => parts.findIndex(y => y.toLowerCase() === x.toLowerCase()) === i).slice(0, 3).join(', ')
+        return { name, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
+      }
+    } catch { /* the next query */ }
+  }
+  return null
 }
 async function photon(q: string, near?: { lat: number; lng: number }): Promise<Place[]> {
   // Near the engineer when the map knows where they are; otherwise anywhere in India.
@@ -464,7 +494,7 @@ async function pdfText(file: Blob): Promise<string> {
   }
   return text
 }
-export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[] }> {
+export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null }> {
   let raw = ''
   if (file.type === 'application/pdf') raw = await pdfText(file).catch(() => '')
   else if (file.type.startsWith('image/')) {
@@ -473,6 +503,8 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   }
   if (!raw.trim()) return { amount: null, date: null, billno: null, refs: [] }
   const refs = refsIn(raw)
+  // Where a ticket goes, and a voucher's hotel (the user, 21 Oct).
+  const route = routeIn(raw), stay = hotelIn(raw)
   const text = raw.replace(/[Oo](?=\d)/g, '0').replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
   const lines = text.split('\n')
   const figs = (s: string) => [...s.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => n > 0 && n < 200000)
@@ -485,7 +517,7 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   }
   const bm = text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
   // No date: the person enters the day, and the bill's own date is not needed (the user, 19 Oct).
-  return { amount, date: null, billno: refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null), refs }
+  return { amount, date: null, billno: refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null), refs, route, stay }
 }
 /** A phone photo made no wider than 2000px first: read as well, and many times faster. */
 async function shrink(file: Blob): Promise<Blob> {

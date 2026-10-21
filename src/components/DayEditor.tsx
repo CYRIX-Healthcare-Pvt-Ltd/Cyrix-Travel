@@ -12,10 +12,11 @@ import Budget, { budgetLines, dayUse, monthLong } from '@/components/Budget'
 import { Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { whereAmI } from '@/lib/geo'
+import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  billRead, companyOf, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
+  areaOf, billRead, companyOf, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -28,6 +29,8 @@ export function blankDay(day: string): Day {
 }
 // A flight, a train and a hotel night always say why (the user, 21 Oct: "remarks mandatory").
 const REMARKS_NEEDED = new Set(['flight', 'train'])
+// A ticket that says where it goes (the user, 21 Oct).
+const TICKETED = new Set(['flight', 'train', 'bus'])
 const placeKey = (s: string | null | undefined) => (s ?? '').split(',')[0].trim().toLowerCase()
 const blankRide = (from?: Place | null): Ride => ({
   id: newId(), mode: 'bike', from_name: from?.name ?? null, from_lat: from?.lat ?? null, from_lng: from?.lng ?? null,
@@ -137,16 +140,19 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       .then(({ data: h }) => { if (h) setHome({ name: 'Home', lat: h.lat, lng: h.lng }); setHomeReady(true) })
   }, [employee])
 
-  // Home, then places already used this month.
+  // The hotel of the night, found from its voucher: one tap for the ride to it, or from it (the user, 21 Oct).
+  const [stayAt, setStayAt] = useState<(Place & { label: string }) | null>(null)
+  // Home, the hotel, then places already used this month.
   const quick = useMemo(() => {
-    const seen = new Map<string, Place & { home?: boolean; label?: string }>()
+    const seen = new Map<string, Place & { home?: boolean; stay?: boolean; label?: string }>()
     if (home) seen.set('Home', { ...home, home: true })
+    if (stayAt) seen.set('@stay', { ...stayAt, stay: true })
     for (const day of [...data.days, d]) for (const r of day.rides) {
       if (r.from_name && r.from_lat != null && !seen.has(r.from_name)) seen.set(r.from_name, { name: r.from_name, lat: r.from_lat, lng: r.from_lng! })
       if (r.to_name && r.to_lat != null && !seen.has(r.to_name)) seen.set(r.to_name, { name: r.to_name, lat: r.to_lat, lng: r.to_lng! })
     }
     return [...seen.values()].slice(0, 10).map(p => ({ ...p, label: p.label ?? p.name.split(',')[0] }))
-  }, [home, data.days, d])
+  }, [home, stayAt, data.days, d])
 
   /*
     The DA follows the day's places (the user, 18 Oct): worked out again whenever a place or the hotel
@@ -197,6 +203,55 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! })
       setRide(rideId, { map_km: road?.km ?? null })
     }
+  }
+
+  /*
+    A flight, train or bus ticket fills the ride's From and To (the user, 21 Oct: "from and to is there, so
+    can we auto fetch"): only an end not picked yet, or a From still at Home — what the engineer picked stays.
+  */
+  const latest = useRef(d); latest.current = d
+  const fillFromTicket = async (rideId: string, route: TicketRoute) => {
+    const r0 = latest.current.rides.find(x => x.id === rideId)
+    if (!r0) return
+    const q = ticketQueries(r0.mode, route)
+    if (!q) return
+    const near = home ?? undefined
+    const wantFrom = r0.from_lat == null || placeKey(r0.from_name) === 'home', wantTo = r0.to_lat == null
+    const [pf, pt] = await Promise.all([wantFrom && q.from.length ? lookupPlace(q.from, q.want, near) : null, wantTo && q.to.length ? lookupPlace(q.to, q.want, near) : null])
+    if (!pf && !pt) return
+    const r1 = latest.current.rides.find(x => x.id === rideId)
+    if (!r1) return
+    const next = { ...r1, ...(pf ? { from_name: pf.name, from_lat: pf.lat, from_lng: pf.lng } : {}), ...(pt ? { to_name: pt.name, to_lat: pt.lat, to_lng: pt.lng } : {}), map_km: null }
+    setRide(rideId, next)
+    if (next.from_lat != null && next.to_lat != null) {
+      const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! })
+      setRide(rideId, { map_km: road?.km ?? null })
+    }
+  }
+  /*
+    Whether each bus ride leaves its district or state, from the map, once both its places are known (te_0048;
+    the user, 21 Oct): within the district its ticket is not needed.
+  */
+  const busKey = d.rides.filter(r => r.mode === 'bus' && r.from_lat != null && r.to_lat != null)
+    .map(r => `${r.id}:${r.from_lat!.toFixed(3)},${r.from_lng!.toFixed(3)},${r.to_lat!.toFixed(3)},${r.to_lng!.toFixed(3)}`).join('|')
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      for (const r of latest.current.rides) {
+        if (r.mode !== 'bus' || r.from_lat == null || r.to_lat == null) continue
+        const [a, b] = await Promise.all([areaOf(r.from_lat, r.from_lng!), areaOf(r.to_lat, r.to_lng!)])
+        const same = (x: string | null, y: string | null) => !!x && !!y && x.toLowerCase() === y.toLowerCase()
+        const inter = !a.district || !b.district ? null : !(same(a.district, b.district) && same(a.state, b.state))
+        if (live && r.inter !== inter) setRide(r.id, { inter })
+      }
+    })()
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busKey])
+  const fillFromVoucher = async (stay: HotelStay) => {
+    if (stay.name && latest.current.hotel && !latest.current.hotel.name?.trim()) setD(x => (x.hotel ? { ...x, hotel: { ...x.hotel, name: stay.name! } } : x))
+    const p = await lookupPlace(hotelQueries(stay), 'any', home ?? undefined)
+    if (p) setStayAt({ ...p, label: (stay.name ?? p.name).split(',')[0] })
   }
 
   const findPeople = async (q: string) => {
@@ -338,7 +393,8 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                         </span>
                       )}
                       <BillButton compact large part="attach" accent={m} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
-                        onRead={a => { if (!m.perKm && r.fare == null) setRide(r.id, { fare: a }) }} onChange={refresh} />
+                        onRead={a => { if (!m.perKm && r.fare == null) setRide(r.id, { fare: a }) }}
+                        onTicket={TICKETED.has(r.mode) ? rt => void fillFromTicket(r.id, rt) : undefined} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
                     </div>
@@ -483,7 +539,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                     <span className={`text-xs ${limit != null && h.amount > limit ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
                       {limit == null ? '' : h.amount > limit ? `Over the ${money(limit)} limit — needs approval` : `Limit ${money(limit)}`}
                     </span>
-                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onChange={refresh} />
+                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
                   </div>
                 </div>
               )
