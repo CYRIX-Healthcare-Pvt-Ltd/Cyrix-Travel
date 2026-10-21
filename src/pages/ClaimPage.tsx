@@ -203,6 +203,7 @@ export default function ClaimPage() {
           )}
           <p className="text-xs text-ink-500">Total claimed</p>
           <p className="text-3xl font-bold text-ink-900">{money(total)}</p>
+          {data.days.some(d => d.rides.length > 0) && <p className="text-xs text-ink-500">{km(data.days.reduce((t, d) => t + d.rides.reduce((u, r) => u + (r.map_km ?? r.claimed_km ?? 0), 0), 0))}</p>}
           {c.late_pct > 0 && <p className="text-xs text-cyrixRed-700">Late {c.late_pct}% · −{money(late)}</p>}
           {c.advance > 0 && <p className="text-xs text-ink-600">Advance −{money(c.advance)}</p>}
           {(c.late_pct > 0 || c.advance > 0) && <p className="text-sm font-semibold text-ink-900">Net payable {money(net)}</p>}
@@ -433,6 +434,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             ))}
             <span className="text-ink-400">=</span>
             <span className="rounded-md bg-ink-900 px-2 py-1 font-semibold text-[color:rgb(var(--surface))]">Total {money(parts.reduce((t, [, v]) => t + v, 0))}</span>
+            {/* The day's km, every mode together, after the money (the user, 21 Oct: "by road? flight is 515"). */}
+            {d.rides.length > 0 && <span className="ml-1 text-ink-500">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}</span>}
           </div>
         )
       })()}

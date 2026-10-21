@@ -53,8 +53,7 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
   const names = fitNames(stops.map(x => x.name), STEP)
   // Below the line: each name's one or two lines, then its ticket; the total under the tallest of them.
   const below = Math.max(...stops.map((s, i) => names[i].length * 15 + (s.sub ? 15 : 0)))
-  const H = 116 + below + 22
-  const totalKm = rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0)
+  const H = 116 + below + 4
   return (
     <div ref={box} className="overflow-x-auto">
       <svg viewBox={`0 0 ${w} ${H}`} width={w} height={H} role="img" className="max-w-none">
@@ -99,9 +98,6 @@ export default function RouteStrip({ days, rule }: { days: Day[]; rule: Rule | u
             </g>
           )
         })}
-        <text x={w / 2} y={H - 10} textAnchor="middle" className="fill-ink-500" style={{ fontSize: 12 }}>
-          {km(totalKm)} by road{tickets.length ? ` · ${tickets.length} ticket${tickets.length > 1 ? 's' : ''}` : ''}
-        </text>
       </svg>
     </div>
   )
