@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { BarChart3, CalendarDays, ChevronRight } from 'lucide-react'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import AddClaim from '@/components/AddClaim'
+import Patterns from '@/components/Patterns'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
 import { Alert, PageLoader } from '@/components/ui'
@@ -152,6 +153,9 @@ export default function Summary() {
               </div>
             </section>
           )}
+
+          {/* ---- patterns across the people this person sees (te_0049) ---- */}
+          {data.team.length > 0 && <Patterns from={from} to={to} where={where} />}
         </>
       )}
     </div>

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, ReceiptIndianRupee, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -600,6 +600,7 @@ const OBS = {
   company:  { title: 'Booked by company',        level: 'info',    icon: Building2 },
   cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange },
   cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2 },
+  autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
   month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
   changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
@@ -645,6 +646,14 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
         if (co.card?.travel_date && co.card.travel_date !== d.day) items.push({ kind: 'cdate', day, to: r.id, detail: `${leg} · booked for ${dn(co.card.travel_date)}, claimed on ${day}` })
       }
       const read = m.perKm ? null : billRead(data.bills, r.id)
+      /*
+        An auto fare without a bill that bears it out, set against what autos usually cost here (te_0051; the
+        user, 21 Oct): other people's fares a km nearby, or the policy's rate until there are enough.
+      */
+      if (r.mode === 'auto' && r.auto_norm && r.map_km && r.fare && !(read != null && Math.abs(read - r.fare) <= 1)) {
+        const usual = Math.max(Number(data.policy.auto_min_fare ?? 30), r.auto_norm.per_km * r.map_km)
+        if (r.fare > usual * 1.4) items.push({ kind: 'autofare', day, to: r.id, detail: `${leg} · ${money(r.fare)} for ${km(r.map_km)} · ${r.auto_norm.from === 'nearby' ? 'around here' : 'the usual fare is'} about ${money(Math.round(usual / 5) * 5)}` })
+      }
       if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
     }
     if (d.hotel && !d.room_by) {

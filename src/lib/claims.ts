@@ -66,6 +66,8 @@ export interface Ride {
   company_booking?: string | null; company_amount?: number | null
   /** A bus that leaves its district or state (te_0048); null while not known. */
   inter?: boolean | null
+  /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */
+  auto_norm?: { per_km: number; n: number; from: 'nearby' | 'policy' } | null
 }
 export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null }
 export interface Hotel {
