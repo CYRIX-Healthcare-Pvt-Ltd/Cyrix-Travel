@@ -91,12 +91,13 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
   const nav = useNavigate()
   /*
     Discard (the user, 19 Oct: "when I'm clicking Add a claim the old draft is showing, which is good, still
-    need a discard, so that I can start from fresh"): the draft and its bills go — from My claims too — and a
-    fresh one opens on the same date. Only an unsent draft: a claim with a number is never discarded here.
+    need a discard, so that I can start from fresh"): the draft and its bills go — from My claims too — and the
+    person is back on My claims with nothing left behind; Add a claim starts a new one (the user, 22 Oct: a fresh
+    empty draft opening in its place looked as if the discard had not happened). Only an unsent draft.
   */
   const discard = async () => {
     const n = data.days.length
-    if (!(await ask.confirm({ title: `Discard the ${monthName(c.month)} draft?`, body: n ? `Its ${n} day${n > 1 ? 's' : ''} and bills are deleted, and a fresh claim opens.` : 'A fresh claim opens.', yes: 'Discard', danger: true }))) return
+    if (!(await ask.confirm({ title: `Discard the ${monthName(c.month)} draft?`, body: n ? `Its ${n} day${n > 1 ? 's' : ''} and bills are deleted.` : 'The draft is deleted.', yes: 'Discard', danger: true }))) return
     setBusy(true); setErr(null)
     try {
       const paths = data.bills.map(b => b.path)
@@ -104,10 +105,8 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       const { error: de } = await supabase.rpc('te_delete_claim', { p_claim: c.id })
       if (de) throw de
       writeKept(key, null); writeKept(keptKey(c.id, null), null)
-      const { data: fresh, error: oe } = await supabase.rpc('te_open_month', { p_month: c.month.slice(0, 8) + '01' })
-      if (oe) throw oe
       void qc.invalidateQueries({ queryKey: ['te_my_claims'] }); void qc.invalidateQueries({ queryKey: ['te_summary'] })
-      nav(`/claim/${fresh as string}?add=${d.day}`, { replace: true })
+      nav('/claims', { replace: true })
     } catch (e) { setErr(friendlyError(e as never)) } finally { setBusy(false) }
   }
   const c = data.claim, rule = data.rule
