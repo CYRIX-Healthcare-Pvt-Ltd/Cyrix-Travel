@@ -292,7 +292,21 @@ async function timed(url: string, init?: RequestInit, ms = 5000) {
   or bus stand for a bus — the map says what kind each result is, so a university named like an airport or
   a spa in Madiwala is passed over. The plainer query is tried when the first finds nothing of the kind.
 */
-export async function lookupPlace(queries: string[], want: 'airport' | 'station' | 'area' | 'any', near?: { lat: number; lng: number }): Promise<Place | null> {
+// A city's old and new names, as tickets and the map write them differently.
+const CITY_ALIAS: Record<string, string[]> = {
+  kochi: ['cochin', 'ernakulam'], cochin: ['kochi'], bengaluru: ['bangalore'], bangalore: ['bengaluru'], thiruvananthapuram: ['trivandrum'], trivandrum: ['thiruvananthapuram'],
+  mumbai: ['bombay'], chennai: ['madras'], kolkata: ['calcutta'], mysuru: ['mysore'], kozhikode: ['calicut'], calicut: ['kozhikode'], visakhapatnam: ['vizag'], vizag: ['visakhapatnam'],
+  gurugram: ['gurgaon'], pune: ['poona'], vijayawada: ['gannavaram'], hyderabad: ['shamshabad'], mangaluru: ['mangalore'], mangalore: ['mangaluru'],
+}
+/**
+ * A ticket's place. An airport is looked for across India, never near home — "Vijayawada Airport" near a Kochi
+ * home came back as Cochin airport (the user, 22 Oct) — and one in the ticket's city, under any of its names, is
+ * taken before another of the right kind.
+ */
+export async function lookupPlace(queries: string[], want: 'airport' | 'station' | 'area' | 'any', near?: { lat: number; lng: number }, city?: string): Promise<Place | null> {
+  if (want === 'airport') near = undefined
+  const names = city ? [city.toLowerCase(), ...(CITY_ALIAS[city.toLowerCase()] ?? [])] : []
+  const inCity = (p: Record<string, string>) => !names.length || names.some(n => [p.name, p.city, p.district, p.county, p.state].some(v => (v ?? '').toLowerCase().includes(n)))
   const fits = (k: string, v: string) => want === 'any' ? true
     : want === 'airport' ? v === 'aerodrome'
     : want === 'station' ? k === 'railway' || v === 'station' || v === 'train_station'
@@ -302,7 +316,8 @@ export async function lookupPlace(queries: string[], want: 'airport' | 'station'
       const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : '&bbox=68.1,6.5,97.4,35.7'
       const r = await timed(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=8&lang=en${bias}`)
       const j = await r.json() as { features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
-      const f = j.features.filter(x => (x.properties.countrycode ?? '').toUpperCase() === 'IN').find(x => fits(x.properties.osm_key ?? '', x.properties.osm_value ?? ''))
+      const kind = j.features.filter(x => (x.properties.countrycode ?? '').toUpperCase() === 'IN' && fits(x.properties.osm_key ?? '', x.properties.osm_value ?? ''))
+      const f = kind.find(x => inCity(x.properties)) ?? (names.length ? undefined : kind[0])
       if (f) {
         const p = f.properties, parts = [p.name ?? p.street, p.city ?? p.district ?? p.county, p.state].filter(Boolean)
         // "Madiwala, Madiwala": a name said once.

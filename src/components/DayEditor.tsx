@@ -17,7 +17,7 @@ import { hotelQueries, ticketQueries, type HotelStay, type Journey, type TicketR
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  areaOf, billRead, companyOf, dayTotal, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, returnKey, type ClaimData, type Day, type DaKind, type ModeCode, type Place, type Ride,
+  areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, returnKey, type ClaimData, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -78,7 +78,27 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
   // Back to how it was saved, or an empty form for a new day.
   const undo = async () => {
     if (!(await ask.confirm({ title: 'Undo your changes?', body: saved ? 'The day goes back to how it was saved.' : 'The form is cleared.', yes: 'Undo', danger: true }))) return
+    // The bills attached to rides that go with the undo go too, or they would stand as "the same bill" next time.
+    await dropBills(d.rides.filter(r => !initial.rides.some(x => x.id === r.id)).map(r => r.id))
     writeKept(key, null); setD(initial); setHdr(header); setErr(null)
+  }
+  /*
+    A bill is stored the moment it is attached; a ride taken off the form takes its bills with it (the user, 22 Oct:
+    removed the ride, attached the ticket again, and it was refused as the same bill).
+  */
+  const dropBills = async (owners: string[]) => {
+    const gone = data.bills.filter(b => owners.includes(b.owner_id))
+    for (const b of gone) {
+      const { data: path } = await supabase.rpc('te_remove_bill', { p_bill: b.id })
+      if (path) await supabase.storage.from('te-bills').remove([path as string])
+    }
+    if (gone.length) refresh()
+  }
+  const removeRide = async (id: string) => {
+    const n = data.bills.filter(b => b.owner_id === id).length
+    if (n && !(await ask.confirm({ title: 'Remove this ride?', body: `Its ${n === 1 ? 'bill comes' : n + ' bills come'} off too.`, yes: 'Remove', danger: true }))) return
+    await dropBills([id])
+    set({ rides: latest.current.rides.filter(x => x.id !== id) })
   }
   const [projects, setProjects] = useState<string[]>([])
   useEffect(() => { void supabase.rpc('te_projects').then(({ data: p }) => setProjects(((p ?? []) as Array<{ label: string }>).map(x => x.label))) }, [])
@@ -180,9 +200,23 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
   })
 
   // Road km once both ends of a ride are picked.
+  /*
+    The next ride starts where this one now ends (the user, 22 Oct: the flight's end put right to Vijayawada, but the
+    ride after it still started at Cochin, and its hotel was searched near home): its From follows this ride's To
+    when it was still the old To, or empty, and its road is worked out again.
+  */
+  const chainNext = async (rideId: string, was: { lat: number | null; lng: number | null }, p: Place) => {
+    const rides = latest.current.rides, i = rides.findIndex(x => x.id === rideId), nx = rides[i + 1]
+    if (!nx) return
+    const same = nx.from_lat == null || (was.lat != null && Math.abs(nx.from_lat - was.lat) < 1e-5 && Math.abs((nx.from_lng ?? 0) - (was.lng ?? 0)) < 1e-5)
+    if (!same || (nx.from_lat === p.lat && nx.from_lng === p.lng)) return
+    setRide(nx.id, { from_name: p.name, from_lat: p.lat, from_lng: p.lng, map_km: null })
+    if (nx.to_lat != null) setRide(nx.id, { map_km: (await roadKm(p, { name: '', lat: nx.to_lat, lng: nx.to_lng! }))?.km ?? null })
+  }
   const placed = async (rideId: string, end: 'from' | 'to', p: Place) => {
     setPicking(null)
     const r = d.rides.find(x => x.id === rideId)!
+    if (end === 'to') void chainNext(rideId, { lat: r.to_lat, lng: r.to_lng }, p)
     const next = end === 'from'
       ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng }
       : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng }
@@ -213,10 +247,15 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     if (!q) return
     const near = home ?? undefined
     const wantFrom = r0.from_lat == null || placeKey(r0.from_name) === 'home', wantTo = r0.to_lat == null
-    const [pf, pt] = await Promise.all([wantFrom && q.from.length ? lookupPlace(q.from, q.want, near) : null, wantTo && q.to.length ? lookupPlace(q.to, q.want, near) : null])
+    const fromCity = route.journeys?.[0]?.cityFrom ?? route.cityFrom ?? route.from, toCity = route.journeys?.[0]?.cityTo ?? route.cityTo ?? route.to
+    let [pf, pt] = await Promise.all([wantFrom && q.from.length ? lookupPlace(q.from, q.want, near, fromCity) : null, wantTo && q.to.length ? lookupPlace(q.to, q.want, near, toCity) : null])
+    // A ride does not end where it starts: an end found next to the start is left for the engineer to pick.
+    const start = pf ?? (r0.from_lat != null ? { lat: r0.from_lat, lng: r0.from_lng! } : null)
+    if (pt && start && distanceKm(start, pt) < 20) pt = null
     if (!pf && !pt) return
     const r1 = latest.current.rides.find(x => x.id === rideId)
     if (!r1) return
+    if (pt) void chainNext(rideId, { lat: r1.to_lat, lng: r1.to_lng }, pt)
     const next = { ...r1, ...(pf ? { from_name: pf.name, from_lat: pf.lat, from_lng: pf.lng } : {}), ...(pt ? { to_name: pt.name, to_lat: pt.lat, to_lng: pt.lng } : {}), map_km: null }
     setRide(rideId, next)
     if (next.from_lat != null && next.to_lat != null) {
@@ -240,7 +279,8 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     }
     if (!(await ask.confirm({ title: 'Add your return?', body: `This ticket also has your return on ${when}, ${j.cityFrom} → ${j.cityTo}. Its fare is on this ride, so the return claims ₹0.`, yes: j.date === d.day ? 'Add it' : `Add to ${when}` }))) return
     const q = ticketQueries(as, { cityFrom: j.cityFrom, cityTo: j.cityTo })
-    const [pf, pt] = q ? await Promise.all([lookupPlace(q.from, q.want, home ?? undefined), lookupPlace(q.to, q.want, home ?? undefined)]) : [null, null]
+    const [pf, pt0] = q ? await Promise.all([lookupPlace(q.from, q.want, home ?? undefined, j.cityFrom), lookupPlace(q.to, q.want, home ?? undefined, j.cityTo)]) : [null, null]
+    const pt = pt0 && pf && distanceKm(pf, pt0) < 20 ? null : pt0
     const ride: Ride = {
       ...blankRide(), mode: as,
       from_name: pf?.name ?? null, from_lat: pf?.lat ?? null, from_lng: pf?.lng ?? null,
@@ -428,7 +468,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                     <div className="flex items-start gap-2">
                       <span className="mt-3 w-4 text-xs font-semibold text-ink-400">{i + 1}</span>
                       <div className="min-w-0 flex-1 space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}</div>
-                      <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => set({ rides: d.rides.filter(x => x.id !== r.id) })}><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-4 w-4" /></button>
                     </div>
                     <div className="mt-2.5 flex items-center gap-2 pl-6">
                       <ModePicker value={r.mode} onChange={code => setRide(r.id, { mode: code })} blocked={code => outOfPolicy(code, rule)} />
