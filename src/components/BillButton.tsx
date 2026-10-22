@@ -49,7 +49,8 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       setBusy('Reading the bill…')
       const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null, refs: [] as string[], route: null, stay: null }))
       // A hotel's bill on a ride is the wrong line (the user, 22 Oct): said, and not attached.
-      if (kind === 'ride' && (read.stay || read.refs.some(x => x.toUpperCase().startsWith('NH')))) {
+      // Only a hotel's own signs: its night-stay line or an NH booking id; a 'Booking Voucher' heading alone is on bus and train vouchers too.
+      if (kind === 'ride' && (read.stay?.name || read.refs.some(x => x.toUpperCase().startsWith('NH')))) {
         throw new Error('This is a hotel bill. Attach it under Hotel night, not on a ride.')
       }
       setBusy('Attaching…')
