@@ -122,22 +122,27 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
   return (
     <Dialog title={title} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} huge>
       <div className="mt-3 space-y-3">
-        {(saved ?? []).length > 0 && (
+        {/*
+          Every quick place in one row, side by side, wrapping only when full (the user, 22 Oct: "if 10 locations are
+          there why downward?"); each kind its own colour — saved amber star, home teal, hotel violet, hospital red,
+          a place used before a grey pin.
+        */}
+        {((saved ?? []).length > 0 || quick.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
             {(saved ?? []).map(p => (
-              <button key={p.id} type="button" className="inline-flex items-center gap-1 rounded-full border border-teal-300 bg-teal-50 px-3 py-1 text-xs font-medium text-teal-900 hover:bg-teal-100"
-                onClick={() => void put(p.lat, p.lng, p.name)}><Star className="h-3.5 w-3.5" />{p.name}</button>
+              <button key={p.id} type="button" className="inline-flex items-center gap-1 rounded-full border border-ink-200 px-3 py-1 text-xs font-medium text-ink-900 hover:bg-ink-100"
+                onClick={() => void put(p.lat, p.lng, p.name)}><Star className="h-3.5 w-3.5 text-amber-500" />{p.name}</button>
             ))}
-          </div>
-        )}
-        {quick.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {quick.map((p, i) => (
-              <button key={i} type="button" className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs hover:bg-ink-100 ${p.hospital ? 'border-cyrixRed-300 font-semibold text-ink-900' : 'border-ink-200 text-ink-800'}`}
-                onClick={() => void put(p.lat, p.lng, p.name)}>
-                {p.home && <Home className="h-3.5 w-3.5 text-teal-600" />}{p.stay && <BedDouble className="h-3.5 w-3.5 text-violet-600" />}{p.hospital && <Hospital className="h-3.5 w-3.5 text-cyrixRed-600" />}{p.label ?? p.name}
-              </button>
-            ))}
+            {quick.map((p, i) => {
+              const Icon = p.home ? Home : p.stay ? BedDouble : p.hospital ? Hospital : MapPin
+              const ink = p.home ? 'text-teal-600' : p.stay ? 'text-violet-600' : p.hospital ? 'text-cyrixRed-600' : 'text-ink-400'
+              return (
+                <button key={i} type="button" className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs hover:bg-ink-100 ${p.hospital ? 'border-cyrixRed-300 font-semibold text-ink-900' : 'border-ink-200 text-ink-800'}`}
+                  onClick={() => void put(p.lat, p.lng, p.name)}>
+                  <Icon className={`h-3.5 w-3.5 ${ink}`} />{p.label ?? p.name}
+                </button>
+              )
+            })}
           </div>
         )}
         <div className="relative">
