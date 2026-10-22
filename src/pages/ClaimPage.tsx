@@ -16,8 +16,8 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, returnKey, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
-  useClaim, useClaimAction, type ClaimData, type Day, type Ride,
+  DA_KINDS, DA_RANK, MODES, billRead, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
+  useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
 /*
@@ -48,19 +48,6 @@ export default function ClaimPage() {
   const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
   const goTo = (id: string) => { setFocus(id); showBill(id) }
-  /*
-    A round trip's return kept by the day form (te_0056): opened on its own day as soon as the going day is
-    saved and this page is back — added to that day if it is already on the claim, a new day if not.
-  */
-  useEffect(() => {
-    if (!data?.claim.can_edit || !data.claim.mine) return
-    let kept: { date: string; ride: Ride } | null = null
-    try { const v = localStorage.getItem(returnKey(data.claim.id)); kept = v ? JSON.parse(v) : null; localStorage.removeItem(returnKey(data.claim.id)) } catch { kept = null }
-    if (!kept) return
-    const have = data.days.find(x => x.day === kept!.date)
-    openDay(have ? { ...have, rides: [...have.rides, kept.ride] } : { ...blankDay(kept.date), rides: [kept.ride] }, false, true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.claim.id])
   // The outline goes at the next tap anywhere (the user, 19 Oct).
   useEffect(() => {
     if (!focus) return
@@ -176,25 +163,18 @@ export default function ClaimPage() {
     } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
   /*
-    The next day, from where the last one ended (the user, 17 Oct: "only continue from needed — in the
-    first trip I may have come back home, then again from home I can start"). Ended at home: a new day
-    starting from home. Ended elsewhere (a hotel, another town): the same trip goes on, joined to it,
-    with its purpose, place and tickets carried. The date is the next day, never a future one, and can
-    be changed in the form.
+    Another day, on any date (the user, 22 Oct: "replace continue with add another day" — joining days into a trip
+    caused doubts): picked on the calendar. If the last day before it ended away from home, its first ride starts
+    there; otherwise it starts like any new day.
   */
-  const continueFrom = (d: Day) => {
-    const next = new Date(d.day + 'T00:00:00'); next.setDate(next.getDate() + 1)
-    const iso = next.toLocaleDateString('en-CA') > todayIso() ? todayIso() : next.toLocaleDateString('en-CA')
-    const lastRide = d.rides[d.rides.length - 1]
-    const atHome = !lastRide || /\bhome\b/i.test(lastRide.to_name ?? '')
+  const startDay = (iso: string): Day => {
+    const before = [...(data?.days ?? [])].filter(x => x.day < iso).pop()
+    const lastRide = before?.rides[before.rides.length - 1]
     const nd = blankDay(iso)
-    if (!atHome) {
-      // Not its DA: a new day starts at No DA until its own rides decide it (the user, 22 Oct: ₹300 with no ride yet).
-      nd.continues_day = d.day; nd.purpose = d.purpose; nd.place = d.place; nd.district = d.district
-      nd.tickets = d.tickets.map(t => ({ ...t, id: newId() }))
+    if (lastRide?.to_lat != null && !/\bhome\b/i.test(lastRide.to_name ?? '')) {
+      nd.rides = [{ id: newId(), mode: lastRide.mode, from_name: lastRide.to_name, from_lat: lastRide.to_lat, from_lng: lastRide.to_lng, to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null }]
     }
-    if (lastRide?.to_lat != null) nd.rides = [{ id: newId(), mode: lastRide.mode, from_name: lastRide.to_name, from_lat: lastRide.to_lat, from_lng: lastRide.to_lng, to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null }]
-    openDay(nd)
+    return nd
   }
 
   return (
@@ -328,17 +308,12 @@ export default function ClaimPage() {
       {c.can_edit && (
         <div className="card space-y-3 p-3 sm:p-4">
           <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-            {lastDay ? (
-              <button type="button" className="btn-secondary col-span-2 h-11 justify-center whitespace-nowrap text-sm sm:col-span-1" onClick={() => continueFrom(lastDay)}>
-                <Plus className="h-4 w-4" /> Continue from {new Date(lastDay.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-              </button>
-            ) : (
-              <button type="button" className="btn-secondary col-span-2 h-11 justify-center text-sm sm:col-span-1" onClick={() => {
-                const today = todayIso()
-                setPickDay(today.slice(0, 7) === c.month.slice(0, 7) ? today : monthLast)
-                setPicking(true)
-              }}><Plus className="h-4 w-4" /> Add a claim</button>
-            )}
+            <button type="button" className="btn-secondary col-span-2 h-11 justify-center text-sm sm:col-span-1" onClick={() => {
+              // The day after the last one, else today (never past the month's end or today).
+              const next = lastDay ? (() => { const n = new Date(lastDay.day + 'T00:00:00'); n.setDate(n.getDate() + 1); return n.toLocaleDateString('en-CA') })() : todayIso()
+              setPickDay(next > monthLast ? monthLast : next < c.month ? c.month : next)
+              setPicking(true)
+            }}><Plus className="h-4 w-4" /> {lastDay ? 'Add another day' : 'Add a claim'}</button>
           </div>
           {tail && <div className="border-t border-ink-100 pt-3">{tail}</div>}
         </div>
@@ -370,7 +345,7 @@ export default function ClaimPage() {
             {data.days.some(d => d.day === pickDay) && <p className="text-sm text-ink-600">{dayName(pickDay)} is already on this claim — Continue opens it.</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setPicking(false)}>Cancel</button>
-              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); openDay(data.days.find(d => d.day === pickDay) ?? blankDay(pickDay), false, true) }}>Continue</button>
+              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); openDay(data.days.find(d => d.day === pickDay) ?? startDay(pickDay), false, true) }}>Continue</button>
             </div>
           </div>
         </Dialog>
@@ -542,6 +517,12 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol },
                   `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
+                {/* A round trip whose return is not on the claim yet (te_0058). */}
+                {r.return_leg?.date && !data.days.some(x => x.rides.some(o => o.same_ticket?.ref === r.return_leg!.ref)) && (
+                  <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-sky-700"><TicketIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    Round trip · return on {new Date(r.return_leg.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, {r.return_leg.from} → {r.return_leg.to} — {c.can_edit ? 'add it on that day' : 'not claimed'}
+                  </span>
+                )}
                 {(() => { const co = companyOf(data.bills, r); const when = co?.card?.travel_date; return co && (
                   <span className="col-span-full flex flex-wrap items-center gap-1.5 pl-1 text-xs font-semibold text-sky-800"><Building2 className="h-3.5 w-3.5" />Booked by company · {money(co.net)} · {co.booking_id}
                     {when && when !== d.day && <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-amber-900">booked for {new Date(when + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>}</span>) })()}

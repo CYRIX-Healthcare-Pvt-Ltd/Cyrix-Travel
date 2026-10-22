@@ -63,8 +63,8 @@ export const STATUS: Record<string, { label: string; tone: string }> = {
   recalled: { label: 'Recalled · editing', tone: 'bg-orange-100 text-orange-900' },
 }
 
-/** A round trip's return, waiting to open on its own day once the going day is saved (te_0056). */
-export const returnKey = (claim: string) => `te-return:${claim}`
+/** The return a round-trip ticket has, kept on the going ride until it is added on its own day (te_0058). */
+export interface ReturnLeg { ref: string; date: string | null; from: string; to: string; mode: ModeCode; day: string }
 /** Where the ticket said the return goes, and when, as it was read off it. */
 export interface SameTicket { ref: string; day: string; from: string; to: string; date: string | null; fromLat?: number; fromLng?: number; toLat?: number; toLng?: number }
 export interface Ride {
@@ -78,6 +78,8 @@ export interface Ride {
   same_ticket?: SameTicket | null
   /** The date its ticket is for, read off the ticket (te_0057). */
   ticket_date?: string | null
+  /** A round trip's return, on the going ride, offered on its own day (te_0058). */
+  return_leg?: ReturnLeg | null
   /** A bus that leaves its district or state (te_0048); null while not known. */
   inter?: boolean | null
   /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */

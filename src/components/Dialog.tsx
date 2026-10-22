@@ -7,7 +7,8 @@ import { X } from 'lucide-react'
  * accepted, a confirmation before scrap, a bill to attach.
  *
  * A sheet from the bottom on a phone, where the thumb is; a card in the
- * middle on a computer. Escape, the cross or a tap outside closes it, and
+ * middle on a computer. Escape or the cross closes it — a tap outside does not, so a question or a place half
+ * chosen is not lost to a stray tap (the user, 22 Oct) — and
  * the page behind does not scroll while it is open.
  */
 export default function Dialog({
@@ -43,7 +44,6 @@ export default function Dialog({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={onClose}
       className="fixed inset-0 z-50 flex items-end justify-center bg-shade/60 sm:items-center sm:p-4"
     >
       <div

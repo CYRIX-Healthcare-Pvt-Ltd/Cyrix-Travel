@@ -13,11 +13,11 @@ import MonthCalendar from '@/components/MonthCalendar'
 import Budget, { budgetLines, dayUse, monthLong } from '@/components/Budget'
 import { Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
-import { hotelQueries, ticketQueries, type HotelStay, type Journey, type TicketRoute } from '@/lib/ticket'
+import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, returnKey, type ClaimData, type Day, type DaKind, type ModeCode, type Place, type Ride,
+  areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -241,8 +241,11 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     // The date the ticket is for, kept on the ride so a ticket for another day shows (te_0057; the user, 22 Oct).
     const tdate = route.journeys?.[0]?.date ?? null
     if (tdate) setRide(rideId, { ticket_date: tdate })
-    // A round trip: offer its return on its own day, once this one is filled (the user, 22 Oct).
-    if ((route.journeys?.length ?? 0) > 1) void offerReturn(as, route.journeys![1], refs.find(x => /^N[A-Z]/.test(x)) ?? refs[0] ?? 'the same booking')
+    // A round trip: its return kept on this ride, offered on its own day when the engineer gets there (te_0058).
+    if ((route.journeys?.length ?? 0) > 1) {
+      const j = route.journeys![1]
+      setRide(rideId, { return_leg: { ref: refs.find(x => /^N[A-Z]/.test(x)) ?? refs[0] ?? 'the same booking', date: j.date, from: j.cityFrom, to: j.cityTo, mode: as, day: d.day } })
+    }
     const q = ticketQueries(as, route)
     if (!q) return
     const near = home ?? undefined
@@ -264,20 +267,15 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     }
   }
   /*
-    The return of a round-trip ticket (te_0056; the user, 22 Oct: Kochi to Vijayawada on 7 Aug and back on 9 Aug,
-    one booking, one fare): its fare stays on the going ride, and the return is a ride of its own that claims ₹0
-    and needs no bill, marked with what the ticket said so the approvers see a return that went elsewhere. On
-    this day it is added at once; on another day of the month it opens there once this day is saved.
+    The return of a round-trip ticket (te_0056, te_0058; the user, 22 Oct: Kochi to Vijayawada on 7 Aug and back on
+    9 Aug, one booking, one fare): its fare stays on the going ride, and the return, added with one tap on its own day
+    whenever the engineer adds that day, is a ride that claims ₹0 and needs no bill, marked with what the ticket said.
   */
-  const offerReturn = async (as: ModeCode, j: Journey, ref: string) => {
-    if (!j.date) return
-    const when = new Date(j.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
-    const here = new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-    if (j.date.slice(0, 7) !== c.month.slice(0, 7)) {
-      await ask.alert('Return on the same ticket', `This ticket also has your return on ${when}, ${j.cityFrom} → ${j.cityTo}. Add it in that month's claim; its fare is already on this ride.`)
-      return
-    }
-    if (!(await ask.confirm({ title: 'Add your return?', body: `This ticket also has your return on ${when}, ${j.cityFrom} → ${j.cityTo}. Its fare is on this ride, so the return claims ₹0.`, yes: j.date === d.day ? 'Add it' : `Add to ${when}` }))) return
+  const [adding, setAdding] = useState<string | null>(null)
+  const addReturn = async (leg: ReturnLeg) => {
+    setAdding(leg.ref)
+    const as = leg.mode, j = { cityFrom: leg.from, cityTo: leg.to, date: leg.date }, ref = leg.ref
+    const here = new Date(leg.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
     const q = ticketQueries(as, { cityFrom: j.cityFrom, cityTo: j.cityTo })
     const [pf, pt0] = q ? await Promise.all([lookupPlace(q.from, q.want, home ?? undefined, j.cityFrom), lookupPlace(q.to, q.want, home ?? undefined, j.cityTo)]) : [null, null]
     const pt = pt0 && pf && distanceKm(pf, pt0) < 20 ? null : pt0
@@ -286,13 +284,16 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       from_name: pf?.name ?? null, from_lat: pf?.lat ?? null, from_lng: pf?.lng ?? null,
       to_name: pt?.name ?? null, to_lat: pt?.lat ?? null, to_lng: pt?.lng ?? null,
       fare: 0, note: `On the ${here} ticket · ${ref}`, ticket_date: j.date,
-      same_ticket: { ref, day: d.day, from: j.cityFrom, to: j.cityTo, date: j.date, fromLat: pf?.lat, fromLng: pf?.lng, toLat: pt?.lat, toLng: pt?.lng },
+      same_ticket: { ref, day: leg.day, from: j.cityFrom, to: j.cityTo, date: j.date, fromLat: pf?.lat, fromLng: pf?.lng, toLat: pt?.lat, toLng: pt?.lng },
     }
     if (pf && pt) ride.map_km = (await roadKm(pf, pt))?.km ?? null
-    if (j.date === d.day) { setD(x => ({ ...x, rides: [...x.rides, ride] })); return }
-    try { localStorage.setItem(returnKey(c.id), JSON.stringify({ date: j.date, ride })) } catch { /* a private window keeps nothing */ }
-    await ask.alert(`Return kept for ${when}`, 'It opens on that day as soon as you save this one.')
+    setD(x => ({ ...x, rides: [...x.rides, ride] }))
+    setAdding(null)
   }
+  // Returns on tickets whose return is this day, not yet added anywhere on the claim.
+  const everyRide = [...data.days.filter(x => x.id !== initial.id).flatMap(x => x.rides.map(r => ({ r, day: x.day }))), ...d.rides.map(r => ({ r, day: d.day }))]
+  const returnsHere = everyRide.filter(({ r }) => r.return_leg?.date === d.day && !everyRide.some(o => o.r.same_ticket?.ref === r.return_leg!.ref))
+  const returnAdded = (leg: ReturnLeg) => everyRide.some(o => o.r.same_ticket?.ref === leg.ref)
   /*
     Whether each bus ride leaves its district or state, from the map, once both its places are known (te_0048;
     the user, 21 Oct): within the district its ticket is not needed.
@@ -448,6 +449,22 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
           {/* ---- rides ---- */}
           <section>
             <h3 className="mb-2 text-sm font-semibold text-ink-800">Rides</h3>
+            {/* A round trip's return due on this day, from the going ride's ticket: added with one tap (te_0058). */}
+            {returnsHere.map(({ r, day }) => {
+              const leg = r.return_leg!, dn = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+              return (
+                <div key={leg.ref + r.id} className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-sky-300 bg-sky-50 px-4 py-3">
+                  <TicketIcon className="h-5 w-5 shrink-0 text-sky-700" />
+                  <div className="min-w-0 flex-1 text-sm text-sky-900">
+                    <p className="font-semibold">Your return on the {dn(day)} ticket · {leg.from} → {leg.to} · ₹0</p>
+                    <p className="text-xs">{dn(day)} · {(r.from_name ?? '').split(',')[0]} → {(r.to_name ?? '').split(',')[0]} · {money(r.fare ?? 0)} · {leg.ref}</p>
+                  </div>
+                  <button type="button" className="btn-primary !py-1.5 text-sm" disabled={adding === leg.ref} onClick={() => void addReturn(leg)}>
+                    {adding === leg.ref ? <Spinner className="h-4 w-4" /> : <Plus className="h-4 w-4" />} Add this return
+                  </button>
+                </div>
+              )
+            })}
             <div className="space-y-3">
               {d.rides.map((r, i) => {
                 const m = MODES[r.mode]
@@ -492,6 +509,12 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
                     </div>
+                    {/* A round trip: where its return will be added (te_0058). */}
+                    {r.return_leg?.date && !returnAdded(r.return_leg) && r.return_leg.date !== d.day && (
+                      <p className="mt-1.5 pl-6 text-xs font-semibold text-sky-700">
+                        Round trip · return on {((iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))(r.return_leg.date)}, {r.return_leg.from} → {r.return_leg.to} — {r.return_leg.date.slice(0, 7) === c.month.slice(0, 7) ? 'add it on that day' : "add it in that month's claim"}
+                      </p>
+                    )}
                     {/* A ticket for another day than this one (te_0057; the user, 22 Oct). */}
                     {r.ticket_date && r.ticket_date !== d.day && (
                       <p className="mt-1.5 pl-6 text-xs font-semibold text-amber-800">
