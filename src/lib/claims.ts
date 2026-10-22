@@ -355,11 +355,11 @@ async function photonNear(near: { lat: number; lng: number }, tag: string): Prom
   }).filter(x => x.name)
 }
 const KIND_TAGS: Array<[RegExp, string]> = [
-  [/airs*port/i, 'aeroway:aerodrome'],
-  [/(railway|train)?s*station|railway/i, 'railway:station'],
-  [/buss*(stand|station|stop)|ksrtc/i, 'amenity:bus_station'],
-  [/hospital|medical college/i, 'amenity:hospital'],
-  [/hotel|lodge|residency/i, 'tourism:hotel'],
+  [/\bair\s*port\b/i, 'aeroway:aerodrome'],
+  [/\b(?:railway|train)?\s*station\b|\brailway\b/i, 'railway:station'],
+  [/\bbus\s*(?:stand|station|stop)\b|\bksrtc\b/i, 'amenity:bus_station'],
+  [/\bhospital\b|\bmedical college\b/i, 'amenity:hospital'],
+  [/\bhotel\b|\blodge\b|\bresidency\b/i, 'tourism:hotel'],
 ]
 export async function searchPlaces(q: string, near?: { lat: number; lng: number }): Promise<Place[]> {
   if (q.trim().length < 3) return []
@@ -368,7 +368,7 @@ export async function searchPlaces(q: string, near?: { lat: number; lng: number 
     // The written-out names first, then what was typed; the same spot once.
     // The name without "Hotel" or "Lodge" too: the map often has the building by its own name (the user, 22 Oct:
     // "Hotel Raj Towers" is on the map as "Raj Towers", Vijayawada).
-    const bare = q.replace(/(hotel|hotels|lodge|inn|resort|residency|guests*house|the)/gi, ' ').replace(/s+/g, ' ').trim()
+    const bare = q.replace(/\b(?:hotel|hotels|lodge|inn|resort|residency|guest\s*house|the)\b/gi, ' ').replace(/\s+/g, ' ').trim()
     const asks = [...new Set([...full, q, ...(bare.length >= 3 && bare.toLowerCase() !== q.trim().toLowerCase() ? [bare] : [])])]
     const kinds = KIND_TAGS.filter(([re]) => re.test(q))
     // Only the kind typed ("airport", "railway station"): the nearest of that kind where the map is looking;
