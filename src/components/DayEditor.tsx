@@ -17,7 +17,7 @@ import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  areaOf, billRead, companyOf, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type Day, type DaKind, type Place, type Ride,
+  areaOf, billRead, companyOf, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -199,10 +199,13 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     can we auto fetch"): only an end not picked yet, or a From still at Home — what the engineer picked stays.
   */
   const latest = useRef(d); latest.current = d
-  const fillFromTicket = async (rideId: string, route: TicketRoute) => {
+  const fillFromTicket = async (rideId: string, route: TicketRoute, mode?: ModeCode | null) => {
     const r0 = latest.current.rides.find(x => x.id === rideId)
     if (!r0) return
-    const q = ticketQueries(r0.mode, route)
+    // The mode the ticket showed, set a moment ago, is not in the form's state yet.
+    const as = mode ?? r0.mode
+    if (!TICKETED.has(as)) return
+    const q = ticketQueries(as, route)
     if (!q) return
     const near = home ?? undefined
     const wantFrom = r0.from_lat == null || placeKey(r0.from_name) === 'home', wantTo = r0.to_lat == null
@@ -382,7 +385,8 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                       )}
                       <BillButton compact large part="attach" accent={m} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={a => { if (!m.perKm && r.fare == null) setRide(r.id, { fare: a }) }}
-                        onTicket={TICKETED.has(r.mode) ? rt => void fillFromTicket(r.id, rt) : undefined} onChange={refresh} />
+                        onMode={mode => { if (mode !== r.mode) setRide(r.id, { mode }) }}
+                        onTicket={(rt, mode) => void fillFromTicket(r.id, rt, mode)} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
                     </div>
