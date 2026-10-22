@@ -7,6 +7,38 @@
 export interface TicketRoute {
   airportFrom?: string; airportTo?: string; cityFrom?: string; cityTo?: string
   from?: string; to?: string; boarding?: string; drop?: string
+  /** Where the planes were changed on the way: not a destination (the user, 22 Oct). */
+  via?: string[]
+  /** Each journey on the ticket — a round trip has two, on their own days. */
+  journeys?: Journey[]
+}
+export interface Journey { cityFrom: string; cityTo: string; date: string | null; via: string[] }
+
+const MON = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+/**
+ * The journeys on a MakeMyTrip flight ticket (the user, 22 Oct: a round trip, Kochi to Vijayawada via Bengaluru
+ * and back): each "Kochi-Vijayawada" heading with its date line ("Fri, 7 Aug 2026 • 1 stop"), and the layovers
+ * under it ("2h 35m layover • Bengaluru (BLR)"). A change of planes is never where the journey ends.
+ */
+export function journeysIn(text: string): Journey[] {
+  const L = text.split('\n').map(l => l.trim()).filter(Boolean)
+  const out: Array<Journey & { at: number }> = []
+  L.forEach((l, i) => {
+    const h = l.match(/^([A-Za-z][A-Za-z .]+?)\s*-\s*([A-Za-z][A-Za-z .]+)$/)
+    const d = L[i + 1]?.match(/^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*,\s*(\d{1,2})\s+([A-Za-z]{3})\w*\s+(\d{4})/)
+    if (!h || !d) return
+    const m = MON.indexOf(d[2].toLowerCase())
+    const date = m < 0 ? null : `${d[3]}-${String(m + 1).padStart(2, '0')}-${d[1].padStart(2, '0')}`
+    out.push({ cityFrom: h[1].trim(), cityTo: h[2].trim(), date, via: [], at: i })
+  })
+  out.forEach((j, n) => {
+    const end = out[n + 1]?.at ?? L.length
+    for (const l of L.slice(j.at, end)) {
+      const v = l.match(/layover\s*•\s*([A-Za-z][A-Za-z .]+?)(?:\s*\(|$)/i)
+      if (v && !j.via.includes(v[1].trim())) j.via.push(v[1].trim())
+    }
+  })
+  return out.map(({ at: _at, ...j }) => j)
 }
 
 export function routeIn(text: string): TicketRoute | null {
@@ -18,11 +50,23 @@ export function routeIn(text: string): TicketRoute | null {
   const airport = (i: number) => {
     const j = L.findIndex((l, k) => k > i && k < i + 4 && /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/.test(l))
     if (j < 0) return undefined
-    const name = [L[j + 1], L[j + 2]].filter(Boolean).join(' ').replace(/\s+/g, ' ').split(/\s+Terminal\b/i)[0].trim()
+    // Up to the terminal, or the fare class printed on the next line ("Corporate Plus CORPORATE Economy").
+    const name = [L[j + 1], L[j + 2]].filter(Boolean).join(' ').replace(/\s+/g, ' ').split(/\s+(?:Terminal|Corporate|Economy|Business|Premium|Saver|Flexi)\b/i)[0].trim()
     return /airport/i.test(name) ? name.replace(/(airport)\b.*$/i, (m, a: string) => (m.length > a.length ? m : a)) : undefined
   }
   if (fi > 0) { out.cityFrom = L[fi - 1]; out.airportFrom = airport(fi) }
   if (ti > 0) { out.cityTo = L[ti - 1]; out.airportTo = airport(ti) }
+  // With journeys, the first one's end is where the ride ends, not the first landing on the way.
+  const journeys = journeysIn(text)
+  if (journeys.length) {
+    const j = journeys[0]
+    out.journeys = journeys; out.via = j.via
+    out.cityFrom = j.cityFrom
+    if (out.cityTo !== j.cityTo) {
+      const at = L.findIndex((l, k) => k > 0 && L[k - 1] === j.cityTo && /\b\d{1,2}:\d{2}\s*hrs\s+[A-Z]{3}$/.test(l))
+      out.cityTo = j.cityTo; out.airportTo = at > 0 ? airport(at) : undefined
+    }
+  }
   // A bus or a train: labelled fields, each up to the next run of spaces.
   const field = (label: string) => {
     // The label with its colon, at the start of a line or after a run of spaces ("From : X   To : Y" on one line).

@@ -63,6 +63,10 @@ export const STATUS: Record<string, { label: string; tone: string }> = {
   recalled: { label: 'Recalled · editing', tone: 'bg-orange-100 text-orange-900' },
 }
 
+/** A round trip's return, waiting to open on its own day once the going day is saved (te_0056). */
+export const returnKey = (claim: string) => `te-return:${claim}`
+/** Where the ticket said the return goes, and when, as it was read off it. */
+export interface SameTicket { ref: string; day: string; from: string; to: string; date: string | null; fromLat?: number; fromLng?: number; toLat?: number; toLng?: number }
 export interface Ride {
   id: string; mode: ModeCode
   from_name: string | null; from_lat: number | null; from_lng: number | null
@@ -70,6 +74,10 @@ export interface Ride {
   claimed_km: number | null; map_km: number | null; fare: number | null; amount?: number; note?: string | null
   /** Booked by the company (te_0042): it claims nothing, and its company cost is kept beside it. */
   company_booking?: string | null; company_amount?: number | null
+  /** The return of a round-trip ticket whose fare is on another ride (te_0056): claims nothing, needs no bill. */
+  same_ticket?: SameTicket | null
+  /** The date its ticket is for, read off the ticket (te_0057). */
+  ticket_date?: string | null
   /** A bus that leaves its district or state (te_0048); null while not known. */
   inter?: boolean | null
   /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */
@@ -214,6 +222,8 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
   if (kind === 'hotel') return true
   if (kind === 'ride') {
     const r = item as Ride
+    // A return already on another ride's ticket brings no bill of its own (te_0056).
+    if (r.same_ticket) return false
     // A bike or car is paid by its km, checked on the map: no bill, whatever it comes to (the user, 19 Oct).
     // A bus ticket only when it leaves the district or the state, or while that is not known (the user, 21 Oct).
     return r.mode === 'train' || r.mode === 'flight' || (r.mode === 'bus' && r.inter !== false) || (!MODES[r.mode].perKm && rideAmount(r, rule) > over)

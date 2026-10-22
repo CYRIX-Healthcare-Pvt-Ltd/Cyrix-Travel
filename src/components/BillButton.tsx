@@ -14,7 +14,7 @@ import { useAsk } from '@/components/Ask'
 */
 export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onMode, onChange, compact = false, large = false, claimed, part = 'both', accent }: {
   /** Where a ticket goes, and a voucher's hotel, read off it (the user, 21 Oct). */
-  onTicket?: (route: TicketRoute, mode: ModeCode | null) => void
+  onTicket?: (route: TicketRoute, mode: ModeCode | null, refs: string[]) => void
   onStay?: (stay: HotelStay) => void
   /** The mode a ticket shows it is — a MakeMyTrip booking id says flight, train or bus (the user, 22 Oct). */
   onMode?: (mode: ModeCode) => void
@@ -33,7 +33,8 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
   bills: Bill[]
   needed: boolean
   editable: boolean
-  onRead?: (amount: number) => void
+  /** The amount read, and the mode the ticket shows — set first, so a fare fills on a ride that was a bike. */
+  onRead?: (amount: number, mode: ModeCode | null) => void
   onChange: () => void
 }) {
   const input = useRef<HTMLInputElement>(null)
@@ -56,10 +57,10 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       setBusy('Attaching…')
       await uploadBill(claimId, kind, ownerId, f, read)
       // Filled only once the bill is in: one already added is refused, and fills nothing.
-      if (read.amount && onRead) onRead(read.amount)
       const mode = modeOfBill(read.refs, read.route ?? null)
       if (mode && onMode) onMode(mode)
-      if (read.route && onTicket) onTicket(read.route, mode)
+      if (read.amount && onRead) onRead(read.amount, mode)
+      if (read.route && onTicket) onTicket(read.route, mode, read.refs)
       if (read.stay && onStay) onStay(read.stay)
       onChange()
     } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Bill not attached', (e as Error).message) } finally { setBusy(null) }

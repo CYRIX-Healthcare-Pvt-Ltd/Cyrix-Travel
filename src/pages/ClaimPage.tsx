@@ -16,8 +16,8 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, companyOf, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
-  useClaim, useClaimAction, type ClaimData, type Day,
+  DA_KINDS, DA_RANK, MODES, billRead, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, returnKey, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
+  useClaim, useClaimAction, type ClaimData, type Day, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -48,6 +48,19 @@ export default function ClaimPage() {
   const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
   const goTo = (id: string) => { setFocus(id); showBill(id) }
+  /*
+    A round trip's return kept by the day form (te_0056): opened on its own day as soon as the going day is
+    saved and this page is back — added to that day if it is already on the claim, a new day if not.
+  */
+  useEffect(() => {
+    if (!data?.claim.can_edit || !data.claim.mine) return
+    let kept: { date: string; ride: Ride } | null = null
+    try { const v = localStorage.getItem(returnKey(data.claim.id)); kept = v ? JSON.parse(v) : null; localStorage.removeItem(returnKey(data.claim.id)) } catch { kept = null }
+    if (!kept) return
+    const have = data.days.find(x => x.day === kept!.date)
+    openDay(have ? { ...have, rides: [...have.rides, kept.ride] } : { ...blankDay(kept.date), rides: [kept.ride] }, false, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.claim.id])
   // The outline goes at the next tap anywhere (the user, 19 Oct).
   useEffect(() => {
     if (!focus) return
@@ -176,7 +189,8 @@ export default function ClaimPage() {
     const atHome = !lastRide || /\bhome\b/i.test(lastRide.to_name ?? '')
     const nd = blankDay(iso)
     if (!atHome) {
-      nd.continues_day = d.day; nd.purpose = d.purpose; nd.place = d.place; nd.district = d.district; nd.da_kind = d.da_kind
+      // Not its DA: a new day starts at No DA until its own rides decide it (the user, 22 Oct: ₹300 with no ride yet).
+      nd.continues_day = d.day; nd.purpose = d.purpose; nd.place = d.place; nd.district = d.district
       nd.tickets = d.tickets.map(t => ({ ...t, id: newId() }))
     }
     if (lastRide?.to_lat != null) nd.rides = [{ id: newId(), mode: lastRide.mode, from_name: lastRide.to_name, from_lat: lastRide.to_lat, from_lng: lastRide.to_lng, to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null }]
@@ -647,6 +661,8 @@ const OBS = {
   cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange },
   cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2 },
   autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront },
+  tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange },
+  retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
   month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
   changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
@@ -692,6 +708,15 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
       if (co) {
         items.push({ kind: 'company', day, to: r.id, detail: `${leg} · ${co.booking_id} · ${money(co.net)} not claimed` })
         if (co.card?.travel_date && co.card.travel_date !== d.day) items.push({ kind: 'cdate', day, to: r.id, detail: `${leg} · booked for ${dn(co.card.travel_date)}, claimed on ${day}` })
+      }
+      // A ticket for another day than the one claimed (te_0057); a return claimed otherwise than its ticket says (te_0056).
+      if (r.ticket_date && r.ticket_date !== d.day) items.push({ kind: 'tdate', day, to: r.id, detail: `${leg} · ticket for ${dn(r.ticket_date)}, claimed on ${day}` })
+      const st = r.same_ticket
+      if (st) {
+        const far = (lat?: number, lng?: number, lat2?: number | null, lng2?: number | null) => lat != null && lng != null && lat2 != null && lng2 != null && distanceKm({ lat, lng }, { lat: lat2, lng: lng2 }) > 30
+        if ((st.date && st.date !== d.day) || far(st.fromLat, st.fromLng, r.from_lat, r.from_lng) || far(st.toLat, st.toLng, r.to_lat, r.to_lng)) {
+          items.push({ kind: 'retdiff', day, to: r.id, detail: `On the ${dn(st.day)} ticket (${st.ref}): ${st.from} → ${st.to}${st.date ? ', ' + dn(st.date) : ''} · claimed ${short(r.from_name)} → ${short(r.to_name)}, ${day}` })
+        }
       }
       const read = m.perKm ? null : billRead(data.bills, r.id)
       /*
