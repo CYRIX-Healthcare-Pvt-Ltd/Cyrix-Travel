@@ -294,6 +294,16 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
   const everyRide = [...data.days.filter(x => x.id !== initial.id).flatMap(x => x.rides.map(r => ({ r, day: x.day }))), ...d.rides.map(r => ({ r, day: d.day }))]
   const returnsHere = everyRide.filter(({ r }) => r.return_leg?.date === d.day && !everyRide.some(o => o.r.same_ticket?.ref === r.return_leg!.ref))
   const returnAdded = (leg: ReturnLeg) => everyRide.some(o => o.r.same_ticket?.ref === leg.ref)
+  // A ride entered by hand that is a ticket's return, found by attaching that ticket: linked, not a second bill (te_0059).
+  const linkReturn = (rideId: string, refs: string[]) => {
+    const go = everyRide.find(({ r }) => r.id !== rideId && r.return_leg && refs.includes(r.return_leg.ref))
+    if (!go) return false
+    const leg = go.r.return_leg!, here = new Date(leg.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    const r0 = latest.current.rides.find(x => x.id === rideId)
+    setRide(rideId, { mode: leg.mode, claimed_km: null, fare: 0, ticket_date: leg.date, note: r0?.note?.trim() || `On the ${here} ticket · ${leg.ref}`, same_ticket: { ref: leg.ref, day: leg.day, from: leg.from, to: leg.to, date: leg.date } })
+    void ask.alert('Linked to your ticket', `This is the return on your ${here} ticket. It claims ₹0 and needs no bill of its own.`)
+    return true
+  }
   /*
     Whether each bus ride leaves its district or state, from the map, once both its places are known (te_0048;
     the user, 21 Oct): within the district its ticket is not needed.
@@ -505,6 +515,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                       <BillButton compact large part="attach" accent={m} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={(a, mode) => { const r1 = latest.current.rides.find(x => x.id === r.id); if (!MODES[mode ?? r1?.mode ?? r.mode].perKm && r1?.fare == null) setRide(r.id, { fare: a }) }}
                         onMode={mode => { if (mode !== r.mode) setRide(r.id, { mode }) }}
+                        onSameTicket={refs => linkReturn(r.id, refs)}
                         onTicket={(rt, mode, refs) => void fillFromTicket(r.id, rt, mode, refs)} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}

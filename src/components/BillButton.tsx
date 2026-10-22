@@ -12,12 +12,14 @@ import { useAsk } from '@/components/Ask'
   free reader in the phone (the user, 17 Oct) and hands it back to fill the amount; the same file
   twice is refused, naming the claim it was used on; a look-alike is flagged for the approvers.
 */
-export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onMode, onChange, compact = false, large = false, claimed, part = 'both', accent }: {
+export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onMode, onSameTicket, onChange, compact = false, large = false, claimed, part = 'both', accent }: {
   /** Where a ticket goes, and a voucher's hotel, read off it (the user, 21 Oct). */
   onTicket?: (route: TicketRoute, mode: ModeCode | null, refs: string[]) => void
   onStay?: (stay: HotelStay) => void
   /** The mode a ticket shows it is — a MakeMyTrip booking id says flight, train or bus (the user, 22 Oct). */
   onMode?: (mode: ModeCode) => void
+  /** In the day form: link this ride as a ticket's return there and then; true when it was (te_0059). */
+  onSameTicket?: (refs: string[]) => boolean
   /** Only the paperclip, or only the bills (the day form shows the bills on their own line). */
   part?: 'both' | 'attach' | 'bills'
   /** The colour a needed bill's paperclip wears: a ride's mode, instead of amber. */
@@ -53,6 +55,18 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       // Only a hotel's own signs: its night-stay line or an NH booking id; a 'Booking Voucher' heading alone is on bus and train vouchers too.
       if (kind === 'ride' && (read.stay?.name || read.refs.some(x => x.toUpperCase().startsWith('NH')))) {
         throw new Error('This is a hotel bill. Attach it under Hotel night, not on a ride.')
+      }
+      /*
+        The ticket already on an earlier flight of this claim, whose return this ride is: linked, not refused as the
+        same bill (te_0059; the user, 22 Oct) — in the form at once, on the claim page through the server.
+      */
+      const booking = read.refs.filter(x => /^N[A-Z]/.test(x))
+      if (kind === 'ride' && booking.length) {
+        if (onSameTicket ? onSameTicket(booking) : false) return
+        if (!onSameTicket) {
+          const { data: day } = await supabase.rpc('te_link_return', { p_ride: ownerId, p_refs: booking })
+          if (day) { onChange(); void ask.alert('Linked to your ticket', `This is the return on your ${day} ticket. It claims ₹0 and needs no bill of its own.`); return }
+        }
       }
       setBusy('Attaching…')
       await uploadBill(claimId, kind, ownerId, f, read)
