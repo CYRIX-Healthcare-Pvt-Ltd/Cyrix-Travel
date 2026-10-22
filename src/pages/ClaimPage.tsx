@@ -205,7 +205,13 @@ export default function ClaimPage() {
       <div className="card flex flex-wrap items-start justify-between gap-4 p-4" style={{ borderLeft: `4px solid ${HEAD[c.status] ?? HEAD.draft}`, background: `linear-gradient(90deg, ${HEAD[c.status] ?? HEAD.draft}1F, transparent 70%)` }}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-lg font-semibold text-ink-900">{c.number ? `${c.number} · ${monthName(c.month)}` : `${monthName(c.month)} claim`}</h1>
+            {/* The days it covers in its name (the user, 22 Oct: "show as 7 Aug · Aug-26 claim"). */}
+            <h1 className="text-lg font-semibold text-ink-900">{(() => {
+              // "7th Aug-26 claim", "7th–9th Aug-26 claim": the days, then the month once (a claim is one month).
+              const n = (iso: string) => Number(iso.slice(8, 10)), d0 = data.days[0]?.day, d1 = data.days[data.days.length - 1]?.day
+              const days = d0 ? (d0 === d1 ? `${ordinal(n(d0))} ` : `${ordinal(n(d0))}–${ordinal(n(d1!))} `) : ''
+              return c.number ? `${c.number} · ${days}${monthName(c.month)}` : `${days}${monthName(c.month)} claim`
+            })()}</h1>
             <span className={`badge ${status.tone}`}>{status.label}</span>
           </div>
           <p className="mt-1 text-sm text-ink-700">{c.name} · {c.ecode} · Grade {c.grade ?? '—'}{c.designation ? ` · ${c.designation}` : ''}</p>

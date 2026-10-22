@@ -328,34 +328,72 @@ export async function lookupPlace(queries: string[], want: 'airport' | 'station'
   }
   return null
 }
-async function photon(q: string, near?: { lat: number; lng: number }): Promise<Place[]> {
-  // Near the engineer when the map knows where they are; otherwise anywhere in India.
+type Found = Place & { road?: boolean }
+async function photon(q: string, near?: { lat: number; lng: number }, tag?: string): Promise<Found[]> {
+  // Near the engineer when the map knows where they are; otherwise anywhere in India. A tag asks for one kind only.
   const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : '&bbox=68.1,6.5,97.4,35.7'
-  const r = await timed(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lang=en${bias}`)
+  const r = await timed(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lang=en${bias}${tag ? `&osm_tag=${tag}` : ''}`)
   const j = await r.json() as { features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
   return j.features.filter(f => (f.properties.countrycode ?? '').toUpperCase() === 'IN').map(f => {
     const p = f.properties
     const where = [p.street && p.street !== p.name ? p.street : null, p.city ?? p.district ?? p.county, p.state].filter(Boolean)
-    return { name: [p.name ?? p.street, ...where].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
+    return { name: [p.name ?? p.street, ...where].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], road: p.osm_key === 'highway' }
   }).filter(x => x.name)
 }
+/*
+  The kind of place a search names, asked for as that kind too (the user, 22 Oct: "airport" found three stretches
+  of Airport Road and not Cochin International Airport).
+*/
+/** The nearest places of one kind around a spot (Photon's reverse with a tag), each checked to be that kind. */
+async function photonNear(near: { lat: number; lng: number }, tag: string): Promise<Found[]> {
+  const r = await timed(`https://photon.komoot.io/reverse?lat=${near.lat}&lon=${near.lng}&osm_tag=${tag}&limit=6&radius=60&lang=en`)
+  const j = await r.json() as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+  const [k, v] = tag.split(':')
+  return (j.features ?? []).filter(f => f.properties.osm_key === k && f.properties.osm_value === v && (f.properties.countrycode ?? '').toUpperCase() === 'IN').map(f => {
+    const p = f.properties
+    return { name: [p.name, p.city ?? p.district ?? p.county, p.state].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
+  }).filter(x => x.name)
+}
+const KIND_TAGS: Array<[RegExp, string]> = [
+  [/airs*port/i, 'aeroway:aerodrome'],
+  [/(railway|train)?s*station|railway/i, 'railway:station'],
+  [/buss*(stand|station|stop)|ksrtc/i, 'amenity:bus_station'],
+  [/hospital|medical college/i, 'amenity:hospital'],
+  [/hotel|lodge|residency/i, 'tourism:hotel'],
+]
 export async function searchPlaces(q: string, near?: { lat: number; lng: number }): Promise<Place[]> {
   if (q.trim().length < 3) return []
   const full = expandShort(q)
   try {
     // The written-out names first, then what was typed; the same spot once.
-    const lists = await Promise.all([...full, q].map(x => photon(x, near).catch(() => [] as Place[])))
-    const seen = new Set<string>(), out: Place[] = []
+    // The name without "Hotel" or "Lodge" too: the map often has the building by its own name (the user, 22 Oct:
+    // "Hotel Raj Towers" is on the map as "Raj Towers", Vijayawada).
+    const bare = q.replace(/(hotel|hotels|lodge|inn|resort|residency|guests*house|the)/gi, ' ').replace(/s+/g, ' ').trim()
+    const asks = [...new Set([...full, q, ...(bare.length >= 3 && bare.toLowerCase() !== q.trim().toLowerCase() ? [bare] : [])])]
+    const kinds = KIND_TAGS.filter(([re]) => re.test(q))
+    // Only the kind typed ("airport", "railway station"): the nearest of that kind where the map is looking;
+    // with a name ("Vijayawada airport"): that kind searched by the name.
+    const onlyKind = kinds.length > 0 && kinds.reduce((t, [re]) => t.replace(re, ' '), q).replace(/[^a-z]/gi, '').length < 3
+    const lists = await Promise.all([
+      ...kinds.map(([, t]) => (onlyKind && near ? photonNear(near, t) : photon(q, near, t)).catch(() => [] as Found[])),
+      ...asks.map(x => photon(x, near).catch(() => [] as Found[])),
+    ])
+    const out: Found[] = []
+    const seen = new Set<string>()
     // The map often holds one hospital twice (its building and its point): the same name within half a km is one.
     for (const p of lists.flat()) {
       const k = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`, nm = p.name.split(",")[0].trim().toLowerCase()
-      if (seen.has(k) || out.some(o => o.name.split(",")[0].trim().toLowerCase() === nm && distanceKm(o, p) < 0.5)) continue
+      // A road once, however many stretches the map keeps of it.
+      if (seen.has(k) || out.some(o => o.name.split(",")[0].trim().toLowerCase() === nm && distanceKm(o, p) < (p.road ? 5 : 0.5))) continue
       seen.add(k); out.push(p)
     }
     // A place carrying the typed name (Aluva, Nellaya) above one the search only guessed at.
     const named = words(q).filter(w => !SHORT[w.toUpperCase()] && !NOISE.has(w.toUpperCase()) && w.length >= 3).map(w => w.toLowerCase())
     const hits = (p: Place) => named.filter(w => p.name.toLowerCase().includes(w)).length
-    const ranked = out.map((p, i) => ({ p, i, h: hits(p) })).sort((x, y) => y.h - x.h || x.i - y.i).map(x => x.p)
+    // Where the map is looking first: a place over 100 km away goes below every one near it.
+    const far = (p: Place) => (near && distanceKm(near, p) > 100 ? 1 : 0)
+    // A place before a road of the same words.
+    const ranked = out.map((p, i) => ({ p, i, h: hits(p), f: far(p), rd: p.road ? 1 : 0 })).sort((x, y) => x.f - y.f || x.rd - y.rd || y.h - x.h || x.i - y.i).map(({ p }) => ({ name: p.name, lat: p.lat, lng: p.lng }))
     if (ranked.length) return ranked.slice(0, 8)
   } catch { /* fall through to Nominatim */ }
   try {
