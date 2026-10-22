@@ -10,6 +10,19 @@ import { AuthProvider } from '@/contexts/AuthContext'
 import { startTheme } from '@/lib/theme'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import App from './App'
+
+/*
+  The mouse wheel over a focused number box changes its value — a km of 23.7 became 23.6 by scrolling the page
+  (the user, 22 Oct). The box lets go of the focus as the wheel turns, so the page scrolls and the figure stays.
+*/
+document.addEventListener('wheel', () => {
+  const el = document.activeElement
+  if (el instanceof HTMLInputElement && el.type === 'number') el.blur()
+}, { passive: true })
+// Nor the up and down arrow keys (the user, 22 Oct: "arrow keys not needed"): a figure changes only by typing.
+document.addEventListener('keydown', e => {
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target instanceof HTMLInputElement && e.target.type === 'number') e.preventDefault()
+})
 import './index.css'
 
 // Before render, so nobody sees a flash of the wrong palette, and so a
