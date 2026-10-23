@@ -85,18 +85,21 @@ export function useClaimFilter(key: string) {
   return { test, bar, empty, active: !!q.trim() || !!from }
 }
 
-/** The places visited, in the order first visited: three shown, the rest counted. */
+/*
+  The hospitals of a claim on one line, however many (the user, 23 Oct: "what if he went to 5 hospitals?"): two at
+  the most, then how many more (the user, 23 Oct: "2 is max, then show +"), cut short only when they do not fit; all on hover and
+  on the claim.
+*/
 export function PlaceChips({ places }: { places?: string[] }) {
   if (!places?.length) return null
-  const more = places.length - 3
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-1.5" title={places.join(' · ')}>
-      {places.slice(0, 3).map(p => (
-        <span key={p} className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-800">
+    <span className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden" title={places.join(' · ')}>
+      {places.slice(0, 2).map(p => (
+        <span key={p} className="inline-flex min-w-0 shrink items-center gap-1 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-800">
           <MapPin className="h-3 w-3 shrink-0 text-cyrixRed-600" /><span className="truncate">{p}</span>
         </span>
       ))}
-      {more > 0 && <span className="text-xs text-ink-500">+{more}</span>}
+      {places.length > 2 && <span className="shrink-0 rounded-md bg-ink-100 px-1.5 py-0.5 text-xs font-semibold text-ink-600">+{places.length - 2}</span>}
     </span>
   )
 }

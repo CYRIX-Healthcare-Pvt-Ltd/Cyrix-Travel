@@ -146,7 +146,12 @@ export default function ClaimPage() {
 
   const run = async (fn: string, args: Record<string, unknown>, done: string) => {
     setMsg(null); setFail(null)
-    try { const r = await act.mutateAsync({ fn, args }); setMsg(typeof r === 'string' && fn === 'te_submit' ? `Sent to your manager as ${r}.` : done); setNote('') }
+    try {
+      const r = await act.mutateAsync({ fn, args })
+      const text = typeof r === 'string' && fn === 'te_submit' ? `Sent to your manager as ${r}.` : done
+      setMsg(text); setNote('')
+      void ask.alert(fn === 'te_submit' ? 'Claim sent' : 'Done', text)
+    }
     catch (e) { setFail((e as Error).message) }
   }
   const decide = async (approve: boolean) => {
@@ -156,10 +161,12 @@ export default function ClaimPage() {
       const next = await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: approve, p_note: note } }) as string
       const who = `${c.number ?? monthName(c.month)} · ${c.name}`
       if (!approve) void supabase.functions.invoke('push', { body: { action: 'travel' } }).catch(() => undefined)
-      nav('/approvals', { state: { done: !approve ? `${who} sent back.`
+      const done = !approve ? `${who} sent back.`
         : next === 'with_coordinator' ? `${who} approved and passed to the coordinator.`
         : next === 'with_desk' ? `${who} approved and passed to the Travel Desk.`
-        : `${who} approved.` } })
+        : `${who} approved.`
+      await ask.alert(approve ? 'Claim approved' : 'Claim sent back', done)
+      nav('/approvals', { state: { done } })
     } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
   /*
@@ -663,7 +670,8 @@ const LEVEL = {
   info:    { label: 'for information', chip: 'bg-sky-100 text-sky-700',         dot: 'bg-sky-500' },
 } as const
 
-function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => void }) {
+/** What a claim's approver should look at, each with its level (approve, check, info) — the Approvals page asks it too. */
+export function claimObservations(data: ClaimData): Obs[] {
   const rule = data.rule, tol = Number(data.policy.km_tolerance_pct ?? 10), over = Number(data.policy.bill_over ?? 300)
   const metro = Number(data.policy.metro_extra_pct ?? 20)
   const items: Obs[] = []
@@ -781,6 +789,17 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
   if (rule.car_km_month && data.km_month.car > rule.car_km_month) items.push({ kind: 'month', detail: `Car ${km(data.km_month.car)} this month, over ${rule.car_km_month} km` })
   const autoCap = Number(data.policy.auto_month ?? 1000)
   if (data.km_month.auto > autoCap) items.push({ kind: 'month', detail: `Auto ${money(data.km_month.auto)} this month, over ${money(autoCap)}` })
+  return items
+}
+/** What keeps a claim out of Approve all: each kind to approve or check, once ("Not in grade policy", "Bill missing"). */
+export const claimIssues = (data: ClaimData) => {
+  const seen = new Map<string, { title: string; level: 'approve' | 'check'; icon: LucideIcon }>()
+  for (const i of claimObservations(data)) { const o = OBS[i.kind]; if (o.level !== 'info' && !seen.has(o.title)) seen.set(o.title, { title: o.title, level: o.level, icon: o.icon }) }
+  return [...seen.values()]
+}
+
+function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => void }) {
+  const items = claimObservations(data)
   if (!items.length) return data.days.length ? <p className="text-sm text-green-800"><Check className="mr-1 inline h-4 w-4" />Nothing to look at twice on this claim.</p> : null
 
   const order = ['approve', 'check', 'info'] as const
