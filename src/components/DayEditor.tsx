@@ -385,24 +385,52 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     setWho((ppl ?? []) as Array<{ ecode: string; full_name: string }>)
   }
 
+  /*
+    What still stands between the day and Save, in the order of the form, each with the line it belongs to (the user,
+    23 Oct: a courier saved without its bill showed up only as the approver's "no invoice"; "the engineer should see
+    what to do to save it"). Save is greyed while any is left; the first is said beside it, a press goes there.
+  */
+  const billed = new Set(data.bills.map(b => b.owner_id))
+  const blockers: Array<{ text: string; to: string }> = []
+  if (!d.day) blockers.push({ text: 'Choose the date', to: 'day-date' })
+  else if (d.day > lastDay) blockers.push({ text: 'A future date cannot be claimed', to: 'day-date' })
+  for (const [i, r] of d.rides.entries()) {
+    const n = `ride ${i + 1}`, to = 'ride-' + r.id, m = MODES[r.mode]
+    if (r.from_lat == null || r.to_lat == null) blockers.push({ text: `Pick the from and to of ${n} on the map`, to })
+    if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
+    if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
+    if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
+    if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
+    if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
+    if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
+    if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(rideAmount(r, rule))}`, to })
+  }
+  if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {
+    const to = 'hotel-' + d.hotel.id
+    if (!d.hotel.note?.trim()) blockers.push({ text: 'Write the remarks of the hotel night', to })
+    if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) blockers.push({ text: `Attach the hotel bill · ${money(d.hotel.amount)}`, to })
+  }
+  for (const x of d.expenses) {
+    const to = 'exp-' + x.id
+    if (!x.amount) { blockers.push({ text: `Type the amount of the ${x.category.toLowerCase()} expense`, to }); continue }
+    if (needsBill('expense', x, over) && !billed.has(x.id)) blockers.push({ text: `Attach the bill for ${x.category} · ${money(x.amount)}`, to })
+  }
+  const goTo = (id: string) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('ring-2', 'ring-amber-400'); window.setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 1800)
+  }
+
   const save = async () => {
     setErr(null)
-    if (!d.day) { setErr('Choose the date'); return }
-    if (d.day > lastDay) { setErr('A future date cannot be claimed'); return }
+    if (blockers.length) {
+      await ask.alert('To save, still needed', blockers.map(b => `• ${b.text}`).join('\n'))
+      goTo(blockers[0].to)
+      return
+    }
     let joined = d.continues_day
     if (joined) { const n = new Date(joined + 'T00:00:00'); n.setDate(n.getDate() + 1); if (n.toLocaleDateString('en-CA') !== d.day) joined = null }
-    for (const r of d.rides) {
-      if (r.from_lat == null || r.to_lat == null) { setErr('Pick the from and to place of every ride on the map'); return }
-      if (MODES[r.mode].perKm && !r.claimed_km) { setErr(`Type the km for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
-      if (!MODES[r.mode].perKm && r.fare == null) { setErr(`Type the fare for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
-      if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) { setErr(`Write the remarks for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
-    }
-    for (const [i, r] of d.rides.entries()) {
-      if (!r.purpose) { setErr(`Choose the purpose of ride ${i + 1}`); return }
-      if (!r.project) { setErr(`Choose the call centre of ride ${i + 1}`); return }
-      if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) { setErr(`Enter the ticket ID of ride ${i + 1}`); return }
-    }
-    if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel)) && !d.hotel.note?.trim()) { setErr('Write the remarks for the hotel night'); return }
     setBusy(true)
     /*
       The day's place is where its rides went, and its district theirs (the user, 21 Oct: "what if I went
@@ -493,7 +521,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           })()}
           <div className="grid gap-3 sm:grid-cols-2">
             {/* The date chosen on the calendar shown, not asked again; a press changes it (the user, 21 Oct). */}
-            <div><span className="label">Date</span>
+            <div id="day-date"><span className="label">Date</span>
               <button type="button" onClick={() => setDating(true)}
                 className="input mt-1 flex h-11 items-center justify-between gap-2 text-left">
                 {d.day ? new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Choose…'}
@@ -535,7 +563,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 )
                 return (
                   // A soft line and tint in its mode's colour (the user, 17 Oct: "not this much color, like neon").
-                  <div key={r.id} className="rounded-xl border p-3" style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
+                  <div key={r.id} id={'ride-' + r.id} className="scroll-mt-24 rounded-xl border p-3 transition-shadow" style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
                     <div className="flex items-start gap-2">
                       <span className="mt-3 w-4 text-xs font-semibold text-ink-400">{i + 1}</span>
                       <div className="min-w-0 flex-1 space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}</div>
@@ -667,7 +695,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
               const h = d.hotel!, limit = hotelLimit(rule, h, outOfState, metroPct)
               const setH = (p: Partial<typeof h>) => set({ hotel: { ...h, ...p } })
               return (
-                <div className="space-y-3 rounded-xl border border-ink-200 p-3">
+                <div id={'hotel-' + h.id} className="space-y-3 rounded-xl border border-ink-200 p-3">
                   <div className="flex items-end gap-2">
                     <label className="block min-w-0 flex-1"><span className="label">Hotel</span>
                       <input className="input mt-1 h-11" value={h.name ?? ''} onChange={e => setH({ name: e.target.value })} placeholder="Hotel name, city" /></label>
@@ -729,7 +757,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 {d.expenses.map(x => {
                   const put = (p: Partial<typeof x>) => set({ expenses: d.expenses.map(y => (y.id === x.id ? { ...y, ...p } : y)) })
                   return (
-                    <div key={x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
+                    <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
                       <div className="grid grid-cols-[1fr_7rem_2.5rem] items-center gap-2 sm:grid-cols-[11rem_7rem_1fr_auto_2.5rem]">
                         <select className="input h-10" aria-label="Category" value={x.category} onChange={e => put({ category: e.target.value })}>
                           {EXPENSE_CATEGORIES.map(k => <option key={k}>{k}</option>)}
@@ -761,8 +789,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
           <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : rideAmount(r, rule)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}</span></span>
           <div className="flex items-center gap-2">
-            {err && <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>}
-            <button type="button" className="btn-primary h-11 px-6 text-base" disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
+            {err ? <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>
+              : blockers.length > 0 && (
+                <button type="button" onClick={() => goTo(blockers[0].to)} className="max-w-[13rem] text-right text-xs font-semibold leading-snug text-amber-800 underline-offset-2 hover:underline sm:max-w-[18rem] sm:text-sm">
+                  {blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}
+                </button>
+              )}
+            <button type="button" className={`btn-primary h-11 px-6 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
           </div>
         </div>
       {dating && (

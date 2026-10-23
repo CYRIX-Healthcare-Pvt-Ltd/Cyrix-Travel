@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, Paperclip, Pencil, ReceiptText, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ChevronRight, Paperclip, Pencil, ReceiptText, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader } from '@/components/ui'
-import { MODES, MODE_ORDER, STATUS, STATUS_HUE, claimName, dayRange, editable, inkVars, km, money, rpc, useMyClaims, type ClaimData } from '@/lib/claims'
+import { STATUS, STATUS_HUE, claimName, dayRange, editable, km, money, rpc, useMyClaims, type ClaimData } from '@/lib/claims'
 import AddClaim from '@/components/AddClaim'
 import { PlaceChips, useClaimFilter } from '@/components/ClaimRows'
 
@@ -62,10 +62,8 @@ export default function Months() {
                     <span className="text-sm text-ink-500">{claimName(c.month, c.part)}</span>
                   </p>
                   <p className="truncate text-xs text-ink-600">{dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
-                  {/* How it was travelled, what is still missing, where it stands (the user, 19 Oct: "looks plain"). */}
+                  {/* What is still missing and where it stands; no mode icons (the user, 23 Oct, as on Approvals). */}
                   <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
-                    {(c.modes ?? []).length > 0 && <span className="flex items-center gap-1">{MODE_ORDER.filter(m => c.modes.includes(m)).map(m => { const I = MODES[m].icon; return <span key={m} title={MODES[m].label}><I className="mode-ink h-3.5 w-3.5" style={inkVars(MODES[m])} /></span> })}</span>}
-                    {c.tickets > 0 && <span className="inline-flex items-center gap-1 text-sky-700"><TicketIcon className="h-3.5 w-3.5" />{c.tickets}</span>}
                     {c.bills_missing > 0 && <span className="inline-flex items-center gap-1 font-semibold text-cyrixRed-700"><Paperclip className="h-3.5 w-3.5" />{c.bills_missing} bill{c.bills_missing > 1 ? 's' : ''} needed</span>}
                     {c.status === 'returned' || c.status === 'recalled' ? (c.returned_at && <span className="text-ink-500">{c.status === 'returned' ? 'Sent back' : 'Recalled'} {shortDay(c.returned_at)}</span>)
                       : c.submitted_at && c.status !== 'draft' && <span className="text-ink-500">Sent {shortDay(c.submitted_at)}</span>}
