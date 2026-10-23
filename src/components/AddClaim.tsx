@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CalendarPlus } from 'lucide-react'
 import Dialog from '@/components/Dialog'
@@ -21,6 +21,12 @@ export default function AddClaim() {
   const [pickDay, setPickDay] = useState(todayIso())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The dates already claimed, which a new claim cannot take (te_0060; the user, 23 Oct: one claim a day).
+  const [taken, setTaken] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!picking) return
+    void rpc<Array<{ day: string; name: string }>>('te_my_claimed_days', {}).then(list => setTaken(Object.fromEntries((list ?? []).map(x => [x.day, x.name])))).catch(() => setTaken({}))
+  }, [picking])
   const now = new Date()
   const minDay = new Date(now.getFullYear(), now.getMonth() - 3, 1).toLocaleDateString('en-CA')
   const iso = (d: Date) => d.toLocaleDateString('en-CA').slice(0, 7) + '-01'
@@ -47,13 +53,15 @@ export default function AddClaim() {
       {picking && (
         <Dialog title="Add a claim" icon={<CalendarPlus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
           <div className="mt-3 space-y-3">
-            <MonthCalendar value={pickDay} onChange={setPickDay} min={minDay} max={todayIso()} />
-            <p className="text-sm text-ink-600">{new Date(pickDay + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+            <MonthCalendar value={taken[pickDay] ? '' : pickDay} onChange={setPickDay} min={minDay} max={todayIso()} taken={taken} />
+            {taken[pickDay]
+              ? <p className="text-sm font-semibold text-amber-800">{new Date(pickDay + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} is already claimed in {taken[pickDay]}</p>
+              : <p className="text-sm text-ink-600">{new Date(pickDay + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>}
             {late?.pct ? <p className="text-sm text-amber-800">{monthName(late.month)} is late: {late.pct}% comes off that month's claim.</p> : null}
             {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setPicking(false)}>Cancel</button>
-              <button type="button" className="btn-primary" disabled={!pickDay || pickDay > todayIso() || pickDay < minDay || busy} onClick={() => void add()}>{busy && <Spinner className="h-4 w-4" />} Continue</button>
+              <button type="button" className="btn-primary" disabled={!pickDay || pickDay > todayIso() || pickDay < minDay || !!taken[pickDay] || busy} onClick={() => void add()}>{busy && <Spinner className="h-4 w-4" />} Continue</button>
             </div>
           </div>
         </Dialog>

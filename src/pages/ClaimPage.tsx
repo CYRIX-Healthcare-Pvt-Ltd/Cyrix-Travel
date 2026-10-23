@@ -16,7 +16,7 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
+  DA_KINDS, DA_RANK, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -378,7 +378,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 }) {
   const c = data.claim, rule = data.rule
   const ask = useAsk()
-  const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
+  const outOfState = d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300'
@@ -430,7 +430,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
     </>
   )
   // A ticket sits under the ride that arrives at its hospital (the user, 17 Oct: "move the ticket under the hospital name").
-  const rideOf = (t: Day['tickets'][number]) => t.place ? d.rides.find(r => (r.to_name ?? '').toLowerCase().includes(t.place!.toLowerCase().split(',')[0].trim())) : undefined
+  const rideOf = (t: Day['tickets'][number]) => d.rides.find(r => r.id === t.id) ?? (t.place ? d.rides.find(r => (r.to_name ?? '').toLowerCase().includes(t.place!.toLowerCase().split(',')[0].trim())) : undefined)
   const loose = d.tickets.filter(t => !rideOf(t))
   return (
     <div className="card space-y-2 p-4">
@@ -482,7 +482,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             </div>
           )}
           {d.rides.map(r => {
-            const m = MODES[r.mode], I = m.icon, check = m.perKm ? kmOver(r, tol) : null, bad = outOfPolicy(r.mode, rule)
+            const m = MODES[r.mode], I = m.icon, bad = outOfPolicy(r.mode, rule)
             return (
               /*
                 On a computer one line in the shared columns (the user, 18 Oct). On a phone the mode, then From and To
@@ -505,7 +505,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   </span>
                   <span className="hidden min-w-0 flex-1 truncate text-ink-800 sm:inline">{short(r.from_name)} → {short(r.to_name)}</span>
                 </div>
-                {m.perKm && <span className={`col-start-1 row-start-4 sm:col-start-2 sm:row-start-auto sm:text-right ${check?.over ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'}`} title={check ? `Map ${km(r.map_km)} · allowed ${km(check.allowed)}` : undefined}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
+                {m.perKm && <span className={`col-start-1 row-start-4 sm:col-start-2 sm:row-start-auto sm:text-right ${kmChanged(r) ? 'text-xs font-semibold text-amber-700' : 'text-xs text-ink-500'}`}>{km(r.claimed_km)}{r.map_km != null ? ` (map ${km(r.map_km)})` : ''}</span>}
                 <span className={'col-span-2 col-start-2 row-start-2 flex items-center justify-end sm:col-span-1 sm:col-start-3 sm:row-start-auto' + (c.can_edit ? ' sm:justify-start' : '')}>
                   <BillButton compact claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable={c.can_edit} needed={needsBill('ride', r, over, rule)} claimed={m.perKm || r.company_booking ? undefined : rideAmount(r, rule)} onChange={onBills} />
                 </span>
@@ -516,6 +516,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 )}
                 {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol },
                   `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
+                {(r.purpose || r.project) && <span className="col-span-full pl-1 text-xs text-ink-500">{[r.purpose, r.project].filter(Boolean).join(' · ')}</span>}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
                 {/* A round trip whose return is not on the claim yet (te_0058). */}
                 {r.return_leg?.date && !data.days.some(x => x.rides.some(o => o.same_ticket?.ref === r.return_leg!.ref)) && (
@@ -638,7 +639,7 @@ const OBS = {
   policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert },
   nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip },
   twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy },
-  km:       { title: 'Over the km allowance',    level: 'check',   icon: Gauge },
+  km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText },
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
@@ -692,7 +693,8 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
       if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
-      if (k && k.over > 0) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · claimed ${km(r.claimed_km)}, map ${km(r.map_km)}, ${km(k.over)} over the ${tol}%` })
+      // Any km changed from the map's (te_0060; the user, 23 Oct).
+      if (m.perKm && kmChanged(r)) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · typed ${km(r.claimed_km)}, the map gives ${km(r.map_km)}${k && k.over > 0 ? ` — ${km(k.over)} over the ${tol}%` : ''}` })
       // A ride the company booked: not claimed; its date set against the booking's (te_0042).
       const co = companyOf(data.bills, r)
       if (co) {
@@ -722,9 +724,9 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
       if (unread(r.id) && (r.fare ?? 0) > 0) items.push({ kind: 'unread', day, to: r.id, detail: `${leg} · ${money(r.fare)} claimed — the bill's amount could not be read; open it and compare` })
     }
     if (d.hotel && !d.room_by) {
-      const lim = hotelLimit(rule, d.hotel, d.da_kind === 'out_state' || d.da_kind === 'out_state_stay', metro)
+      const lim = hotelLimit(rule, d.hotel, d.da_kind === 'out_state_stay', metro)
       if (lim != null && d.hotel.amount > lim) items.push({ kind: 'hotel', day, to: d.hotel.id, detail: `${money(d.hotel.amount)} against a limit of ${money(lim)}` })
-      if (!billed.has(d.hotel.id)) items.push({ kind: 'nobill', day, to: d.hotel.id, detail: 'Hotel night' })
+      if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) items.push({ kind: 'nobill', day, to: d.hotel.id, detail: 'Hotel night' })
       const hc = companyOf(data.bills, d.hotel)
       if (hc) {
         items.push({ kind: 'company', day, to: d.hotel.id, detail: `Hotel night · ${hc.booking_id} · ${money(hc.net)} not claimed` })

@@ -16,8 +16,8 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, EXPENSE_CATEGORIES, autoDa, districtOf, MODES, daFor, hotelLimit, km, kmOver, money, monthName, needsBill, newId,
-  areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, ticketVisited, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
+  DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmChanged, money, monthName, needsBill, newId,
+  areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 
 /*
@@ -34,10 +34,14 @@ const REMARKS_NEEDED = new Set(['flight', 'train'])
 // A ticket that says where it goes (the user, 21 Oct).
 const TICKETED = new Set(['flight', 'train', 'bus'])
 const placeKey = (s: string | null | undefined) => (s ?? '').split(',')[0].trim().toLowerCase()
-const blankRide = (from?: Place | null): Ride => ({
+// The next ride starts with the last one's purpose and call centre (te_0060; the user, 23 Oct).
+const blankRide = (from?: Place | null, carry?: Pick<Ride, 'purpose' | 'project'> | null): Ride => ({
   id: newId(), mode: 'bike', from_name: from?.name ?? null, from_lat: from?.lat ?? null, from_lng: from?.lng ?? null,
   to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null,
+  purpose: carry?.purpose ?? null, project: carry?.project ?? null, ticket_no: '',
 })
+/** A breakdown ride's ticket ID, from the ticket kept under the ride's id (te_0060). */
+const withTickets = (day: Day): Day => ({ ...day, rides: day.rides.map(r => ({ ...r, ticket_no: r.ticket_no ?? day.tickets.find(t => t.id === r.id)?.ticket_no ?? '' })) })
 
 /*
   What is typed is kept in this browser until it is saved, so going back and coming again finds it as
@@ -53,13 +57,14 @@ function writeKept(key: string, k: Kept | null) {
   try { if (k) localStorage.setItem(key, JSON.stringify(k)); else localStorage.removeItem(key) } catch { /* a private window keeps nothing */ }
 }
 
-export default function DayEditor({ data, initial, chosen = false, onClose }: {
+export default function DayEditor({ data, initial: raw, chosen = false, onClose }: {
   data: ClaimData; initial: Day
   /** Opened on a date picked from the calendar: a kept new day takes that date. */
   chosen?: boolean
   onClose: () => void
 }) {
   const qc = useQueryClient()
+  const initial = useMemo(() => withTickets(raw), [raw])
   const { employee } = useAuth()
   const ask = useAsk()
   const saved = data.days.some(x => x.id === initial.id)
@@ -130,9 +135,36 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     } catch (e) { setErr(friendlyError(e as never)) } finally { setBusy(false) }
   }
   const c = data.claim, rule = data.rule
-  const over = Number(data.policy.bill_over ?? 300), tol = Number(data.policy.km_tolerance_pct ?? 10), metroPct = Number(data.policy.metro_extra_pct ?? 20)
-  const outOfState = d.da_kind === 'out_state' || d.da_kind === 'out_state_stay'
-  const da = daFor(rule, d.da_kind, d.purpose, data.office_purposes)
+  const over = Number(data.policy.bill_over ?? 300), metroPct = Number(data.policy.metro_extra_pct ?? 20)
+  const outOfState = d.da_kind === 'out_state_stay'
+  // The day's purpose for its DA: a ride that gives DA, else the first (an office day has none).
+  const dayPurpose = d.rides.find(r => r.purpose && !data.office_purposes.includes(r.purpose))?.purpose ?? d.rides.find(r => r.purpose)?.purpose ?? d.purpose
+  const da = daFor(rule, d.da_kind, dayPurpose, data.office_purposes)
+  // Where a new ride's purpose and call centre come from: the last ride of this day, else of the latest earlier day, else the claim's project.
+  const carry = (): Pick<Ride, 'purpose' | 'project'> => {
+    const last = latest.current.rides[latest.current.rides.length - 1]
+    if (last) return { purpose: last.purpose ?? null, project: last.project ?? null }
+    const before = [...data.days].filter(x => x.id !== initial.id && x.day < latest.current.day && x.rides.length).sort((a, b) => a.day.localeCompare(b.day)).pop()
+    const r = before?.rides[before.rides.length - 1]
+    return { purpose: r?.purpose ?? null, project: r?.project ?? (c.project || null) }
+  }
+  /*
+    The km box takes the map's km as soon as the map has the road (te_0060; the user, 23 Oct). Typed otherwise, it is
+    kept — and the approver sees the change. A km the map put in follows the map when the places change.
+  */
+  const autoKm = useRef(new Map<string, number>())
+  const kmKey = d.rides.map(r => `${r.id}:${r.mode}:${r.map_km ?? ''}`).join('|')
+  useEffect(() => {
+    for (const r of latest.current.rides) {
+      if (!MODES[r.mode].perKm || r.map_km == null) continue
+      const was = autoKm.current.get(r.id)
+      if (r.claimed_km == null || (was != null && r.claimed_km === was)) {
+        autoKm.current.set(r.id, r.map_km)
+        if (r.claimed_km !== r.map_km) setRide(r.id, { claimed_km: r.map_km })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kmKey])
   const set = (p: Partial<Day>) => setD(x => ({ ...x, ...p }))
   const setRide = (id: string, p: Partial<Ride>) => setD(x => ({ ...x, rides: x.rides.map(r => (r.id === id ? { ...r, ...p } : r)) }))
   const refresh = () => void qc.invalidateQueries({ queryKey: ['te_claim', c.id] })
@@ -211,7 +243,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     const same = nx.from_lat == null || (was.lat != null && Math.abs(nx.from_lat - was.lat) < 1e-5 && Math.abs((nx.from_lng ?? 0) - (was.lng ?? 0)) < 1e-5)
     if (!same || (nx.from_lat === p.lat && nx.from_lng === p.lng)) return
     setRide(nx.id, { from_name: p.name, from_lat: p.lat, from_lng: p.lng, map_km: null })
-    if (nx.to_lat != null) setRide(nx.id, { map_km: (await roadKm(p, { name: '', lat: nx.to_lat, lng: nx.to_lng! }))?.km ?? null })
+    if (nx.to_lat != null) setRide(nx.id, { map_km: (await roadKm(p, { name: '', lat: nx.to_lat, lng: nx.to_lng! }, nx.mode))?.km ?? null })
   }
   const placed = async (rideId: string, end: 'from' | 'to', p: Place) => {
     setPicking(null)
@@ -222,7 +254,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng }
     setRide(rideId, { ...next, map_km: null })
     if (next.from_lat != null && next.to_lat != null) {
-      const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! })
+      const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! }, next.mode)
       setRide(rideId, { map_km: road?.km ?? null })
     }
   }
@@ -262,10 +294,27 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     const next = { ...r1, ...(pf ? { from_name: pf.name, from_lat: pf.lat, from_lng: pf.lng } : {}), ...(pt ? { to_name: pt.name, to_lat: pt.lat, to_lng: pt.lng } : {}), map_km: null }
     setRide(rideId, next)
     if (next.from_lat != null && next.to_lat != null) {
-      const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! })
+      const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! }, as)
       setRide(rideId, { map_km: road?.km ?? null })
     }
   }
+  /*
+    A ride turned into a train, the metro or a flight, or back, has its km worked out again on the tracks, through the
+    air or by road (the user, 23 Oct: "if train or metro, can we get their respective mode km?", "what about flight?").
+  */
+  const railKey = d.rides.map(r => `${r.id}:${kmWay(r.mode)}`).join('|')
+  const railWas = useRef(railKey)
+  useEffect(() => {
+    const before = new Map(railWas.current.split('|').map(x => x.split(':') as [string, string]))
+    railWas.current = railKey
+    for (const r of latest.current.rides) {
+      const now = kmWay(r.mode)
+      if (!before.has(r.id) || before.get(r.id) === now || r.from_lat == null || r.to_lat == null) continue
+      void roadKm({ name: '', lat: r.from_lat, lng: r.from_lng! }, { name: '', lat: r.to_lat, lng: r.to_lng! }, r.mode)
+        .then(road => { const r1 = latest.current.rides.find(x => x.id === r.id); if (r1 && r1.mode === r.mode) setRide(r.id, { map_km: road?.km ?? null }) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railKey])
   /*
     The return of a round-trip ticket (te_0056, te_0058; the user, 22 Oct: Kochi to Vijayawada on 7 Aug and back on
     9 Aug, one booking, one fare): its fare stays on the going ride, and the return, added with one tap on its own day
@@ -280,13 +329,13 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     const [pf, pt0] = q ? await Promise.all([lookupPlace(q.from, q.want, home ?? undefined, j.cityFrom), lookupPlace(q.to, q.want, home ?? undefined, j.cityTo)]) : [null, null]
     const pt = pt0 && pf && distanceKm(pf, pt0) < 20 ? null : pt0
     const ride: Ride = {
-      ...blankRide(), mode: as,
+      ...blankRide(null, carry()), mode: as,
       from_name: pf?.name ?? null, from_lat: pf?.lat ?? null, from_lng: pf?.lng ?? null,
       to_name: pt?.name ?? null, to_lat: pt?.lat ?? null, to_lng: pt?.lng ?? null,
       fare: 0, note: `On the ${here} ticket · ${ref}`, ticket_date: j.date,
       same_ticket: { ref, day: leg.day, from: j.cityFrom, to: j.cityTo, date: j.date, fromLat: pf?.lat, fromLng: pf?.lng, toLat: pt?.lat, toLng: pt?.lng },
     }
-    if (pf && pt) ride.map_km = (await roadKm(pf, pt))?.km ?? null
+    if (pf && pt) ride.map_km = (await roadKm(pf, pt, as))?.km ?? null
     setD(x => ({ ...x, rides: [...x.rides, ride] }))
     setAdding(null)
   }
@@ -348,13 +397,12 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       if (!MODES[r.mode].perKm && r.fare == null) { setErr(`Type the fare for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
       if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) { setErr(`Write the remarks for the ${MODES[r.mode].label.toLowerCase()} ride`); return }
     }
+    for (const [i, r] of d.rides.entries()) {
+      if (!r.purpose) { setErr(`Choose the purpose of ride ${i + 1}`); return }
+      if (!r.project) { setErr(`Choose the call centre of ride ${i + 1}`); return }
+      if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) { setErr(`Enter the ticket ID of ride ${i + 1}`); return }
+    }
     if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel)) && !d.hotel.note?.trim()) { setErr('Write the remarks for the hotel night'); return }
-    const away = d.tickets.filter(t => t.ticket_no.trim() && ticketVisited(t, d.rides) === false)
-    if (away.length && !(await ask.confirm({
-      title: away.length === 1 ? `You didn't visit ${away[0].place} on this day's rides` : "Some tickets' hospitals are not on this day's rides",
-      body: `${away.map(t => `Ticket ${t.ticket_no} · ${t.place}`).join(', ')}. Your approvers will see this.`,
-      yes: 'Save anyway',
-    }))) return
     setBusy(true)
     /*
       The day's place is where its rides went, and its district theirs (the user, 21 Oct: "what if I went
@@ -363,18 +411,27 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
     const ends = d.rides.filter(r => r.to_lat != null && placeKey(r.to_name) !== 'home')
     const distOf = new Map(await Promise.all(ends.map(async r => [r.id, await districtOf(r.to_lat!, r.to_lng!).catch(() => null)] as const)))
     const dists = [...new Set([...distOf.values()].filter(Boolean))]
-    // Each ticket's district goes with it, for the place it teaches everyone (te_0038).
-    const tickets = d.tickets.map(t => { const r = ends.find(x => placeKey(x.to_name) === placeKey(t.place)); return { ...t, district: r ? distOf.get(r.id) ?? null : null } })
+    // A breakdown ride's ticket, under the ride's id, with its hospital and district (te_0038, te_0060); a ticket from before stays.
+    const rideIds = new Set(d.rides.map(r => r.id))
+    const tickets = [
+      ...d.rides.filter(r => isBreakdown(r.purpose) && r.ticket_no?.trim()).map(r => ({
+        id: r.id, ticket_no: r.ticket_no!.trim(), service_report: null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
+      })),
+      ...d.tickets.filter(t => !rideIds.has(t.id)).map(t => { const r = ends.find(x => placeKey(x.to_name) === placeKey(t.place)); return { ...t, district: r ? distOf.get(r.id) ?? null : null } }),
+    ]
+    // The claim's project, for its sheet: the first ride's call centre.
+    const firstProject = d.rides.find(r => r.project)?.project ?? hdr.project
     const place = visited.length ? visited.join(' · ') : d.place
     const district = dists.length ? dists.join(', ') : d.district
-    if (hdr.project !== (c.project ?? '') || hdr.base !== (c.base_location ?? '') || hdr.mobile !== (c.mobile ?? '')) {
-      const { error: he } = await supabase.rpc('te_set_header', { p_claim: c.id, p_project: hdr.project, p_base: hdr.base, p_mobile: hdr.mobile })
+    if (firstProject !== (c.project ?? '') || hdr.base !== (c.base_location ?? '') || hdr.mobile !== (c.mobile ?? '')) {
+      const { error: he } = await supabase.rpc('te_set_header', { p_claim: c.id, p_project: firstProject, p_base: hdr.base, p_mobile: hdr.mobile })
       if (he) { setBusy(false); setErr(friendlyError(he)); return }
     }
     const { error } = await supabase.rpc('te_save_day', {
       p_claim: c.id,
       p_day: {
         ...d,
+        purpose: dayPurpose ?? null,
         place, district, place_lat: null, place_lng: null, tickets,
         continues_day: joined,
         da_auto: auto,
@@ -404,13 +461,6 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
       <Budget title={`Left in ${monthLong(c.month)}`} lines={budget} />
       <div className="card">
         <div className="space-y-5 px-4 py-4">
-          <div className="grid gap-3 border-b border-ink-100 pb-4 sm:grid-cols-2">
-            <label className="block"><span className="label">Project</span>
-              <select className="input mt-1 h-11" value={hdr.project} onChange={e => setHdr({ ...hdr, project: e.target.value })}>
-                <option value="">Choose…</option>
-                {[...new Set([...projects, ...(hdr.project ? [hdr.project] : [])])].map(x => <option key={x}>{x}</option>)}
-              </select></label>
-          </div>
           {/*
             The trip so far (the user, 22 Oct: "there is no previous linked claim data or amount"): each earlier day of
             it with where it went and what it came to, and the trip's total with this day.
@@ -449,11 +499,6 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                 {d.day ? new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Choose…'}
                 <CalendarDays className="h-4 w-4 shrink-0 text-ink-400" />
               </button></div>
-            <label className="block"><span className="label">Purpose</span>
-              <select className="input mt-1 h-11" value={d.purpose ?? ''} onChange={e => set({ purpose: e.target.value || null })}>
-                <option value="">Choose…</option>
-                {data.purposes.map(p => <option key={p}>{p}</option>)}
-              </select></label>
           </div>
 
           {/* ---- rides ---- */}
@@ -478,7 +523,6 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
             <div className="space-y-3">
               {d.rides.map((r, i) => {
                 const m = MODES[r.mode]
-                const check = m.perKm ? kmOver(r, tol) : null
                 const notAllowed = outOfPolicy(r.mode, rule)
                 const read = m.perKm ? null : billRead(data.bills, r.id)
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
@@ -520,6 +564,26 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
                     </div>
+                    {/* Why, and for which call centre — each ride its own (te_0060). */}
+                    <div className="mt-2.5 grid grid-cols-2 gap-2 pl-6">
+                      <select className={`input h-10 text-sm ${r.purpose ? '' : '!border-amber-400'}`} aria-label="Purpose" value={r.purpose ?? ''} onChange={e => setRide(r.id, { purpose: e.target.value || null })}>
+                        <option value="">Purpose…</option>
+                        {data.purposes.map(p => <option key={p}>{p}</option>)}
+                      </select>
+                      <select className={`input h-10 text-sm ${r.project ? '' : '!border-amber-400'}`} aria-label="Call centre" value={r.project ?? ''} onChange={e => setRide(r.id, { project: e.target.value || null })}>
+                        <option value="">Call centre…</option>
+                        {[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => <option key={x}>{x}</option>)}
+                      </select>
+                    </div>
+                    {isBreakdown(r.purpose) && (
+                      <div className="mt-2 flex items-center gap-2 pl-6">
+                        <span className="relative min-w-0 flex-1">
+                          <TicketIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-600" />
+                          <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })} />
+                        </span>
+                        <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable onChange={refresh} />
+                      </div>
+                    )}
                     {/* A round trip: where its return will be added (te_0058). */}
                     {r.return_leg?.date && !returnAdded(r.return_leg) && r.return_leg.date !== d.day && (
                       <p className="mt-1.5 pl-6 text-xs font-semibold text-sky-700">
@@ -536,8 +600,8 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                     {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
                     {r.map_km != null && (
                       <div className="mt-1.5 flex items-center gap-3 pl-6">
-                        <p className={`min-w-0 flex-1 text-xs ${check?.over ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          {!m.perKm ? `Map ${km(r.map_km)}` : check?.over ? `${km(check.over)} over the allowed ${km(check.allowed)} (map ${km(r.map_km)}) — needs approval` : `Map ${km(r.map_km)} · allowed ${km(r.map_km * (1 + tol / 100))}`}
+                        <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
+                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmChanged(r) ? ' · changed' : ''}
                         </p>
                         <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
                           <MapIcon className="h-3.5 w-3.5" /> View on map
@@ -566,42 +630,9 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
               <button type="button" className="btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
-                set({ rides: [...d.rides, blankRide(from)] })
+                set({ rides: [...d.rides, blankRide(from, carry())] })
               }}><span className="grid h-6 w-6 place-items-center rounded-full bg-teal-600 text-white"><Plus className="h-4 w-4" /></span> {d.rides.length ? 'Add another ride' : 'Add a ride'}</button>
             </div>
-          </section>
-
-          {/* ---- tickets ---- */}
-          <section>
-            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><TicketIcon className="h-4 w-4 text-sky-600" /> Tickets attended</h3>
-            {d.tickets.length > 0 && (
-              <div className="mb-2 overflow-hidden rounded-xl border border-ink-200">
-                {d.tickets.map(t => {
-                  const put = (p: Partial<typeof t>) => set({ tickets: d.tickets.map(x => (x.id === t.id ? { ...x, ...p } : x)) })
-                  const off = ticketVisited(t, d.rides) === false
-                  return (
-                    // Each box says what it is, on a phone too (the user, 17 Oct: "show what field is this").
-                    <div key={t.id} className="grid grid-cols-2 items-end gap-2 border-t border-ink-100 px-3 py-2.5 first:border-t-0 sm:grid-cols-[1fr_1fr_1.6fr_auto]">
-                      <label className="block min-w-0"><span className="label block truncate">Ticket ID</span>
-                        <input className="input mt-1 h-10" value={t.ticket_no} onChange={e => put({ ticket_no: e.target.value })} /></label>
-                      <label className="block min-w-0"><span className="label block truncate">SR No</span>
-                        <input className="input mt-1 h-10" value={t.service_report ?? ''} onChange={e => put({ service_report: e.target.value })} /></label>
-                      <label className="col-span-2 block min-w-0 sm:col-span-1"><span className="label">Hospital</span>
-                        <select className={`input mt-1 h-10 ${off ? '!border-amber-400' : ''}`} value={t.place ?? ''} onChange={e => put({ place: e.target.value || null })}>
-                          <option value="">{visited.length ? 'Choose…' : 'Add the ride first'}</option>
-                          {[...visited, ...(off ? [t.place!] : [])].map(p => <option key={p} value={p}>{p}</option>)}
-                        </select></label>
-                      <div className="col-span-2 flex items-center gap-2 sm:col-span-1">
-                        <ReportButton large claimId={c.id} ticketId={t.id} bills={data.bills} editable onChange={refresh} />
-                        <button type="button" className="btn-icon ml-auto text-ink-400" aria-label="Remove ticket" onClick={() => set({ tickets: d.tickets.filter(x => x.id !== t.id) })}><Trash2 className="h-4 w-4" /></button>
-                      </div>
-                      {off && <p className="col-span-full text-xs font-semibold text-amber-800">You didn't visit {t.place} on this day's rides</p>}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ tickets: [...d.tickets, { id: newId(), ticket_no: '', service_report: null, place: visited[visited.length - 1] ?? null }] })}><Plus className="h-4 w-4" /> Ticket</button>
           </section>
 
           {/* ---- DA ---- */}
@@ -613,9 +644,9 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                   : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-900">Map says {DA_KINDS.find(k => k.code === auto)?.label.toLowerCase()}</span>)}
               </span>
               <select className="input mt-1 h-11" value={d.da_kind} onChange={e => set({ da_kind: e.target.value as DaKind })}>
-                {DA_KINDS.map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, d.purpose, data.office_purposes))}` : ''}</option>)}
+                {DA_KINDS.map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, dayPurpose, data.office_purposes))}` : ''}</option>)}
               </select></label>
-            {d.purpose && data.office_purposes.includes(d.purpose) && <p className="mt-1 text-xs text-ink-500">No DA on an office day</p>}
+            {dayPurpose && data.office_purposes.includes(dayPurpose) && <p className="mt-1 text-xs text-ink-500">No DA on an office day</p>}
           </section>
 
           {/* ---- hotel ---- */}
@@ -673,7 +704,7 @@ export default function DayEditor({ data, initial, chosen = false, onClose }: {
                     <span className={`text-xs ${limit != null && h.amount > limit ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
                       {limit == null ? '' : h.amount > limit ? `Over the ${money(limit)} limit — needs approval` : `Limit ${money(limit)}`}
                     </span>
-                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
+                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed={needsBill('hotel', h, over)} claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
                   </div>
                 </div>
               )

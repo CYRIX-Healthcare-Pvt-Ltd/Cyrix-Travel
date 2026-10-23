@@ -24,7 +24,7 @@ type AdminData = {
 }
 const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk'], ['places', 'Places']] as const
 const RULE_COLS: Array<[keyof Rule, string]> = [
-  ['da_in_district', 'DA in district'], ['da_out_district', 'DA out of district'], ['da_out_state', 'DA out of state'], ['da_out_state_stay', 'DA out of state, staying'],
+  ['da_in_district', 'DA in district'], ['da_out_district', 'DA out of district'], ['da_out_state', 'DA out of district, staying'], ['da_out_state_stay', 'DA out of state, staying'],
   ['hotel_in_single', 'Hotel in state S'], ['hotel_in_double', 'Hotel in state D'], ['hotel_out_single', 'Hotel out of state S'], ['hotel_out_double', 'Hotel out of state D'],
   ['bike_rate', 'Bike ₹/km'], ['bike_km_month', 'Bike km/month'], ['car_rate', 'Car ₹/km'], ['car_km_month', 'Car km/month'],
 ]

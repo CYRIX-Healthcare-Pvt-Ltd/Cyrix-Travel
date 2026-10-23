@@ -94,7 +94,7 @@ export default function RouteMap({ days, rule, title, focus, onClose }: {
       const out: typeof rows = []
       for (let k = 0; k < shown.length; k++) {
         const r = rides[k], m = MODES[r.mode]
-        const road = await roadKm({ name: '', lat: r.from_lat!, lng: r.from_lng! }, { name: '', lat: r.to_lat!, lng: r.to_lng! })
+        const road = await roadKm({ name: '', lat: r.from_lat!, lng: r.from_lng! }, { name: '', lat: r.to_lat!, lng: r.to_lng! }, r.mode)
         if (!alive || !map) return
         const line = road?.line ?? [[r.from_lat!, r.from_lng!], [r.to_lat!, r.to_lng!]]
         pts.push(...line)

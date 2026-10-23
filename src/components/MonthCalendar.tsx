@@ -10,8 +10,10 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 const DOW = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const iso = (d: Date) => d.toLocaleDateString('en-CA')
 
-export default function MonthCalendar({ value, onChange, min, max, marked = [] }: {
+export default function MonthCalendar({ value, onChange, min, max, marked = [], taken = {} }: {
   value: string; onChange: (v: string) => void; min: string; max: string; marked?: string[]
+  /** Dates already in another claim, and which: shown struck through, not chosen (te_0060: one claim a day). */
+  taken?: Record<string, string>
 }) {
   const [view, setView] = useState(() => { const d = new Date((value || max) + 'T00:00:00'); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const first = new Date(view.getFullYear(), view.getMonth(), 1)
@@ -33,11 +35,11 @@ export default function MonthCalendar({ value, onChange, min, max, marked = [] }
         {DOW.map(d => <span key={d} className="py-1 text-[11px] font-semibold text-ink-400">{d}</span>)}
         {cells.map((d, i) => {
           if (!d) return <span key={i} />
-          const off = d > max || d < min, on = d === value
+          const used = taken[d], off = d > max || d < min || !!used, on = d === value
           return (
-            <button key={d} type="button" disabled={off} onClick={() => onChange(d)}
+            <button key={d} type="button" disabled={off} onClick={() => onChange(d)} title={used ? `Claimed in ${used}` : undefined}
               className={clsx('relative grid h-9 place-items-center rounded-lg text-sm',
-                on ? 'bg-amber-500 font-semibold text-white' : off ? 'text-ink-300' : 'text-ink-800 hover:bg-ink-100',
+                on ? 'bg-amber-500 font-semibold text-white' : used ? 'bg-ink-100 text-ink-400 line-through' : off ? 'text-ink-300' : 'text-ink-800 hover:bg-ink-100',
                 d === today && !on && 'ring-2 ring-amber-400')}>
               {Number(d.slice(8))}
               {marks.has(d) && <span className={clsx('absolute bottom-1 h-1 w-1 rounded-full', on ? 'bg-white' : 'bg-teal-500')} />}

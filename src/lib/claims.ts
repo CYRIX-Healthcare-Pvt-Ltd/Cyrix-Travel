@@ -34,7 +34,8 @@ export const DA_KINDS = [
   { code: 'none', label: 'No DA' },
   { code: 'in_district', label: 'In district' },
   { code: 'out_district', label: 'Out of district' },
-  { code: 'out_state', label: 'Out of state' },
+  // The ₹300 DA is out of district with a night away; ₹400 out of state with one (the user, 23 Oct).
+  { code: 'out_state', label: 'Out of district, staying' },
   { code: 'out_state_stay', label: 'Out of state, staying' },
 ] as const
 export type DaKind = typeof DA_KINDS[number]['code']
@@ -82,6 +83,10 @@ export interface Ride {
   return_leg?: ReturnLeg | null
   /** A bus that leaves its district or state (te_0048); null while not known. */
   inter?: boolean | null
+  /** Why, and for which call centre (project): each ride its own, the next starting with the last one's (te_0060). */
+  purpose?: string | null; project?: string | null
+  /** A breakdown call's ticket ID, kept in te_tickets under the ride's id (te_0060). */
+  ticket_no?: string
   /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */
   auto_norm?: { per_km: number; n: number; from: 'nearby' | 'policy' } | null
 }
@@ -219,26 +224,53 @@ export function kmOver(r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: number
   const allowed = r.map_km * (1 + tolerance / 100)
   return { allowed, over: r.claimed_km > allowed + 0.05 ? r.claimed_km - allowed : 0 }
 }
-/** Whether this ride, hotel or expense needs a bill under the policy. */
+/**
+ * Whether this ride, hotel or expense needs a bill: whatever comes to more than ₹300, and nothing else (te_0060; the
+ * user, 23 Oct). A bike or car is paid by its km, checked on the map; a return on another ride's ticket has none.
+ */
 export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel | Expense, over: number, rule?: Rule) {
-  if (kind === 'hotel') return true
+  if (kind === 'hotel') return (item as Hotel).amount > over
   if (kind === 'ride') {
     const r = item as Ride
-    // A return already on another ride's ticket brings no bill of its own (te_0056).
-    if (r.same_ticket) return false
-    // A bike or car is paid by its km, checked on the map: no bill, whatever it comes to (the user, 19 Oct).
-    // A bus ticket only when it leaves the district or the state, or while that is not known (the user, 21 Oct).
-    return r.mode === 'train' || r.mode === 'flight' || (r.mode === 'bus' && r.inter !== false) || (!MODES[r.mode].perKm && rideAmount(r, rule) > over)
+    if (r.same_ticket || MODES[r.mode].perKm) return false
+    return rideAmount(r, rule) > over
   }
-  const x = item as Expense
-  return x.amount > over || ['Courier', 'Toll', 'Client meal', 'Team meal'].includes(x.category)
+  return (item as Expense).amount > over
 }
+/** A breakdown call: its ride names the ticket (te_0060). */
+export const isBreakdown = (purpose: string | null | undefined) => /breakdown/i.test(purpose ?? '')
+/** The km typed is not the map's (te_0060: "if any changes in km it should be added in observation"). */
+export const kmChanged = (r: Pick<Ride, 'claimed_km' | 'map_km'>) => r.claimed_km != null && r.map_km != null && Math.abs(r.claimed_km - r.map_km) > 0.05
 
 // ---------------------------------------------------------------- maps
 export interface Place { name: string; lat: number; lng: number }
 
-/** Road km between two places, from the free OSRM router on OpenStreetMap (the same as the trip module used). */
-export async function roadKm(a: Place, b: Place): Promise<{ km: number; line: [number, number][] } | null> {
+/** A train or the metro goes by its tracks, not the road (the user, 23 Oct). */
+export const RAIL_MODES = new Set<ModeCode>(['train', 'metro'])
+/** Km along the railway or metro line, from BRouter's rail profile on OpenStreetMap; null when it finds no track. */
+async function railKm(a: Place, b: Place): Promise<{ km: number; line: [number, number][] } | null> {
+  try {
+    const r = await fetch(`https://brouter.de/brouter?lonlats=${a.lng},${a.lat}|${b.lng},${b.lat}&profile=rail&alternativeidx=0&format=geojson`)
+    if (!r.ok) return null
+    const f = (await r.json()).features?.[0]
+    const m = Number(f?.properties?.['track-length'])
+    if (!f || !m) return null
+    return { km: Math.round((m / 1000) * 10) / 10, line: f.geometry.coordinates.map(([x, y]: [number, number]) => [y, x]) }
+  } catch { return null }
+}
+/** How a mode's km is measured: along the tracks, through the air, or by road. */
+export const kmWay = (mode: ModeCode) => (RAIL_MODES.has(mode) ? 'rail' : mode === 'flight' ? 'air' : 'road')
+/**
+ * Km between two places: along the tracks for a train or the metro, the straight line between the airports for a
+ * flight, else by road from the free OSRM router on OpenStreetMap (the same as the trip module used). A rail route not
+ * found falls back to the road.
+ */
+export async function roadKm(a: Place, b: Place, mode?: ModeCode | null): Promise<{ km: number; line: [number, number][] } | null> {
+  if (mode === 'flight') return { km: Math.round(distanceKm(a, b) * 10) / 10, line: [[a.lat, a.lng], [b.lat, b.lng]] }
+  if (mode && RAIL_MODES.has(mode)) {
+    const rail = await railKm(a, b)
+    if (rail) return rail
+  }
   try {
     const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`)
     const j = await r.json()
@@ -449,13 +481,16 @@ export async function autoDa(from: Place | null, places: Place[], stay: boolean)
   if (!start || !places.length) return null
   const base = await areaOf(start.lat, start.lng)
   const same = (x: string | null, y: string | null) => !x || !y || x.toLowerCase() === y.toLowerCase()
-  let kind: DaKind = 'in_district'
+  // Out of district, staying is ₹300; out of state, staying ₹400; away for the day without a night, out of district (te_0060).
+  let state = false, district = false
   for (const p of places) {
     const a = await areaOf(p.lat, p.lng)
-    if (!same(a.state, base.state)) return stay ? 'out_state_stay' : 'out_state'
-    if (!same(a.district, base.district)) kind = 'out_district'
+    if (!same(a.state, base.state)) state = true
+    else if (!same(a.district, base.district)) district = true
   }
-  return kind
+  if (state) return stay ? 'out_state_stay' : 'out_district'
+  if (district) return stay ? 'out_state' : 'out_district'
+  return 'in_district'
 }
 export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4 }
 
