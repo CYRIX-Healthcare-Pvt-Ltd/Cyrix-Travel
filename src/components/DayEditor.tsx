@@ -636,6 +636,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           </section>
 
           {/* ---- DA ---- */}
+          {/* An office day pays no DA: one line, not a list of ₹0 (the user, 23 Oct: "why 0?"). */}
+          {dayPurpose && data.office_purposes.includes(dayPurpose) ? (
+          <section>
+            <span className="label">Daily allowance</span>
+            <p className="input mt-1 flex h-11 items-center text-ink-500">No DA — office day</p>
+          </section>
+          ) : (
           <section>
             <label className="block">
               <span className="label flex flex-wrap items-center gap-2">Daily allowance
@@ -646,8 +653,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
               <select className="input mt-1 h-11" value={d.da_kind} onChange={e => set({ da_kind: e.target.value as DaKind })}>
                 {DA_KINDS.map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, dayPurpose, data.office_purposes))}` : ''}</option>)}
               </select></label>
-            {dayPurpose && data.office_purposes.includes(dayPurpose) && <p className="mt-1 text-xs text-ink-500">No DA on an office day</p>}
           </section>
+          )}
 
           {/* ---- hotel ---- */}
           <section>
@@ -729,7 +736,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         </select>
                         <span className="relative">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                          <input type="number" min={0} className="input h-10 pl-7" aria-label="Amount" value={x.amount || ''} onChange={e => put({ amount: Number(e.target.value) })} />
+                          <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7" aria-label="Amount" value={x.amount || ''} onChange={e => put({ amount: Number(e.target.value) })} />
                         </span>
                         <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
                         <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />

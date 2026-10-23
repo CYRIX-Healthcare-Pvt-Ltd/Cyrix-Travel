@@ -235,8 +235,12 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
     if (r.same_ticket || MODES[r.mode].perKm) return false
     return rideAmount(r, rule) > over
   }
-  return (item as Expense).amount > over
+  // A courier or a tool always brings its bill, whatever it cost (the user, 23 Oct).
+  const x = item as Expense
+  return x.amount > over || BILL_ALWAYS.includes(x.category)
 }
+/** The expenses whose bill is needed even under ₹300. */
+export const BILL_ALWAYS = ['Courier', 'Tools']
 /** A breakdown call: its ride names the ticket (te_0060). */
 export const isBreakdown = (purpose: string | null | undefined) => /breakdown/i.test(purpose ?? '')
 /** The km typed is not the map's (te_0060: "if any changes in km it should be added in observation"). */
