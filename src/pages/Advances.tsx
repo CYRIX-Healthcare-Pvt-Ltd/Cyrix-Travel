@@ -105,7 +105,10 @@ function RequestForm({ data, onClose }: { data: MyAdvances; onClose: () => void 
       <label className="block"><span className="label">Advance amount</span>
         {/* Digits only, and never more than the month has left (the user, 24 Oct: "if typed greater than 20000, it shouldnt type it"). */}
         <input type="text" inputMode="numeric" className="input mt-1 sm:max-w-xs" value={amount} placeholder={`Up to ${money(left)}`}
-          onChange={e => { const v = e.target.value.replace(/\D/g, '').replace(/^0+/, ''); if (Number(v || 0) <= left) setAmount(v) }} /></label>
+          onChange={e => { const v = e.target.value.replace(/\D/g, '').replace(/^0+/, ''); if (Number(v || 0) <= left) setAmount(v) }} />
+        {/* The month's second request says what is left of it (the user, 24 Oct: "on 2nd request, under amount
+            field say only this much available in this month to request"). */}
+        {data.month.count > 0 && <span className="mt-1 block text-xs font-medium text-amber-700">Only {money(left)} available to request this month</span>}</label>
       <label className="block"><span className="label">Purpose of Advance (Work details)</span>
         <textarea rows={2} className="input mt-1" value={purpose} onChange={e => setPurpose(e.target.value)} /></label>
       <label className="block"><span className="label">Reason for advance</span>
