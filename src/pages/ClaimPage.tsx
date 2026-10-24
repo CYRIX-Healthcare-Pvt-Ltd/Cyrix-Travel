@@ -3,12 +3,10 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Plus, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
-import Dialog from '@/components/Dialog'
-import MonthCalendar from '@/components/MonthCalendar'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import History from '@/components/History'
@@ -16,7 +14,7 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
+  DA_KINDS, DA_RANK, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day,
 } from '@/lib/claims'
 
@@ -40,8 +38,6 @@ export default function ClaimPage() {
   // The decision panel says its own result, where the button was pressed (the user, 17 Oct).
   const [panel, setPanel] = useState<{ ok: boolean; text: string } | null>(null)
   const noteBox = useRef<HTMLTextAreaElement>(null)
-  const [picking, setPicking] = useState(false)
-  const [pickDay, setPickDay] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
   // An approver changing one figure (te_0027).
@@ -72,13 +68,14 @@ export default function ClaimPage() {
     return out
   }, [data])
 
-  // Arriving from Edit: straight to the form — the latest day, or a new day dated today when there is none.
+  // Arriving from Edit: straight to the form — the latest day, or with none the date the draft was started with
+  // (te_0069), else today.
   if (search.get('edit') && data && data.claim.can_edit) {
     const last = data.days[data.days.length - 1]
     window.setTimeout(() => {
       setSearch({}, { replace: true })
       if (last) openDay(last)
-      else openDay(blankDay(todayIso().slice(0, 7) === data.claim.month.slice(0, 7) ? todayIso() : data.claim.month), true)
+      else openDay(blankDay(data.claim.picked_day ?? (todayIso().slice(0, 7) === data.claim.month.slice(0, 7) ? todayIso() : data.claim.month)), true)
     }, 0)
   }
   // Arriving from "Add a day" with its date: open that day once.
@@ -98,7 +95,6 @@ export default function ClaimPage() {
   const status = STATUS[c.status] ?? STATUS.draft
   const tol = Number(data.policy.km_tolerance_pct ?? 10)
   const over = Number(data.policy.bill_over ?? 300)
-  const lastDay = data.days[data.days.length - 1]
   /*
     The bills still needed, named and marked on their days as soon as a day is saved, not only when sending
     (the user, 19 Oct: "don't know in which is having error"; 21 Oct: show problems as soon as a day is saved).
@@ -108,7 +104,6 @@ export default function ClaimPage() {
     if (need.length) { setMsg(null); setFail(null); showBill(need[0].id); return }
     if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send' })) void run('te_submit', { p_claim: c.id }, 'Sent.')
   }
-  const monthLast = (() => { const d = new Date(c.month + 'T00:00:00'); const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString('en-CA'); return end < todayIso() ? end : todayIso() })()
   // Delete / request deletion / Excel: one row with the person's buttons (the user, 17 Oct).
   const excel = data.days.length > 0 && (
     <button type="button" className="btn-lift inline-flex h-9 items-center gap-2 rounded-lg border border-green-600/40 px-3 text-sm font-semibold text-green-700 hover:bg-green-50"
@@ -136,13 +131,10 @@ export default function ClaimPage() {
           )}
     </>
   )
-  // The quiet row under the actions: Excel left, delete right (the user, 17 Oct: "buttons misaligned").
-  const tail = (excel || ((c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin || (c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid'))) ? (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <span>{excel}</span>
-      <span className="flex items-center gap-3">{deletes}</span>
-    </div>
-  ) : null
+  // Delete sits under the total in the header, not in a row of its own (the user, 24 Oct: "can we make delete
+  // claim button more fit, bcz it is consuming full row"); Excel keeps a quiet row of its own once there are days.
+  const canDelete = (c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin || (c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid')
+  const tail = excel ? <div className="flex">{excel}</div> : null
 
   const run = async (fn: string, args: Record<string, unknown>, done: string) => {
     setMsg(null); setFail(null)
@@ -169,33 +161,19 @@ export default function ClaimPage() {
       nav('/approvals', { state: { done } })
     } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
-  /*
-    Another day, on any date (the user, 22 Oct: "replace continue with add another day" — joining days into a trip
-    caused doubts): picked on the calendar. If the last day before it ended away from home, its first ride starts
-    there; otherwise it starts like any new day.
-  */
-  const startDay = (iso: string): Day => {
-    const before = [...(data?.days ?? [])].filter(x => x.day < iso).pop()
-    const lastRide = before?.rides[before.rides.length - 1]
-    const nd = blankDay(iso)
-    if (lastRide?.to_lat != null && !/\bhome\b/i.test(lastRide.to_name ?? '')) {
-      nd.rides = [{ id: newId(), mode: lastRide.mode, from_name: lastRide.to_name, from_lat: lastRide.to_lat, from_lng: lastRide.to_lng, to_name: null, to_lat: null, to_lng: null, claimed_km: null, map_km: null, fare: null }]
-    }
-    return nd
-  }
-
   return (
     <div className="space-y-4">
       <Link to={c.mine ? '/claims' : '/approvals'} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.mine ? 'My claims' : 'Approvals'}</Link>
 
       {/* ---- header, a stripe and a wash of its status's colour (the user, 19 Oct: "emphasis colour for this container") ---- */}
-      <div className="card flex flex-wrap items-start justify-between gap-4 p-4" style={{ borderLeft: `4px solid ${HEAD[c.status] ?? HEAD.draft}`, background: `linear-gradient(90deg, ${HEAD[c.status] ?? HEAD.draft}1F, transparent 70%)` }}>
-        <div className="min-w-0">
+      <div className="card flex items-start justify-between gap-3 p-4" style={{ borderLeft: `4px solid ${HEAD[c.status] ?? HEAD.draft}`, background: `linear-gradient(90deg, ${HEAD[c.status] ?? HEAD.draft}1F, transparent 70%)` }}>
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {/* The days it covers in its name (the user, 22 Oct: "show as 7 Aug · Aug-26 claim"). */}
             <h1 className="text-lg font-semibold text-ink-900">{(() => {
               // "7th Aug-26 claim", "7th–9th Aug-26 claim": the days, then the month once (a claim is one month).
-              const n = (iso: string) => Number(iso.slice(8, 10)), d0 = data.days[0]?.day, d1 = data.days[data.days.length - 1]?.day
+              // A draft with no saved day yet: the date it was started with (te_0069; the user, 24 Oct).
+              const n = (iso: string) => Number(iso.slice(8, 10)), d0 = data.days[0]?.day ?? c.picked_day, d1 = data.days[data.days.length - 1]?.day ?? c.picked_day
               const days = d0 ? (d0 === d1 ? `${ordinal(n(d0))} ` : `${ordinal(n(d0))}–${ordinal(n(d1!))} `) : ''
               return c.number ? `${c.number} · ${days}${monthName(c.month)}` : `${days}${monthName(c.month)} claim`
             })()}</h1>
@@ -205,7 +183,7 @@ export default function ClaimPage() {
           <Header data={data} onSaved={() => void refetch()} />
           <p className="mt-1 text-xs text-ink-500">Manager {c.manager ?? '—'}{c.coordinator ? ` · Coordinator ${c.coordinator}` : ''} · Travel Desk</p>
         </div>
-        <div className="text-right">
+        <div className="shrink-0 text-right">
           {c.mine && (c.can_edit || c.status === 'with_manager') && (
             <button type="button" className="btn-lift mb-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
               onClick={async () => {
@@ -214,12 +192,13 @@ export default function ClaimPage() {
                   try { await act.mutateAsync({ fn: 'te_recall', args: { p_claim: c.id } }) } catch (e) { setFail((e as Error).message); return }
                 }
                 const last = data.days[data.days.length - 1]
-                openDay(last ?? blankDay(todayIso().slice(0, 7) === c.month.slice(0, 7) ? todayIso() : c.month))
+                openDay(last ?? blankDay(c.picked_day ?? (todayIso().slice(0, 7) === c.month.slice(0, 7) ? todayIso() : c.month)))
               }}><Pencil className="h-4 w-4" /> {c.status === 'with_manager' ? 'Recall to edit' : 'Edit'}</button>
           )}
           <p className="text-xs text-ink-500">Total claimed</p>
           <p className="text-3xl font-bold text-ink-900">{money(total)}</p>
           {company > 0 && <p className="text-xs text-ink-500">Trip cost {money(total + company)} · company paid {money(company)}</p>}
+          {canDelete && <div className="mt-2 flex justify-end gap-3">{deletes}</div>}
           {data.days.some(d => d.rides.length > 0) && <p className="text-xs text-ink-500">{km(data.days.reduce((t, d) => t + d.rides.reduce((u, r) => u + (r.map_km ?? r.claimed_km ?? 0), 0), 0))}</p>}
           {c.late_pct > 0 && <p className="text-xs text-cyrixRed-700">Late {c.late_pct}% · −{money(late)}</p>}
           {c.advance > 0 && <p className="text-xs text-ink-600">Advance −{money(c.advance)}</p>}
@@ -312,20 +291,9 @@ export default function ClaimPage() {
         </div>
       )}
 
-      {/* ---- the person's actions: one panel, the same shape on a phone and a computer ---- */}
-      {c.can_edit && (
-        <div className="card space-y-3 p-3 sm:p-4">
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-            <button type="button" className="btn-secondary col-span-2 h-11 justify-center text-sm sm:col-span-1" onClick={() => {
-              // The day after the last one, else today (never past the month's end or today).
-              const next = lastDay ? (() => { const n = new Date(lastDay.day + 'T00:00:00'); n.setDate(n.getDate() + 1); return n.toLocaleDateString('en-CA') })() : todayIso()
-              setPickDay(next > monthLast ? monthLast : next < c.month ? c.month : next)
-              setPicking(true)
-            }}><Plus className="h-4 w-4" /> {lastDay ? 'Add another day' : 'Add a claim'}</button>
-          </div>
-          {tail && <div className="border-t border-ink-100 pt-3">{tail}</div>}
-        </div>
-      )}
+      {/* ---- the person's own buttons; no Add here — a day is added from My claims or Summary (the user, 24 Oct:
+           "why add claim here? we dont need continuation claim button") ---- */}
+      {c.can_edit && tail}
 
       {/* ---- whoever it waits on ---- */}
       {c.can_decide && (
@@ -346,18 +314,6 @@ export default function ClaimPage() {
 
       <History data={data} />
 
-      {picking && (
-        <Dialog title="Add a claim" icon={<Plus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
-          <div className="mt-3 space-y-3">
-            <MonthCalendar value={pickDay} onChange={setPickDay} min={c.month} max={monthLast} marked={data.days.map(d => d.day)} />
-            {data.days.some(d => d.day === pickDay) && <p className="text-sm text-ink-600">{dayName(pickDay)} is already on this claim — Continue opens it.</p>}
-            <div className="flex justify-end gap-2">
-              <button type="button" className="btn-secondary" onClick={() => setPicking(false)}>Cancel</button>
-              <button type="button" className="btn-primary" disabled={!pickDay} onClick={() => { setPicking(false); openDay(data.days.find(d => d.day === pickDay) ?? startDay(pickDay), false, true) }}>Continue</button>
-            </div>
-          </div>
-        </Dialog>
-      )}
       {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)} />}
       {adjust && <AdjustDialog claimId={c.id} target={adjust} onClose={() => setAdjust(null)} />}
     </div>

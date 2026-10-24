@@ -150,6 +150,8 @@ export interface ClaimData {
     mine: boolean; can_edit: boolean; can_decide: boolean; is_desk: boolean; is_manager: boolean
     delete_requested_at: string | null; delete_reason: string | null
     recalls: number; last_recalled_at: string | null
+    /** The date "Add a claim" started it on, while it has no saved day (te_0069). */
+    picked_day?: string | null
   }
   rule: Rule
   days: Day[]
