@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { useAsk } from '@/components/Ask'
+import { useAuth } from '@/contexts/AuthContext'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { money, rpc } from '@/lib/claims'
 import { ADVANCE_STATUS, shortDate, useAdvanceInbox, useAdvanceRefresh, type InboxAdvance } from '@/lib/advances'
@@ -16,12 +17,16 @@ const COUNT: Record<Tab, string> = { waiting: 'bg-cyrixRed-600 text-white', done
 
 export default function AdvanceApprovals() {
   const { data, isLoading, error } = useAdvanceInbox()
+  const { isDesk } = useAuth()
   const [tab, setTab] = useState<Tab>('waiting')
   if (isLoading) return <PageLoader />
   const all = data ?? []
   const lists: Record<Tab, InboxAdvance[]> = {
     waiting: all.filter(a => a.waiting),
-    done: all.filter(a => !a.waiting && (a.status === 'given' || a.status === 'with_desk' || a.status === 'with_manager')),
+    // Past this person's own step: given, for the Travel Desk; with the Travel Desk or given, for a manager. One still
+    // with the manager is approved by nobody yet (the user, 24 Oct: "why showing in travel desk approved? before
+    // reporting manager approving?").
+    done: all.filter(a => !a.waiting && (a.status === 'given' || (a.status === 'with_desk' && !isDesk))),
     declined: all.filter(a => a.status === 'declined'),
   }
   return (
