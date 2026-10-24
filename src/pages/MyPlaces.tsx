@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { House, LocateFixed, Map as MapIcon, MapPin, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { Building2, House, LocateFixed, Map as MapIcon, MapPin, Pencil, Plus, Trash2 } from 'lucide-react'
 import PlacePicker from '@/components/PlacePicker'
 import PlaceMapDialog from '@/components/PlaceMapDialog'
 import { useAsk } from '@/components/Ask'
@@ -36,6 +37,12 @@ export default function MyPlaces() {
     queryFn: async () => (await supabase.from('travel_homes').select('lat, lng, set_at, how').eq('employee_id', employee!.id).maybeSingle()).data as { lat: number; lng: number; set_at: string; how: 'here' | 'map' } | null,
   })
   const { data: homeName } = useQuery({ queryKey: ['place', home?.lat, home?.lng], enabled: !!home, staleTime: Infinity, queryFn: () => placeName(home!) })
+  const { data: costCentre } = useQuery({
+    queryKey: ['te_cost_centre', employee?.id], enabled: !!employee,
+    queryFn: async () => ((await supabase.from('employees').select('function_name').eq('id', employee!.id).maybeSingle()).data?.function_name as string | null)?.trim() || null,
+  })
+  // Sent here to set a home first, as an advance is from it (te_0063).
+  const need = (useLocation().state as { need?: string } | null)?.need
   const [marking, setMarking] = useState(false)
   const [homeOnMap, setHomeOnMap] = useState(false)
   const setHomeAt = async (at: { lat: number; lng: number }, how: 'here' | 'map') => {
@@ -83,7 +90,7 @@ export default function MyPlaces() {
         <button type="button" className="btn-primary" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add a place</button>
       </div>
       {(fail || error) && <Alert kind="error">{fail ?? (error as Error).message}</Alert>}
-      {home === null && <Alert kind="warning">Home location is not yet set</Alert>}
+      {home === null && <Alert kind="warning">{need ?? 'Home location is not yet set'}</Alert>}
       <div className="card flex flex-wrap items-center gap-3 px-4 py-3">
         <House className="h-5 w-5 shrink-0 text-teal-600" />
         <div className="min-w-0 flex-1">
@@ -95,6 +102,13 @@ export default function MyPlaces() {
             {marking ? <Spinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />} I'm at home
           </button>
           <button type="button" className="btn-secondary flex-1 sm:flex-none" onClick={() => setHomeOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
+        </div>
+      </div>
+      <div className="card flex items-center gap-3 px-4 py-3">
+        <Building2 className="h-5 w-5 shrink-0 text-teal-600" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-ink-900">Cost centre</p>
+          <p className="truncate text-xs text-ink-500">{costCentre ?? 'Not mapped'}</p>
         </div>
       </div>
       {!data?.length ? (

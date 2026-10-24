@@ -1,10 +1,11 @@
 import { lazy, Suspense, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Hospital, Map as MapIcon, Settings2, Trash2 } from 'lucide-react'
+import { Check, Hospital, Map as MapIcon, Pencil, Settings2, Trash2, X } from 'lucide-react'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { rpc, type Rule } from '@/lib/claims'
+import { ADVANCE_STATUS, type Advance } from '@/lib/advances'
 import { useAsk } from '@/components/Ask'
 
 /*
@@ -16,8 +17,11 @@ type AdminData = {
   rules: Rule[]
   policy: Record<string, unknown>
   purposes: Array<{ id: number; label: string; gives_da: boolean; is_active: boolean }>
-  projects: Array<{ id: number; label: string; is_active: boolean }>
-  coordinators: Array<{ ecode: string; name: string; coordinator_ecode: string; coordinator: string }>
+  /** The functions people are mapped to, and any added by hand (te_0063); a function not yet kept has no id. */
+  projects: Array<{ id: number | null; label: string; is_active: boolean }>
+  /** A coordinator per cost centre (te_0063), and the cost centres to choose from with how many are mapped. */
+  coordinators: Array<{ cost_centre: string; coordinator_ecode: string; coordinator: string; people: number }>
+  cost_centres: Array<{ name: string; people: number }>
   desk: Array<{ ecode: string; name: string }>
   /** SW Admin, who alone deletes claims (te_0028). */
   sw?: boolean
@@ -41,9 +45,11 @@ export default function TeAdmin() {
   const [tab, setTab] = useState<typeof TABS[number][0] | 'delete'>('rules')
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
-  const call = async (fn: string, args: Record<string, unknown>, done = 'Saved.') => {
+  // A tab that shows its own refusal beside the button pressed passes here, and gets the message back.
+  const call = async (fn: string, args: Record<string, unknown>, done = 'Saved.', here = false) => {
     setMsg(null); setFail(null)
-    try { await rpc(fn, args); await qc.invalidateQueries({ queryKey: ['te_admin'] }); setMsg(done) } catch (e) { setFail((e as Error).message) }
+    try { await rpc(fn, args); await qc.invalidateQueries({ queryKey: ['te_admin'] }); setMsg(done); return null }
+    catch (e) { if (!here) setFail((e as Error).message); return (e as Error).message }
   }
   if (isLoading) return <PageLoader />
   if (error || !data) return <Alert kind="error">{(error as Error)?.message ?? 'Could not open.'}</Alert>
@@ -64,7 +70,7 @@ export default function TeAdmin() {
       )}
       {tab === 'purposes' && <Purposes list={data.purposes} call={call} />}
       {tab === 'projects' && <Projects list={data.projects} call={call} />}
-      {tab === 'coord' && <Coordinators list={data.coordinators} call={call} />}
+      {tab === 'coord' && <Coordinators list={data.coordinators} centres={data.cost_centres} call={call} />}
       {tab === 'desk' && <Desk list={data.desk} call={call} />}
       {tab === 'places' && <LearnedPlaces />}
       {tab === 'delete' && data.sw && <DeleteClaim />}
@@ -123,16 +129,38 @@ function PolicyField({ label, value, onSave }: { label: string; value: unknown; 
   )
 }
 
-type Call = (fn: string, args: Record<string, unknown>, done?: string) => Promise<void>
+type Call = (fn: string, args: Record<string, unknown>, done?: string, here?: boolean) => Promise<string | null>
+/* Purposes, renamed in place too (te_0063; the user, 24 Oct: "need edit option"). */
 function Purposes({ list, call }: { list: AdminData['purposes']; call: Call }) {
   const [label, setLabel] = useState('')
+  const [editing, setEditing] = useState<{ id: number; label: string } | null>(null)
+  const [err, setErr] = useState<{ id: number; text: string; n: number } | null>(null)
+  const rename = async (p: AdminData['purposes'][number]) => {
+    const e = await call('te_set_purpose', { p_id: p.id, p_label: editing!.label, p_gives_da: p.gives_da, p_active: p.is_active }, 'Renamed.', true)
+    if (e) setErr(x => ({ id: p.id, text: e, n: (x?.n ?? 0) + 1 })); else { setEditing(null); setErr(null) }
+  }
   return (
     <div className="card space-y-2 p-4">
       {list.map(p => (
-        <div key={p.id} className="flex flex-wrap items-center gap-3 text-sm">
-          <span className={clsx('min-w-[12rem] font-medium', p.is_active ? 'text-ink-900' : 'text-ink-400 line-through')}>{p.label}</span>
+        <div key={p.id} className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          {editing?.id === p.id ? (
+            <span className="flex min-w-[12rem] items-center gap-1.5">
+              <input className="input !py-1 max-w-[14rem]" value={editing.label} autoFocus onChange={e => setEditing({ id: p.id, label: e.target.value })}
+                onKeyDown={e => { if (e.key === 'Enter') void rename(p); if (e.key === 'Escape') setEditing(null) }} />
+              <button type="button" className="btn-icon text-green-700" aria-label="Save" title="Save" disabled={!editing.label.trim()} onClick={() => void rename(p)}><Check className="h-4 w-4" /></button>
+              <button type="button" className="btn-icon" aria-label="Cancel" title="Cancel" onClick={() => { setEditing(null); setErr(null) }}><X className="h-4 w-4" /></button>
+            </span>
+          ) : (
+            <span className="flex min-w-[12rem] items-center gap-1">
+              <span className={clsx('font-medium', p.is_active ? 'text-ink-900' : 'text-ink-400 line-through')}>{p.label}</span>
+              <button type="button" className="btn-icon" aria-label={`Rename ${p.label}`} title="Rename" onClick={() => { setEditing({ id: p.id, label: p.label }); setErr(null) }}><Pencil className="h-3.5 w-3.5" /></button>
+            </span>
+          )}
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.gives_da} onChange={e => void call('te_set_purpose', { p_id: p.id, p_label: p.label, p_gives_da: e.target.checked, p_active: p.is_active })} /> Gives DA</label>
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.is_active} onChange={e => void call('te_set_purpose', { p_id: p.id, p_label: p.label, p_gives_da: p.gives_da, p_active: e.target.checked })} /> In use</label>
+        </div>
+        {err?.id === p.id && <Alert key={err.n} kind="error">{err.text}</Alert>}
         </div>
       ))}
       <div className="flex gap-2 pt-2">
@@ -143,24 +171,42 @@ function Purposes({ list, call }: { list: AdminData['purposes']; call: Call }) {
   )
 }
 
-function Coordinators({ list, call }: { list: AdminData['coordinators']; call: Call }) {
-  const [e, setE] = useState(''), [k, setK] = useState('')
+/*
+  A coordinator per cost centre (te_0063; the user, 24 Oct: "only klbemmp cost centre guys need to come specific
+  coordinator"): a claim of anybody mapped to it goes to its coordinator after the manager, then to the Travel Desk.
+*/
+function Coordinators({ list, centres, call }: { list: AdminData['coordinators']; centres: AdminData['cost_centres']; call: Call }) {
+  const [cc, setCc] = useState(''), [k, setK] = useState('')
+  const [err, setErr] = useState<{ at: string; text: string; n: number } | null>(null)
+  const run = async (at: string, args: Record<string, unknown>, done: string) => {
+    const e = await call('te_set_cost_centre_coordinator', args, done, true)
+    if (e) setErr(x => ({ at, text: e, n: (x?.n ?? 0) + 1 }))
+    else { setErr(null); if (at === 'set') { setCc(''); setK('') } }
+  }
+  const free = centres.filter(c => !list.some(x => x.cost_centre.toLowerCase() === c.name.toLowerCase()))
   return (
     <div className="card space-y-2 p-4">
       {list.length === 0 && <p className="text-sm text-ink-500">No coordinators set. Claims go from the manager straight to the Travel Desk.</p>}
       {list.map(c => (
-        <div key={c.ecode} className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium text-ink-900">{c.name} <span className="text-ink-500">{c.ecode}</span></span>
-          <span className="text-ink-400">→ coordinator</span>
-          <span className="font-medium text-ink-900">{c.coordinator} <span className="text-ink-500">{c.coordinator_ecode}</span></span>
-          <button type="button" className="btn-icon text-cyrixRed-600" aria-label="Remove" onClick={() => void call('te_set_coordinator', { p_ecode: c.ecode, p_coordinator: '' }, 'Removed.')}><Trash2 className="h-4 w-4" /></button>
+        <div key={c.cost_centre} className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium text-ink-900">{c.cost_centre} <span className="text-ink-500">· {c.people} {c.people === 1 ? 'person' : 'people'}</span></span>
+            <span className="text-ink-400">→ coordinator</span>
+            <span className="font-medium text-ink-900">{c.coordinator} <span className="text-ink-500">{c.coordinator_ecode}</span></span>
+            <button type="button" className="btn-icon text-cyrixRed-600" aria-label="Remove" onClick={() => void run(c.cost_centre, { p_cost_centre: c.cost_centre, p_coordinator: '' }, 'Removed.')}><Trash2 className="h-4 w-4" /></button>
+          </div>
+          {err?.at === c.cost_centre && <Alert key={err.n} kind="error">{err.text}</Alert>}
         </div>
       ))}
       <div className="flex flex-wrap gap-2 pt-2">
-        <input className="input w-36" placeholder="Employee E-code" value={e} onChange={x => setE(x.target.value)} />
+        <select className="input w-56" value={cc} onChange={x => setCc(x.target.value)} aria-label="Cost centre">
+          <option value="">Cost centre…</option>
+          {free.map(c => <option key={c.name} value={c.name}>{c.name} · {c.people}</option>)}
+        </select>
         <input className="input w-40" placeholder="Coordinator E-code" value={k} onChange={x => setK(x.target.value)} />
-        <button type="button" className="btn-secondary" disabled={!e.trim() || !k.trim()} onClick={() => { void call('te_set_coordinator', { p_ecode: e, p_coordinator: k }); setE(''); setK('') }}>Set</button>
+        <button type="button" className="btn-secondary" disabled={!cc || !k.trim()} onClick={() => void run('set', { p_cost_centre: cc, p_coordinator: k }, 'Coordinator set.')}>Set</button>
       </div>
+      {err?.at === 'set' && <Alert key={err.n} kind="error">{err.text}</Alert>}
     </div>
   )
 }
@@ -189,7 +235,7 @@ function Projects({ list, call }: { list: AdminData['projects']; call: Call }) {
   return (
     <div className="card space-y-2 p-4">
       {list.map(p => (
-        <div key={p.id} className="flex flex-wrap items-center gap-3 text-sm">
+        <div key={p.label} className="flex flex-wrap items-center gap-3 text-sm">
           <span className={clsx('min-w-[14rem] font-medium', p.is_active ? 'text-ink-900' : 'text-ink-400 line-through')}>{p.label}</span>
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.is_active} onChange={e => void call('te_set_project', { p_id: p.id, p_label: p.label, p_active: e.target.checked })} /> In use</label>
         </div>
@@ -211,56 +257,80 @@ const STATUS_WORD: Record<string, string> = {
   delete claim" — "only for swadmin"), as Revive Lab deletes a ticket: type its number, see whose it
   is, confirm. Its bills go first, then the claim with its days and history; one audit line keeps what
   it was. The tab shows only for SW Admin, and the database refuses anybody else.
+  An advance is deleted the same way by its EA number (te_0066; the user, 24 Oct: "for deletion also need
+  ea tickets"); what claims took of it goes with it, so those claims no longer have it taken off.
 */
+type FoundClaim = { kind: 'claim'; id: string; number: string; name: string; ecode: string; month: string; status: string; total: number; days: number; paths: string[] }
+type FoundAdvance = { kind: 'advance'; id: string; number: string; name: string; ecode: string; month: string; status: Advance['status']; amount: number; dest: string; used: number; claims: string[] }
 function DeleteClaim() {
   const qc = useQueryClient()
   const [typed, setTyped] = useState('')
-  const [found, setFound] = useState<{ id: string; number: string; name: string; ecode: string; month: string; status: string; total: number; days: number; paths: string[] } | null>(null)
+  const [found, setFound] = useState<FoundClaim | FoundAdvance | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ at: 'find' | 'delete'; text: string } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const lookUp = async () => {
     setError(null); setNotice(null); setFound(null); setBusy(true)
-    try { setFound(await rpc('te_find_claim', { p_number: typed })) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    try {
+      setFound(/^\s*ea/i.test(typed)
+        ? { kind: 'advance', ...(await rpc<Omit<FoundAdvance, 'kind'>>('te_find_advance', { p_number: typed })) }
+        : { kind: 'claim', ...(await rpc<Omit<FoundClaim, 'kind'>>('te_find_claim', { p_number: typed })) })
+    } catch (e) { setError({ at: 'find', text: (e as Error).message }) } finally { setBusy(false) }
   }
   const remove = async () => {
     if (!found) return
     setBusy(true); setError(null)
     try {
-      if (found.paths.length) {
-        const { error: rm } = await supabase.storage.from('te-bills').remove(found.paths)
-        if (rm) throw new Error(rm.message)
+      if (found.kind === 'advance') await rpc('te_delete_advance', { p_advance: found.id })
+      else {
+        if (found.paths.length) {
+          const { error: rm } = await supabase.storage.from('te-bills').remove(found.paths)
+          if (rm) throw new Error(rm.message)
+        }
+        await rpc('te_delete_claim', { p_claim: found.id })
       }
-      await rpc('te_delete_claim', { p_claim: found.id })
       setNotice(`Deleted ${found.number}.`); setFound(null); setTyped('')
       void qc.invalidateQueries()
-    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setError({ at: 'delete', text: (e as Error).message }) } finally { setBusy(false) }
   }
   const mon = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.toLocaleDateString('en-GB', { month: 'short' })}-${String(d.getFullYear()).slice(2)}` }
+  const rupees = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center gap-2 border-b border-ink-200 bg-ink-50 px-4 py-2.5">
         <Trash2 className="h-4 w-4 text-cyrixRed-600" />
-        <h3 className="text-sm font-semibold text-ink-800">Delete a claim</h3>
+        <h3 className="text-sm font-semibold text-ink-800">Delete a claim or advance</h3>
       </div>
       <div className="space-y-3 p-4">
-        {error && <Alert kind="error">{error}</Alert>}
         {notice && <Alert kind="success">{notice}</Alert>}
         <form className="flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); void lookUp() }}>
-          <label className="block w-44"><span className="label">Claim number</span>
-            <input className="input mt-1 h-11 font-mono" value={typed} onChange={e => { setTyped(e.target.value); setFound(null) }} placeholder="TE-02" /></label>
+          <label className="block w-44"><span className="label">Number</span>
+            <input className="input mt-1 h-11 font-mono" value={typed} onChange={e => { setTyped(e.target.value); setFound(null); setError(null) }} placeholder="TE-02 or EA-01" /></label>
           <button type="submit" className="btn-secondary h-11 !text-cyrixRed-700" disabled={busy || !typed.trim()}>
             {busy && !found ? <Spinner className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />} Delete
           </button>
         </form>
+        {error?.at === 'find' && <Alert kind="error">{error.text}</Alert>}
         {found && (
           <div className="rounded-xl border border-cyrixRed-200 bg-cyrixRed-50 p-3">
-            <p className="text-sm font-medium text-cyrixRed-900">Delete {found.number} · {found.name} ({found.ecode}) · {mon(found.month)} · ₹{Math.round(found.total).toLocaleString('en-IN')} for good?</p>
-            <p className="mt-0.5 text-xs text-cyrixRed-800">{STATUS_WORD[found.status] ?? found.status} · {found.days} day{found.days === 1 ? '' : 's'}. Its days, bills and history go with it. This cannot be undone.</p>
+            {found.kind === 'claim' ? <>
+              <p className="text-sm font-medium text-cyrixRed-900">Delete {found.number} · {found.name} ({found.ecode}) · {mon(found.month)} · {rupees(found.total)} for good?</p>
+              <p className="mt-0.5 text-xs text-cyrixRed-800">{STATUS_WORD[found.status] ?? found.status} · {found.days} day{found.days === 1 ? '' : 's'}. Its days, bills and history go with it. This cannot be undone.</p>
+            </> : <>
+              <p className="text-sm font-medium text-cyrixRed-900">Delete advance {found.number} · {found.name} ({found.ecode}) · {mon(found.month)} · {rupees(found.amount)} for good?</p>
+              <p className="mt-0.5 text-xs text-cyrixRed-800">
+                {ADVANCE_STATUS[found.status]?.label ?? found.status} · to {found.dest}.{' '}
+                {found.used > 0
+                  ? `${rupees(found.used)} of it is taken off ${found.claims.join(', ')}; ${found.claims.length === 1 ? 'that claim' : 'those claims'} will no longer have it taken off.`
+                  : 'Its approvals go with it.'}{' '}
+                This cannot be undone.
+              </p>
+            </>}
             <div className="mt-2 flex gap-2">
               <button type="button" className="btn-danger" onClick={() => void remove()} disabled={busy}>{busy && <Spinner className="h-4 w-4" />} Yes, delete {found.number}</button>
-              <button type="button" className="btn-secondary" onClick={() => setFound(null)}>Cancel</button>
+              <button type="button" className="btn-secondary" onClick={() => { setFound(null); setError(null) }}>Cancel</button>
             </div>
+            {error?.at === 'delete' && <div className="mt-2"><Alert kind="error">{error.text}</Alert></div>}
           </div>
         )}
       </div>

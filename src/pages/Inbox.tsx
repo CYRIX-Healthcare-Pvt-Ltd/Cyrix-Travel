@@ -4,7 +4,9 @@ import { CheckCheck, ShieldAlert, TriangleAlert } from 'lucide-react'
 import ApproveAll from '@/components/ApproveAll'
 import { useAsk } from '@/components/Ask'
 import { claimIssues } from '@/pages/ClaimPage'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import AdvanceApprovals from '@/components/AdvanceApprovals'
+import { useAdvanceInbox } from '@/lib/advances'
 import { ChevronRight, ClipboardCheck } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
 import { PlaceChips, useClaimFilter } from '@/components/ClaimRows'
@@ -62,6 +64,10 @@ export default function Inbox() {
   const [approving, setApproving] = useState<NonNullable<typeof data> | null>(null)
   const ask = useAsk()
   const issues = useWaitingIssues((data ?? []).filter(c => c.waiting).map(c => c.id))
+  // Claims, or advances (te_0063): the bell's advance messages open ?view=advances.
+  const [params, setParams] = useSearchParams()
+  const view = params.get('view') === 'advances' ? 'advances' : 'claims'
+  const { data: advances } = useAdvanceInbox()
   if (isLoading) return <PageLoader />
   const found = (data ?? []).filter(find.test)
   /*
@@ -110,6 +116,15 @@ export default function Inbox() {
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
+      <div className="inline-flex rounded-xl bg-ink-100 p-1" role="tablist">
+        {([['claims', 'Claims', (data ?? []).filter(c => c.waiting).length], ['advances', 'Advances', (advances ?? []).filter(a => a.waiting).length]] as const).map(([k, l, n]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setParams(k === 'advances' ? { view: 'advances' } : {}, { replace: true })}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-semibold ${view === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
+            {l}{n > 0 && <span className="min-w-[1.25rem] rounded-full bg-cyrixRed-600 px-1.5 py-0.5 text-center text-xs font-bold text-white">{n}</span>}
+          </button>
+        ))}
+      </div>
+      {view === 'advances' ? <AdvanceApprovals /> : <>
       {done && <Alert kind="success">{done}</Alert>}
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
       {(data?.length ?? 0) > 0 && find.bar}
@@ -132,6 +147,7 @@ export default function Inbox() {
       {approving && <ApproveAll list={approving} onClose={() => setApproving(null)} />}
       {shown.length ? <div className="card divide-y divide-ink-100 overflow-hidden">{shown.map(c => <Row key={c.id} c={c} />)}</div>
         : <div className="card p-6 text-center text-sm text-ink-500">{find.active ? find.empty : EMPTY[tab]}</div>}
+      </>}
     </div>
   )
 }

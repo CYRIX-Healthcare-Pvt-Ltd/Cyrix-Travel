@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { CircleAlert, Smartphone, TriangleAlert, type LucideIcon } from 'lucide-react'
+import { CircleAlert, HandCoins, Smartphone, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { MODES, money, type Day, type Rule } from '@/lib/claims'
 
 /*
@@ -8,7 +8,7 @@ import { MODES, money, type Day, type Rule } from '@/lib/claims'
   month, and the auto and phone allowances. Each fill wears its mode's colour; from 80% the words
   beside it turn amber, and red past the limit, each with an icon.
 */
-export interface BudgetLine { key: string; label: string; icon: LucideIcon; color: string; used: number; limit: number; unit: 'km' | '₹' }
+export interface BudgetLine { key: string; label: string; icon: LucideIcon; color: string; used: number; limit: number; unit: 'km' | '₹'; plain?: boolean }
 export interface Used { bike: number; car: number; auto: number; phone: number }
 
 export function budgetLines(rule: Pick<Rule, 'bike_rate' | 'bike_km_month' | 'car_rate' | 'car_km_month'>, policy: Record<string, unknown>, used: Used): BudgetLine[] {
@@ -20,6 +20,19 @@ export function budgetLines(rule: Pick<Rule, 'bike_rate' | 'bike_km_month' | 'ca
   if (phone) out.push({ key: 'phone', label: 'Phone', icon: Smartphone, color: '#64748B', used: used.phone, limit: phone, unit: '₹' })
   return out
 }
+
+/*
+  The advance left (te_0063; the user, 24 Oct: "after phone need to show advance amount also … in next month also
+  balance should show"): every advance given of the claim's month or before, less what earlier claims took and
+  what this one takes.
+*/
+export function advanceLine(box: { given: number; before: number } | null | undefined, takes: number): BudgetLine | null {
+  if (!box || box.given <= 0) return null
+  return { key: 'advance', label: 'Advance', icon: HandCoins, color: '#4F46E5', used: Math.min(box.given, box.before + Math.max(0, takes)), limit: box.given, unit: '₹', plain: true }
+}
+/** What this claim takes of the advance left: what it pays, up to what is left. */
+export const advanceTakes = (box: { given: number; before: number } | null | undefined, pays: number) =>
+  box ? Math.max(0, Math.min(box.given - box.before, pays)) : 0
 
 /** What one day spends of the month's budget. */
 export function dayUse(d: Day | undefined): Used {
@@ -52,7 +65,7 @@ export default function Budget({ title, lines }: { title: string; lines: BudgetL
 function Meter({ l }: { l: BudgetLine }) {
   const pct = l.limit > 0 ? l.used / l.limit : 0
   const left = l.limit - l.used
-  const state = pct > 1 ? 'over' : pct >= 0.8 ? 'near' : 'ok'
+  const state = l.plain ? 'ok' : pct > 1 ? 'over' : pct >= 0.8 ? 'near' : 'ok'
   const fmt = (n: number) => (l.unit === 'km' ? `${(Math.round(n * 10) / 10).toLocaleString('en-IN')} km` : money(n))
   const I = l.icon
   return (

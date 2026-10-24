@@ -13,7 +13,7 @@ import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import History from '@/components/History'
 import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
-import Budget, { budgetLines, monthLong } from '@/components/Budget'
+import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
   DA_KINDS, DA_RANK, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, newId, ticketVisited, rideAmount,
@@ -228,7 +228,8 @@ export default function ClaimPage() {
       </div>
 
       {data.days.length > 0 && <Budget title={`${c.mine ? 'Left' : `${c.name.split(' ')[0]}'s budget left`} in ${monthLong(c.month)}`}
-        lines={budgetLines(rule, data.policy, { bike: data.km_month.bike, car: data.km_month.car, auto: data.km_month.auto, phone: data.km_month.phone ?? 0 })} />}
+        lines={[...budgetLines(rule, data.policy, { bike: data.km_month.bike, car: data.km_month.car, auto: data.km_month.auto, phone: data.km_month.phone ?? 0 }),
+          ...[advanceLine(c.advance_box, c.advance)].filter(x => x !== null)]} />}
       {c.status === 'returned' && c.return_note && <Alert kind="warning" title="Sent back to you">{c.return_note}</Alert>}
       {c.mine && c.status === 'recalled' && <Alert kind="info" title="Recalled to edit">Change what you need, then press Send to manager again. It keeps its number.</Alert>}
       {!c.mine && c.recalls > 0 && <p className="text-sm text-orange-800">Recalled {c.recalls}× by {c.name.split(' ')[0]} after sending{c.last_recalled_at ? ` · last on ${new Date(c.last_recalled_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</p>}
@@ -339,7 +340,7 @@ export default function ClaimPage() {
           </div>
         </div>
       )}
-      {c.is_desk && !c.mine && c.status !== 'draft' && c.status !== 'paid' && <DeskPanel data={data} onDone={(m) => { setMsg(m); void refetch() }} />}
+      {c.is_desk && !c.mine && c.status === 'approved' && <DeskPanel data={data} onDone={(m) => { setMsg(m); void refetch() }} />}
 
       {!c.can_edit && tail}
 
@@ -608,23 +609,17 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => void }) {
   const c = data.claim
   const act = useClaimAction()
-  const [adv, setAdv] = useState(String(c.advance ?? 0))
   const [paidOn, setPaidOn] = useState(todayIso())
   const [utr, setUtr] = useState('')
   const [err, setErr] = useState<string | null>(null)
   return (
     <div className="card flex flex-wrap items-end gap-3 p-4">
       <Wallet className="mb-2 h-5 w-5 text-teal-600" />
-      <label className="block"><span className="label">Advance given ₹</span>
-        <input type="number" min={0} max={20000} className="input mt-1 w-36" value={adv} onChange={e => setAdv(e.target.value)} /></label>
-      <button type="button" className="btn-secondary" onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_set_advance', args: { p_claim: c.id, p_advance: Number(adv) || 0 } }); onDone('Advance saved.') } catch (e) { setErr((e as Error).message) } }}>Save advance</button>
-      {c.status === 'approved' && <>
-        <label className="block"><span className="label">Paid on</span>
-          <input type="date" className="input mt-1 w-44" max={todayIso()} value={paidOn} onChange={e => setPaidOn(e.target.value)} /></label>
-        <label className="block"><span className="label">UTR</span>
-          <input className="input mt-1 w-56 font-mono uppercase" value={utr} onChange={e => setUtr(e.target.value)} placeholder="Transaction reference" /></label>
-      </>}
-      {c.status === 'approved' && <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>}
+      <label className="block"><span className="label">Paid on</span>
+        <input type="date" className="input mt-1 w-44" max={todayIso()} value={paidOn} onChange={e => setPaidOn(e.target.value)} /></label>
+      <label className="block"><span className="label">UTR</span>
+        <input className="input mt-1 w-56 font-mono uppercase" value={utr} onChange={e => setUtr(e.target.value)} placeholder="Transaction reference" /></label>
+      <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>
       {err && <span className="text-sm text-cyrixRed-700">{err}</span>}
     </div>
   )

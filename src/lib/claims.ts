@@ -136,7 +136,12 @@ export interface ClaimData {
   claim: {
     id: string; employee_id: string; month: string; part: number; status: string; number: string | null
     grade: string | null; designation: string | null; base_location: string | null; project: string | null; mobile: string | null
+    /** What it takes from the person's advances (te_0063): worked out, not typed. */
     submitted_at: string | null; late_pct: number; advance: number
+    /** The advances given of its month or before, and what the claims before it took (te_0063); null with none. */
+    advance_box?: { given: number; before: number } | null
+    /** The person's cost centre: their function (te_0063). */
+    cost_centre?: string | null
     manager_note: string | null; coordinator_note: string | null; desk_note: string | null
     return_note: string | null; returned_at: string | null
     /** When it was paid and the transfer's UTR, given by the Travel Desk (te_0045). */
@@ -367,6 +372,36 @@ export async function lookupPlace(queries: string[], want: 'airport' | 'station'
   return null
 }
 type Found = Place & { road?: boolean }
+/*
+  A city, district or state as it is typed (te_0063; the user, 24 Oct: "in advance map not needed, when typing city
+  or district or state name it should automatically come"): India's towns, cities, districts and states, each with
+  its state, villages and suburbs left out.
+*/
+export interface Area extends Place { state: string; kind: 'city' | 'district' | 'state' }
+export async function searchAreas(q: string): Promise<Area[]> {
+  const r = await timed(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=15&lang=en&bbox=68.1,6.5,97.4,35.7&layer=city&layer=county&layer=state&layer=district`)
+  const j = await r.json() as { features: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+  const out: Area[] = []
+  for (const f of j.features) {
+    const p = f.properties
+    if ((p.countrycode ?? '').toUpperCase() !== 'IN' || !p.name) continue
+    const kind = p.type === 'state' || p.osm_value === 'state' ? 'state'
+      : p.type === 'county' || p.osm_value === 'county' ? 'district'
+      : ['city', 'town'].includes(p.osm_value) ? 'city' : null
+    if (!kind) continue
+    const state = kind === 'state' ? p.name : p.state
+    if (!state) continue
+    const name = kind === 'state' ? p.name : kind === 'district' && !/district/i.test(p.name) ? `${p.name} district, ${state}` : `${p.name}, ${state}`
+    if (out.some(x => x.name.toLowerCase() === name.toLowerCase())) continue
+    out.push({ name, state, kind, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] })
+  }
+  return out.slice(0, 8)
+}
+/** What a typed name means (the user: "if i want to just enter uttar pradesh, it should save"): the one named so, else the first found. */
+export function bestArea(list: Area[], typed: string): Area | null {
+  const t = typed.trim().toLowerCase()
+  return list.find(a => a.name.toLowerCase() === t || a.name.split(',')[0].toLowerCase() === t || a.name.split(',')[0].toLowerCase() === `${t} district`) ?? list[0] ?? null
+}
 async function photon(q: string, near?: { lat: number; lng: number }, tag?: string): Promise<Found[]> {
   // Near the engineer when the map knows where they are; otherwise anywhere in India. A tag asks for one kind only.
   const bias = near ? `&lat=${near.lat}&lon=${near.lng}` : '&bbox=68.1,6.5,97.4,35.7'

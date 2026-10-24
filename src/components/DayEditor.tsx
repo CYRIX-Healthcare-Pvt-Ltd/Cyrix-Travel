@@ -10,7 +10,7 @@ import ModePicker from '@/components/ModePicker'
 import { useAsk } from '@/components/Ask'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
-import Budget, { budgetLines, dayUse, monthLong } from '@/components/Budget'
+import Budget, { advanceLine, advanceTakes, budgetLines, dayUse, monthLong } from '@/components/Budget'
 import { Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
@@ -140,13 +140,17 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   // The day's purpose for its DA: a ride that gives DA, else the first (an office day has none).
   const dayPurpose = d.rides.find(r => r.purpose && !data.office_purposes.includes(r.purpose))?.purpose ?? d.rides.find(r => r.purpose)?.purpose ?? d.purpose
   const da = daFor(rule, d.da_kind, dayPurpose, data.office_purposes)
-  // Where a new ride's purpose and call centre come from: the last ride of this day, else of the latest earlier day, else the claim's project.
+  /*
+    Where a new ride's purpose and call centre come from: the last ride of this day, else of the latest earlier day.
+    A day's first ride starts on the person's own cost centre (te_0063; the user, 24 Oct: "on add claim, we need
+    defaulty show his cost centre only"), else the earlier day's, else the claim's project.
+  */
   const carry = (): Pick<Ride, 'purpose' | 'project'> => {
     const last = latest.current.rides[latest.current.rides.length - 1]
     if (last) return { purpose: last.purpose ?? null, project: last.project ?? null }
     const before = [...data.days].filter(x => x.id !== initial.id && x.day < latest.current.day && x.rides.length).sort((a, b) => a.day.localeCompare(b.day)).pop()
     const r = before?.rides[before.rides.length - 1]
-    return { purpose: r?.purpose ?? null, project: r?.project ?? (c.project || null) }
+    return { purpose: r?.purpose ?? null, project: c.cost_centre || r?.project || c.project || null }
   }
   /*
     The km box takes the map's km as soon as the map has the road (te_0060; the user, 23 Oct). Typed otherwise, it is
@@ -226,10 +230,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const visited = visitedPlaces(d.rides)
   // The month's budget with this day as it is now in the form: saved use, less this day as saved, plus this day now.
   const was = dayUse(data.days.find(x => x.id === initial.id)), now = dayUse(d), km0 = data.km_month
-  const budget = budgetLines(rule, data.policy, {
+  // The claim as it would be with this day as it is now, for the Advance meter: what it pays, less the late cut.
+  const claimNow = data.days.filter(x => x.id !== initial.id).reduce((t, x) => t + dayTotal({ ...x, hotel: x.room_by ? null : x.hotel }, rule), 0)
+    + dayTotal({ ...d, hotel: d.room_by ? null : d.hotel }, rule)
+  const adv = advanceLine(c.advance_box, advanceTakes(c.advance_box, claimNow - Math.round(claimNow * (c.late_pct / 100))))
+  const budget = [...budgetLines(rule, data.policy, {
     bike: km0.bike - was.bike + now.bike, car: km0.car - was.car + now.car,
     auto: km0.auto - was.auto + now.auto, phone: (km0.phone ?? 0) - was.phone + now.phone,
-  })
+  }), ...(adv ? [adv] : [])]
 
   // Road km once both ends of a ride are picked.
   /*

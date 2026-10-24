@@ -16,6 +16,7 @@ const Inbox   = lazyRoute(() => import('@/pages/Inbox'))
 const TeAdmin = lazyRoute(() => import('@/pages/TeAdmin'))
 const Summary = lazyRoute(() => import('@/pages/Summary'))
 const Bookings = lazyRoute(() => import('@/pages/Bookings'))
+const Advances = lazyRoute(() => import('@/pages/Advances'))
 
 export default function App() {
   const { session, loading, hasAccess, isAdmin, isDesk } = useAuth()
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="claims" element={<Months />} />
           <Route path="claim/:id" element={<Claim />} />
           <Route path="claim/:id/day" element={<DayPage />} />
+          <Route path="advances" element={<Advances />} />
           <Route path="places" element={<MyPlaces />} />
           <Route path="approvals" element={<Inbox />} />
           <Route path="bookings" element={isDesk || isAdmin ? <Bookings /> : <Navigate to="/" replace />} />
