@@ -35,6 +35,8 @@ export default function DeputationCard() {
   const change = current && pending?.replaces === current.id ? pending : null
   // The manager by first name ("Henry"), or "manager" for someone without one.
   const manager = data?.manager?.split(' ')[0] ?? 'manager'
+  // None in force, waiting or sent back: one line, Add on the right, as the cost centre beside it (the user, 26 Oct).
+  const empty = !current && !pending && !returned
 
   const openLetter = async (d: Deputation) => {
     const url = await letterUrl(d.letter_path)
@@ -59,6 +61,7 @@ export default function DeputationCard() {
             {shown ? `${depRange(shown.from_day, shown.to_day)} · ${depDays(shown.from_day, shown.to_day)} days${shown.status === 'approved' ? ` · DA ${money(data?.da ?? 800)} a day` : ''}` : 'None'}
           </p>
         </div>
+        {empty && <button type="button" className="btn-primary shrink-0 !py-1.5 text-sm" onClick={() => setForm({ base: null, replaces: null })}><Plus className="h-4 w-4" /> Add</button>}
         {shown && <span className={`badge shrink-0 whitespace-nowrap ${DEP_STATUS[shown.status].tone}`}>{shown.status === 'with_manager' ? `With ${manager}` : DEP_STATUS[shown.status].label}</span>}
       </div>
 
@@ -71,18 +74,17 @@ export default function DeputationCard() {
         <p className="mt-3 rounded-lg bg-cyrixRed-50 px-3 py-2 text-sm text-cyrixRed-800">Sent back by {returned.decided_name ?? manager}: “{returned.note}”</p>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      {(!empty || items.length > 0) && <div className="mt-3 flex flex-wrap gap-2">
         {shown && <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => void openLetter(shown)}><FileText className="h-4 w-4" /> Letter</button>}
         {current && !pending && <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => setForm({ base: current, replaces: current.id })}><Pencil className="h-4 w-4" /> Change</button>}
         {returned && <button type="button" className="btn-primary !py-1.5 text-sm" onClick={() => setForm({ base: returned, replaces: returned.replaces })}><Send className="h-4 w-4" /> Send again</button>}
-        {!current && !pending && !returned && <button type="button" className="btn-primary !py-1.5 text-sm" onClick={() => setForm({ base: null, replaces: null })}><Plus className="h-4 w-4" /> Add deputation</button>}
         {pending && <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => void withdraw(pending)}><Undo2 className="h-4 w-4" /> Withdraw</button>}
         {items.length > 0 && (
           <button type="button" className="btn-secondary !py-1.5 text-sm" aria-expanded={history} onClick={() => setHistory(h => !h)}>
             <History className="h-4 w-4" /> History <ChevronDown className={`h-4 w-4 transition-transform ${history ? 'rotate-180' : ''}`} />
           </button>
         )}
-      </div>
+      </div>}
       {err && <div className="mt-3"><Alert key={err.n} kind="error">{err.text}</Alert></div>}
 
       {history && (

@@ -96,8 +96,8 @@ export default function MyPlaces() {
       {home === null && <Alert kind="warning">{need ?? 'Home location is not yet set'}</Alert>}
       {/* Home, cost centre and deputation side by side on a computer (the user, 26 Oct: "in desktop can we make home,
           cost center and deputation in same row?"). */}
-      <div className="grid gap-4 lg:grid-cols-3">
-      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3 sm:col-span-2 lg:col-span-1">
         <span className={`${TILE} bg-emerald-100 text-emerald-700`}><House className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Home</p>
