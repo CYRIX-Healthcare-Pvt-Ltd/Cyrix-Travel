@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { Building2, House, IdCard, LocateFixed, Map as MapIcon, MapPin, Pencil, Plus, Trash2 } from 'lucide-react'
 import PlacePicker from '@/components/PlacePicker'
 import PlaceMapDialog from '@/components/PlaceMapDialog'
-import DeputationCard from '@/components/DeputationCard'
+import Deputations from '@/components/Deputations'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
@@ -17,8 +17,8 @@ import { distanceKm, km, rpc, type Place } from '@/lib/claims'
   often — to pick with one tap in any place picker. Added on the map, moved on it and renamed, removed.
 
   My profile since te_0075 (the user, 26 Oct: "make about changing my place tab to my details", then "my profile"):
-  the home, the cost centre, the deputation and the saved places, each with its own colour ("all icon are green
-  not good").
+  the home, the cost centre and the saved places, each with its own colour ("all icon are green not good"); the
+  deputation in a tab of its own ("better add sub tab?"), opened by ?tab=deputation from the bell.
 */
 const TILE = 'grid h-9 w-9 shrink-0 place-items-center rounded-xl'
 export interface SavedPlace extends Place { id: string }
@@ -49,6 +49,8 @@ export default function MyPlaces() {
   })
   // Sent here to set a home first, as an advance is from it (te_0063).
   const need = (useLocation().state as { need?: string } | null)?.need
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'deputation' ? 'deputation' : 'home'
   const [marking, setMarking] = useState(false)
   const [homeOnMap, setHomeOnMap] = useState(false)
   const setHomeAt = async (at: { lat: number; lng: number }, how: 'here' | 'map') => {
@@ -92,32 +94,40 @@ export default function MyPlaces() {
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><IdCard className="h-5 w-5 text-teal-600" /> My profile</h1>
+      <div className="inline-flex rounded-xl bg-ink-100 p-1" role="tablist">
+        {([['home', 'Home & places'], ['deputation', 'Deputation']] as const).map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setParams(k === 'home' ? {} : { tab: k }, { replace: true })}
+            className={`rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${tab === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {tab === 'deputation' ? <Deputations /> : <>
       {(fail || error) && <Alert kind="error">{fail ?? (error as Error).message}</Alert>}
       {home === null && <Alert kind="warning">{need ?? 'Home location is not yet set'}</Alert>}
-      {/* Home, cost centre and deputation side by side on a computer (the user, 26 Oct: "in desktop can we make home,
-          cost center and deputation in same row?"). */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3 sm:col-span-2 lg:col-span-1">
+      {/* Home and cost centre side by side from a tablet (the user, 26 Oct: "in desktop can we make home, cost center
+          and deputation in same row?"). */}
+      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3">
         <span className={`${TILE} bg-emerald-100 text-emerald-700`}><House className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Home</p>
           {home && <p className="truncate text-xs text-ink-500">{homeName ?? `${home.lat.toFixed(4)}, ${home.lng.toFixed(4)}`} · since {new Date(home.set_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{home.how === 'map' ? ' · set on the map' : ''}</p>}
         </div>
-        <div className="flex w-full gap-2 sm:w-auto lg:w-full">
-          <button type="button" className={`${home ? 'btn-secondary' : 'btn-primary'} flex-1 sm:flex-none lg:flex-1`} disabled={marking} onClick={() => void markHome()}>
+        <div className="flex w-full gap-2">
+          <button type="button" className={`${home ? 'btn-secondary' : 'btn-primary'} flex-1`} disabled={marking} onClick={() => void markHome()}>
             {marking ? <Spinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />} I'm at home
           </button>
-          <button type="button" className="btn-secondary flex-1 sm:flex-none lg:flex-1" onClick={() => setHomeOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
+          <button type="button" className="btn-secondary flex-1" onClick={() => setHomeOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
         </div>
       </div>
-      <div className="card flex items-center gap-3 px-4 py-3 lg:items-start">
+      <div className="card flex items-start gap-3 px-4 py-3">
         <span className={`${TILE} bg-sky-100 text-sky-700`}><Building2 className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Cost centre</p>
           <p className="truncate text-xs text-ink-500">{costCentre ?? 'Not mapped'}</p>
         </div>
       </div>
-      <DeputationCard />
       </div>
       <div className="flex items-center justify-between gap-3 pt-2">
         <h2 className="text-sm font-semibold text-ink-800">Saved places</h2>
@@ -140,6 +150,7 @@ export default function MyPlaces() {
           ))}
         </div>
       )}
+      </>}
       {adding && (
         <PlacePicker title="Add a place" start={null} quick={[]} askName
           onPick={async (p, name) => {

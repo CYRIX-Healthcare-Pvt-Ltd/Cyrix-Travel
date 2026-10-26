@@ -272,6 +272,20 @@ export const BILL_ALWAYS = ['Courier', 'Tools']
 /** A breakdown call: its ride names the ticket (te_0060). */
 export const isBreakdown = (purpose: string | null | undefined) => /breakdown/i.test(purpose ?? '')
 /** The km typed is not the map's (te_0060: "if any changes in km it should be added in observation"). */
+/*
+  The km a bike or car may claim: the map's road km, up to the tolerance less or more (10%, set by the admins). Outside
+  it the day does not save (the user, 26 Oct: "he shouldnt able to type less than and greater than the 10%").
+*/
+export function kmRange(mapKm: number, tolerance: number) {
+  // To a tenth, outward, past the float noise (10 km and 10% is 11.0, not 11.1).
+  const tenth = (v: number, f: (x: number) => number) => f(Math.round(v * 1e4) / 1e3) / 10
+  return { lo: tenth(mapKm * (1 - tolerance / 100), Math.floor), hi: tenth(mapKm * (1 + tolerance / 100), Math.ceil) }
+}
+export const kmOutside = (r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: number) => {
+  if (r.claimed_km == null || r.map_km == null) return false
+  const { lo, hi } = kmRange(r.map_km, tolerance)
+  return r.claimed_km < lo || r.claimed_km > hi
+}
 export const kmChanged = (r: Pick<Ride, 'claimed_km' | 'map_km'>) => r.claimed_km != null && r.map_km != null && Math.abs(r.claimed_km - r.map_km) > 0.05
 
 // ---------------------------------------------------------------- maps

@@ -16,7 +16,7 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmChanged, money, monthName, needsBill, newId,
+  DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
   areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
@@ -146,7 +146,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     } catch (e) { setErr(friendlyError(e as never)) } finally { setBusy(false) }
   }
   const c = data.claim, rule = data.rule
-  const over = Number(data.policy.bill_over ?? 300), metroPct = Number(data.policy.metro_extra_pct ?? 20)
+  const over = Number(data.policy.bill_over ?? 300), metroPct = Number(data.policy.metro_extra_pct ?? 20), tol = Number(data.policy.km_tolerance_pct ?? 10)
   const outOfState = d.da_kind === 'out_state_stay'
   // The day's purpose for its DA: a ride that gives DA, else the first (an office day has none).
   const dayPurpose = d.rides.find(r => r.purpose && !data.office_purposes.includes(r.purpose))?.purpose ?? d.rides.find(r => r.purpose)?.purpose ?? d.purpose
@@ -438,6 +438,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const n = `ride ${i + 1}`, to = 'ride-' + r.id, m = MODES[r.mode]
     if (r.from_lat == null || r.to_lat == null) blockers.push({ text: `Pick the from and to of ${n} on the map`, to })
     if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
+    // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
+    else if (m.perKm && kmOutside(r, tol)) blockers.push({ text: `The km of ${n} does not match the map (${km(r.map_km)})`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
@@ -622,7 +624,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       {m.perKm ? (
                         <span className="relative min-w-0 max-w-[8rem] flex-1">
                           <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full pr-9" value={r.claimed_km ?? ''} placeholder="0"
-                            onChange={e => setRide(r.id, { claimed_km: e.target.value === '' ? null : Number(e.target.value) })} />
+                            onChange={e => {
+                              const v = e.target.value === '' ? null : Number(e.target.value)
+                              // A key past the map's km and its 10% is not taken: map 10, "12" stays "1" (the user, 26 Oct).
+                              if (v != null && r.map_km != null && v > kmRange(r.map_km, tol).hi) return
+                              setRide(r.id, { claimed_km: v })
+                            }}
+                            // Emptied and left: the map's km again (the user, 26 Oct).
+                            onBlur={() => { if (r.claimed_km == null && r.map_km != null) setRide(r.id, { claimed_km: r.map_km }) }} />
                           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
                         </span>
                       ) : (
@@ -678,7 +687,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {r.map_km != null && (
                       <div className="mt-1.5 flex items-center gap-3 pl-6">
                         <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmChanged(r) ? ' · changed' : ''}
+                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmOutside(r, tol) ? ' · km does not match' : m.perKm && kmChanged(r) ? ' · changed' : ''}
                         </p>
                         <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
                           <MapIcon className="h-3.5 w-3.5" /> View on map

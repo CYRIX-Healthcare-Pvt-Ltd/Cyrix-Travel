@@ -10,8 +10,8 @@ import { newId, rpc } from '@/lib/claims'
 export interface Deputation {
   id: string; employee_id: string; state: string; from_day: string; to_day: string
   letter_path: string; letter_name: string | null
-  status: 'with_manager' | 'approved' | 'returned' | 'withdrawn' | 'replaced'
-  replaces: string | null; was: { state: string; from_day: string; to_day: string } | null
+  status: 'with_manager' | 'approved' | 'returned' | 'withdrawn' | 'replaced' | 'edited'
+  replaces: string | null; root: string | null; was: { state: string; from_day: string; to_day: string } | null
   decided_by: string | null; decided_name: string | null; decided_ecode: string | null; decided_at: string | null; note: string | null
   created_at: string; name: string; ecode: string
 }
@@ -26,6 +26,7 @@ export const DEP_STATUS: Record<Deputation['status'], { label: string; tone: str
   returned: { label: 'Sent back', tone: 'bg-cyrixRed-100 text-cyrixRed-900' },
   withdrawn: { label: 'Withdrawn', tone: 'bg-slate-100 text-slate-900' },
   replaced: { label: 'Changed', tone: 'bg-slate-100 text-slate-900' },
+  edited: { label: 'Edited', tone: 'bg-slate-100 text-slate-900' },
 }
 
 /** India's states and union territories, as the map names them. */

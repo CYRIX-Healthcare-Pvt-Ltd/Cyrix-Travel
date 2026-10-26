@@ -4,6 +4,7 @@ import BillView from '@/components/BillView'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { money, rpc } from '@/lib/claims'
+import { clockTime } from '@/lib/when'
 import { DEP_STATUS, depDays, depRange, letterUrl, useDepInbox, useDepRefresh, useMyDeputations, type InboxDeputation } from '@/lib/deputation'
 
 /*
@@ -88,7 +89,7 @@ function Row({ d }: { d: InboxDeputation }) {
       {d.was && <p className="text-xs text-ink-600">Change from {d.was.state} · {depRange(d.was.from_day, d.was.to_day)}</p>}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
         <span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span>
-        <span>Asked {new Date(d.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+        <span>Asked {new Date(d.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, {clockTime(d.created_at)}</span>
         {d.decided_name && d.status !== 'with_manager' && <span>{d.status === 'returned' ? 'Sent back' : 'Approved'} by {d.decided_name} ({d.decided_ecode})</span>}
         {d.note && <span className={d.status === 'returned' ? 'text-cyrixRed-700' : ''}>“{d.note}”</span>}
       </div>
