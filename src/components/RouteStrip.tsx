@@ -69,7 +69,7 @@ export default function RouteStrip({ days, rule, grade }: { days: Day[]; rule: R
               <m.icon x={(x1 + x2) / 2 - 9} y={14} width={18} height={18} className="mode-ink" style={inkVars(m)} strokeWidth={2.2} />
               {outOfPolicy(ride.mode, rule) && (
                 // A press says what the mark means — a phone has no hover (the user, 21 Oct).
-                <g role="button" aria-label="Why the red mark" className="cursor-pointer" onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, grade))}>
+                <g role="button" aria-label="Why the red mark" className="cursor-pointer" onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, grade), 'warn')}>
                   <title>{policyNote(m.label, grade)}</title>
                   <circle cx={(x1 + x2) / 2 + 20} cy={15} r={16} fill="transparent" />
                   <circle cx={(x1 + x2) / 2 + 20} cy={15} r={8} fill="#E30613" stroke="rgb(var(--surface))" strokeWidth={2} />

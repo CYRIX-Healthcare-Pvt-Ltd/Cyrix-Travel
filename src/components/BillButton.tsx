@@ -109,7 +109,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       if (read.route && onTicket) onTicket(read.route, mode, read.refs)
       if (read.stay && onStay) onStay(read.stay)
       onChange()
-    } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Bill not attached', (e as Error).message) } finally { setBusy(null) }
+    } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Bill not attached', (e as Error).message, 'warn') } finally { setBusy(null) }
   }
   // Opened in the app, never in another tab (the user, 17 Oct).
   const [viewing, setViewing] = useState<{ url: string; name: string } | null>(null)

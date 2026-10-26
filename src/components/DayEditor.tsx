@@ -443,7 +443,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const save = async () => {
     setErr(null)
     if (blockers.length) {
-      await ask.alert('To save, still needed', blockers.map(b => `• ${b.text}`).join('\n'))
+      await ask.alert('To save, still needed', blockers.map(b => `• ${b.text}`).join('\n'), 'warn')
       goTo(blockers[0].to)
       return
     }

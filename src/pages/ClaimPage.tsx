@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
@@ -38,6 +38,19 @@ export default function ClaimPage() {
   // The decision panel says its own result, where the button was pressed (the user, 17 Oct).
   const [panel, setPanel] = useState<{ ok: boolean; text: string } | null>(null)
   const noteBox = useRef<HTMLTextAreaElement>(null)
+  // The check box on screen: the bar at the foot that leads to it steps aside (the user, 26 Oct: managers did not find it).
+  const [checkSeen, setCheckSeen] = useState(false)
+  const seen = useRef<IntersectionObserver | null>(null)
+  const checkBox = useCallback((el: HTMLElement | null) => {
+    seen.current?.disconnect()
+    if (!el) { setCheckSeen(false); return }
+    seen.current = new IntersectionObserver(([e]) => setCheckSeen(e.isIntersecting), { threshold: 0.3 })
+    seen.current.observe(el)
+  }, [])
+  const toCheck = () => {
+    document.getElementById('claim-check')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    window.setTimeout(() => noteBox.current?.focus({ preventScroll: true }), 450)
+  }
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
   // An approver changing one figure (te_0027).
@@ -102,7 +115,7 @@ export default function ClaimPage() {
   const need = c.mine && c.can_edit ? missingBills(data, over) : []
   const send = async () => {
     if (need.length) { setMsg(null); setFail(null); showBill(need[0].id); return }
-    if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send' })) void run('te_submit', { p_claim: c.id }, 'Sent.')
+    if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send', icon: Send, go: true })) void run('te_submit', { p_claim: c.id }, 'Sent.')
   }
   // Delete / request deletion / Excel: one row with the person's buttons (the user, 17 Oct).
   const excel = data.days.length > 0 && (
@@ -142,13 +155,19 @@ export default function ClaimPage() {
       const r = await act.mutateAsync({ fn, args })
       const text = typeof r === 'string' && fn === 'te_submit' ? `Sent to your manager as ${r}.` : done
       setMsg(text); setNote('')
-      void ask.alert(fn === 'te_submit' ? 'Claim sent' : 'Done', text)
+      void ask.alert(fn === 'te_submit' ? 'Claim sent' : 'Done', text, 'success')
     }
     catch (e) { setFail((e as Error).message) }
   }
   const decide = async (approve: boolean) => {
     setPanel(null)
     if (!approve && !note.trim()) { setPanel({ ok: false, text: "Write why it's going back" }); noteBox.current?.focus(); return }
+    // Every decision asks first, from the box and from the bar alike; Cancel, the cross and Escape do nothing (the user,
+    // 26 Oct: "Why on close button it is approving? check for all" — the box's Approve went straight through).
+    const what = c.number ?? `the ${monthName(c.month)} claim`
+    if (!(await ask.confirm(approve
+      ? { title: `Approve ${what}?`, body: `${c.name} · ${money(total)}`, yes: 'Approve', icon: Check, go: true }
+      : { title: `Send ${what} back?`, body: `${c.name} · “${note.trim()}”`, yes: 'Send back', icon: CornerUpLeft }))) return
     try {
       const next = await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: approve, p_note: note } }) as string
       const who = `${c.number ?? monthName(c.month)} · ${c.name}`
@@ -157,12 +176,13 @@ export default function ClaimPage() {
         : next === 'with_coordinator' ? `${who} approved and passed to the coordinator.`
         : next === 'with_desk' ? `${who} approved and passed to the Travel Desk.`
         : `${who} approved.`
-      await ask.alert(approve ? 'Claim approved' : 'Claim sent back', done)
+      await ask.alert(approve ? 'Claim approved' : 'Claim sent back', done, approve ? 'success' : 'info')
       nav('/approvals', { state: { done } })
     } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
+  const checkTitle = c.status === 'with_desk' ? 'Travel Desk check' : c.status === 'with_coordinator' ? 'Coordinator check' : 'Manager check'
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${c.can_decide ? 'pb-20 lg:pb-16' : ''}`}>
       <Link to={c.mine ? '/claims' : '/approvals'} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.mine ? 'My claims' : 'Approvals'}</Link>
 
       {/* ---- header, a stripe and a wash of its status's colour (the user, 19 Oct: "emphasis colour for this container") ---- */}
@@ -188,7 +208,7 @@ export default function ClaimPage() {
             <button type="button" className="btn-lift mb-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
               onClick={async () => {
                 if (c.status === 'with_manager') {
-                  if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change it. Send it again when done.`, yes: 'Recall' }))) return
+                  if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change it. Send it again when done.`, yes: 'Recall', icon: Undo2 }))) return
                   try { await act.mutateAsync({ fn: 'te_recall', args: { p_claim: c.id } }) } catch (e) { setFail((e as Error).message); return }
                 }
                 const last = data.days[data.days.length - 1]
@@ -285,7 +305,7 @@ export default function ClaimPage() {
               {need.length ? `${need.length} bill${need.length === 1 ? '' : 's'} needed` : `${data.days.length} day${data.days.length === 1 ? '' : 's'}`}
             </span>
           </span>
-          <button type="button" className="btn-primary h-11 shrink-0 px-5 text-base" disabled={act.isPending} onClick={() => void send()}>
+          <button type="button" className="btn-primary btn-go h-11 shrink-0 px-5 text-base" disabled={act.isPending} onClick={() => void send()}>
             {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Send to manager
           </button>
         </div>
@@ -295,16 +315,44 @@ export default function ClaimPage() {
            "why add claim here? we dont need continuation claim button") ---- */}
       {c.can_edit && tail}
 
-      {/* ---- whoever it waits on ---- */}
+      {/* ---- whoever it waits on: the box stands out (the user, 26 Oct: "it is not easy to find it, so emphasis it") ---- */}
       {c.can_decide && (
-        <div className="card space-y-3 p-4">
-          <h2 className="text-sm font-semibold text-ink-900">{c.status === 'with_desk' ? 'Travel Desk check' : c.status === 'with_coordinator' ? 'Coordinator check' : 'Manager check'}</h2>
-          <textarea ref={noteBox} rows={2} className={`input ${panel && !panel.ok && !note.trim() ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-200' : ''}`} value={note}
+        <section id="claim-check" ref={checkBox} className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-4 shadow-md sm:p-5">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-violet-600 text-white shadow-sm"><ClipboardCheck className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-bold text-ink-900">{checkTitle}</h2>
+              <p className="truncate text-sm text-ink-600">{[c.number, c.name, money(total)].filter(Boolean).join(' · ')}</p>
+            </div>
+            <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-200 sm:inline-flex">
+              <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full rounded-full bg-violet-500 opacity-60 motion-safe:animate-ping" /><span className="relative inline-flex h-2 w-2 rounded-full bg-violet-600" /></span>
+              Waiting for you
+            </span>
+          </div>
+          <textarea ref={noteBox} rows={2} className={`input mt-4 bg-surface ${panel && !panel.ok && !note.trim() ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-200' : ''}`} value={note}
             onChange={e => { setNote(e.target.value); if (panel && !panel.ok) setPanel(null) }} placeholder="Note (needed to send back)" />
-          {panel && <p className={`text-sm ${panel.ok ? 'text-green-700' : 'text-cyrixRed-700'}`}>{panel.text}</p>}
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary" disabled={act.isPending} onClick={() => void decide(true)}><Check className="h-4 w-4" /> Approve</button>
-            <button type="button" className="btn-secondary" disabled={act.isPending} onClick={() => void decide(false)}><CornerUpLeft className="h-4 w-4" /> Send back</button>
+          {panel && <p className={`mt-2 text-sm ${panel.ok ? 'text-green-700' : 'text-cyrixRed-700'}`}>{panel.text}</p>}
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:flex sm:justify-end">
+            <button type="button" className="btn-secondary !border-amber-300 !bg-amber-50 !text-amber-800 hover:!bg-amber-100 h-12 text-[15px] font-medium sm:px-6" disabled={act.isPending} onClick={() => void decide(false)}><CornerUpLeft className="h-4 w-4" /> Send back</button>
+            <button type="button" className="btn-primary btn-go h-12 text-[15px] font-semibold sm:px-8" disabled={act.isPending} onClick={() => void decide(true)}><Check className="h-4 w-4" /> Approve</button>
+          </div>
+        </section>
+      )}
+      {/* Until the box is on screen, a bar at the foot: Approve (which asks first, as in the box), Send back goes to the note. */}
+      {c.can_decide && (
+        <div className={`fixed inset-x-0 bottom-16 z-20 mx-auto max-w-7xl px-4 transition duration-200 lg:bottom-4 ${checkSeen ? 'pointer-events-none translate-y-3 opacity-0' : ''}`} aria-hidden={checkSeen || undefined}>
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-300 bg-violet-50 px-4 py-3 shadow-lg">
+            <span className="min-w-0 leading-tight">
+              <span className="block whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-violet-700"><span className="sm:hidden">{c.number ?? checkTitle}</span><span className="hidden sm:inline">{checkTitle}</span></span>
+              <span className="block text-2xl font-bold tabular-nums text-ink-900">{money(total)}</span>
+            </span>
+            <span className="flex shrink-0 gap-2">
+              <button type="button" tabIndex={checkSeen ? -1 : undefined} className="btn-secondary !border-amber-300 !bg-amber-50 !text-amber-800 hover:!bg-amber-100 h-11 px-3 sm:px-4" disabled={act.isPending} onClick={toCheck}><CornerUpLeft className="h-4 w-4" /> Send back</button>
+              <button type="button" tabIndex={checkSeen ? -1 : undefined} className="btn-primary btn-go h-11 px-4 sm:px-5" disabled={act.isPending}
+                onClick={() => void decide(true)}>
+                <Check className="h-4 w-4" /> Approve
+              </button>
+            </span>
           </div>
         </div>
       )}
@@ -459,7 +507,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
                     {/* A press says what the mark means — a phone has no hover (the user, 21 Oct). */}
                     {bad && <button type="button" className="btn-press grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white hover:bg-cyrixRed-700" title={policyNote(m.label, c.grade)} aria-label="Why the red mark"
-                      onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, c.grade))}>!</button>}
+                      onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, c.grade), 'warn')}>!</button>}
                   </span>
                   {/* From, a small arrow, To (the user, 21 Oct: "show a small arrow also in the middle"). */}
                   <span className="grid min-w-0 grid-cols-[0.5rem_minmax(0,1fr)] items-start gap-x-2 text-ink-800 sm:hidden">
@@ -565,6 +613,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => void }) {
   const c = data.claim
   const act = useClaimAction()
+  const ask = useAsk()
   const [paidOn, setPaidOn] = useState(todayIso())
   const [utr, setUtr] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -575,7 +624,7 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
         <input type="date" className="input mt-1 w-44" max={todayIso()} value={paidOn} onChange={e => setPaidOn(e.target.value)} /></label>
       <label className="block"><span className="label">UTR</span>
         <input className="input mt-1 w-56 font-mono uppercase" value={utr} onChange={e => setUtr(e.target.value)} placeholder="Transaction reference" /></label>
-      <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>
+      <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); if (!(await ask.confirm({ title: `Mark ${c.number ?? 'this claim'} paid?`, body: `${c.name} · UTR ${utr.trim().toUpperCase()}`, yes: 'Mark paid', icon: Wallet, go: true }))) return; try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>
       {err && <span className="text-sm text-cyrixRed-700">{err}</span>}
     </div>
   )

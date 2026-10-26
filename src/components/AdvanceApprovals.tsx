@@ -57,6 +57,8 @@ function Row({ a }: { a: InboxAdvance }) {
   const s = ADVANCE_STATUS[a.status]
   const decide = async (approve: boolean) => {
     let note: string | null = null
+    // Approving asks first too (the user, 26 Oct: "check for all pop up").
+    if (approve && !(await ask.confirm({ title: `Approve ${a.number}?`, body: `${a.name} · ${money(a.amount)}`, yes: 'Approve', icon: Check, go: true }))) return
     if (!approve) {
       note = await ask.prompt({ title: `Decline ${a.number}?`, body: `${a.name} · ${money(a.amount)}`, label: 'Why is it declined?', yes: 'Decline' })
       if (!note) return

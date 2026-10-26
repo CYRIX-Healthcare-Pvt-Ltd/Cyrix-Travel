@@ -1849,3 +1849,37 @@
 @media (prefers-reduced-motion: reduce) {
   .bill-spark, .bill-scan path:last-child { animation: none; }
 }
+
+/* The app's questions and messages (Ask): up from the bottom on a phone, a soft pop in the middle on a computer;
+   each badge pops in, breathes out a ring once and draws its icon; a claim sent or approved draws its tick. */
+@keyframes ask-shade { from { opacity: 0; } }
+@keyframes ask-sheet { from { transform: translateY(100%); } }
+@keyframes ask-pop { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+@keyframes ask-fade { from { opacity: 0; } }
+@keyframes ask-check { to { stroke-dashoffset: 0; } }
+@keyframes ask-burst { from { transform: scale(1); opacity: .3; } to { transform: scale(1.9); opacity: 0; } }
+@keyframes ask-badge { from { transform: scale(.4); opacity: 0; } }
+@keyframes ask-draw { to { stroke-dashoffset: 0; } }
+.ask-shade { animation: ask-shade 220ms ease; }
+.ask-panel { animation: ask-sheet 340ms var(--ease-out); }
+@media (min-width: 640px) { .ask-panel { animation: ask-pop 240ms var(--ease-out); } }
+.ask-check { stroke-dasharray: 1; stroke-dashoffset: 1; animation: ask-check 450ms 220ms var(--ease-out) forwards; }
+.ask-burst { opacity: 0; animation: ask-burst 900ms 200ms ease-out forwards; }
+.ask-badge { animation: ask-badge 520ms 60ms cubic-bezier(.34, 1.56, .64, 1) both; }
+/* Lucide strokes are under 100 long in their 24-wide box, so one dash of 100 draws each whole. */
+.ask-draw :is(path, line, polyline, polygon, circle, rect) { stroke-dasharray: 100; stroke-dashoffset: 100; animation: ask-draw 750ms 240ms var(--ease-out) forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .ask-panel { animation: ask-fade 200ms ease; }
+  .ask-check { animation: none; stroke-dashoffset: 0; }
+  .ask-burst { display: none; }
+  .ask-badge { animation: none; }
+  .ask-draw :is(path, line, polyline, polygon, circle, rect) { animation: none; stroke-dashoffset: 0; }
+}
+
+/* Approve and Send: the words turn green on hover (the user, 26 Oct; "for submit also"): bright green on the black button in light,
+   deep green on the near-white button in dark. Literal greens, as the themed 700 turns pale in dark. */
+.btn-go:hover:not(:disabled), .btn-go:focus-visible:not(:disabled) { color: #4ade80; }
+:root[data-theme='dark'] .btn-go:hover:not(:disabled), :root[data-theme='dark'] .btn-go:focus-visible:not(:disabled) { color: #15803d; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .btn-go:hover:not(:disabled), :root:not([data-theme='light']) .btn-go:focus-visible:not(:disabled) { color: #15803d; }
+}

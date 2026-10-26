@@ -101,8 +101,8 @@ export default function Inbox() {
             const list = issues[c.id], red = list.some(i => i.level === 'approve'), I = red ? ShieldAlert : TriangleAlert
             return (
               <span role="button" tabIndex={0} title={list.map(i => i.title).join(', ')}
-                onClick={e => { e.preventDefault(); e.stopPropagation(); void ask.alert(`${c.number ?? ''} · ${red ? 'Out of policy' : 'To check'}`, list.map(i => i.title).join('\n')) }}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void ask.alert(`${c.number ?? ''} · ${red ? 'Out of policy' : 'To check'}`, list.map(i => i.title).join('\n')) } }}
+                onClick={e => { e.preventDefault(); e.stopPropagation(); void ask.alert(`${c.number ?? ''} · ${red ? 'Out of policy' : 'To check'}`, list.map(i => i.title).join('\n'), red ? 'warn' : 'info') }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void ask.alert(`${c.number ?? ''} · ${red ? 'Out of policy' : 'To check'}`, list.map(i => i.title).join('\n'), red ? 'warn' : 'info') } }}
                 className={`btn-press inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${red ? 'bg-cyrixRed-100 text-cyrixRed-700 hover:bg-cyrixRed-200' : 'bg-ink-100 text-ink-700 ring-1 ring-ink-200 hover:bg-ink-200'}`}>
                 <I className={`h-3.5 w-3.5 ${red ? "" : "text-amber-600"}`} />{red ? 'Out of policy' : 'To check'}{list.length > 1 ? ` · ${list.length}` : ''}
               </span>

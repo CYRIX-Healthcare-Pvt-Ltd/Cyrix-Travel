@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, Paperclip, Pencil, ReceiptText, Trash2 } from 'lucide-react'
+import { ChevronRight, Paperclip, Pencil, ReceiptText, Trash2, Undo2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAsk } from '@/components/Ask'
@@ -79,7 +79,7 @@ export default function Months() {
                     onClick={async e => {
                       e.preventDefault(); e.stopPropagation()
                       if (c.status === 'with_manager') {
-                        if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change bills or km. Send it again when done.`, yes: 'Recall' }))) return
+                        if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change bills or km. Send it again when done.`, yes: 'Recall', icon: Undo2 }))) return
                         try { await rpc('te_recall', { p_claim: c.id }); await qc.invalidateQueries({ queryKey: ['te_my_claims'] }) } catch (x) { setErr((x as Error).message); return }
                       }
                       nav(`/claim/${c.id}?edit=1`)

@@ -31,12 +31,12 @@ export default function ReportButton({ claimId, ticketId, bills, editable, onCha
     if (!f) return
     setBusy(true)
     try { await uploadReport(claimId, ticketId, f); onChange() }
-    catch (e) { void ask.alert('Service report not attached', (e as Error).message) }
+    catch (e) { void ask.alert('Service report not attached', (e as Error).message, 'warn') }
     finally { setBusy(false) }
   }
   const remove = async (b: Bill) => {
     const { data: path, error } = await supabase.rpc('te_remove_bill', { p_bill: b.id })
-    if (error) { void ask.alert('Not removed', error.message); return }
+    if (error) { void ask.alert('Not removed', error.message, 'warn'); return }
     if (path) await supabase.storage.from('te-bills').remove([path as string])
     onChange()
   }

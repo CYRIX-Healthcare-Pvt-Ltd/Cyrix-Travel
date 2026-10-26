@@ -183,13 +183,14 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
           there why downward?"); each kind its own colour — saved amber star, home teal, hotel violet, hospital red,
           a place used before a grey pin.
         */}
+        {/* A place used before that is already saved shows once, as the saved star (the user, 26 Oct: "what is this 2 work?"). */}
         {((saved ?? []).length > 0 || quick.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
             {(saved ?? []).map(p => (
               <button key={p.id} type="button" className="inline-flex items-center gap-1 rounded-full border border-ink-200 px-3 py-1 text-xs font-medium text-ink-900 hover:bg-ink-100"
                 onClick={() => void put(p.lat, p.lng, p.name)}><Star className="h-3.5 w-3.5 text-amber-500" />{p.name}</button>
             ))}
-            {quick.map((p, i) => {
+            {quick.filter(p => p.home || p.stay || !(saved ?? []).some(x => distanceKm(x, p) < 0.15)).map((p, i) => {
               const Icon = p.home ? Home : p.stay ? BedDouble : p.hospital ? Hospital : MapPin
               const ink = p.home ? 'text-teal-600' : p.stay ? 'text-violet-600' : p.hospital ? 'text-cyrixRed-600' : 'text-ink-400'
               return (
@@ -217,7 +218,8 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
                 onClick={() => { setFound([]); setLearned([]); setQ(''); void put(p.lat, p.lng, p.name) }}>
                 <Hospital className="h-4 w-4 shrink-0 text-cyrixRed-600" />
                 <span className="min-w-0 flex-1 truncate font-medium text-ink-900">{p.short}</span>
-                <span className="shrink-0 text-xs text-ink-500">{[p.district, `${p.visits} visit${p.visits === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</span>
+                {/* The district only; no visit count in the list (the user, 26 Oct: "dont show the visit count here"). */}
+                {p.district && <span className="shrink-0 text-xs text-ink-500">{p.district}</span>}
               </button>
             ))}
             {found.map((p, i) => (
