@@ -672,15 +672,25 @@ async function pdfText(file: Blob): Promise<string> {
 export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null }> {
   let raw = ''
   if (file.type === 'application/pdf') raw = await pdfText(file).catch(() => '')
-  // A photo is read word by word, each with how sure the reader is of it (0–100).
-  let words: Array<{ text: string; confidence: number }> | null = null
+  // A photo is read word by word, each with how sure the reader is of it (0–100), letter by letter.
+  let words: OcrWord[] | null = null
+  let upi: number | null = null
   if (file.type.startsWith('image/')) {
-    const { createWorker } = await import('tesseract.js')
+    const { createWorker, PSM } = await import('tesseract.js')
     const worker = await createWorker('eng')
     try {
-      const { data } = await worker.recognize(await shrink(file), {}, { text: true, blocks: true })
+      const img = await shrink(file)
+      const { data } = await worker.recognize(img, {}, { text: true, blocks: true })
       raw = data.text
-      words = (data.words ?? []).map(w => ({ text: w.text, confidence: w.confidence }))
+      words = ocrWords(data.words)
+      if (PAYMENT_SCREEN.test(raw)) {
+        upi = upiAmount(words)
+        // Read as one block of text, the screen's big amount is passed over; read again for text anywhere.
+        if (upi == null) {
+          await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT })
+          upi = upiAmount(ocrWords((await worker.recognize(img, {}, { text: true, blocks: true })).data.words))
+        }
+      }
     } finally { void worker.terminate() }
   }
   if (!raw.trim()) return { amount: null, date: null, billno: null, refs: [] }
@@ -690,14 +700,16 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   const text = raw.replace(/[Oo](?=\d)/g, '0').replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
   const lines = text.split('\n')
   const figs = (s: string) => [...s.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => n > 0 && n < 200000)
-  let amount: number | null = null
-  for (const l of lines) if (/total|grand|net\s*(amt|amount|payable)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
+  let amount: number | null = upi
+  if (amount == null) for (const l of lines) if (/total|grand|net\s*(amt|amount|payable)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
   if (amount == null) for (const l of lines) if (/amount|amt|fare|paid|payable|rs\.?|inr|₹/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
   if (amount == null) {
     const paise = [...text.matchAll(/(\d{1,6})\.(\d{2})(?!\d)/g)].map(m => Number(m[1] + '.' + m[2])).filter(n => n > 0 && n < 200000)
     if (paise.length) amount = Math.max(...paise)
   }
-  const bm = text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
+  // A UPI payment's own number (its UPI transaction ID or UTR, 12 digits), else the bill's.
+  const um = PAYMENT_SCREEN.test(raw) ? text.match(/(?:UPI\s*(?:transaction|txn|ref(?:erence)?)\s*(?:id|no\.?|number)?|UTR(?:\s*no\.?)?)\s*[:.-]?\s*(\d{12})(?!\d)/i) : null
+  const bm = um ?? text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
   // No date: the person enters the day, and the bill's own date is not needed (the user, 19 Oct).
   /*
     A photo's amount and bill number are used only when the words that hold them were read surely (the
@@ -707,16 +719,70 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   */
   const sure = (value: string | number | null) => {
     if (value == null || !words) return value != null
+    if (value === upi) return true
     const want = String(value).replace(/\.0+$/, '').replace(/[^0-9A-Z]/gi, '').toUpperCase()
     if (!want) return false
     const hits = words.filter(w => { const t = w.text.replace(/[^0-9A-Z]/gi, '').toUpperCase(); return t.length > 0 && (t === want || t.includes(want)) })
-    return hits.length > 0 && Math.max(...hits.map(w => w.confidence)) >= SURE
+    // A figure is judged by its own digits: a ₹ read as R or ¥ beside it does not make it unsure.
+    return hits.length > 0 && Math.max(...hits.map(w => (/^\d+$/.test(want) ? digitsSure(w) : w.confidence))) >= SURE
   }
   const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null)
   return { amount: sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay }
 }
 /** How sure the reader must be of a photo's figure (0–100) for it to be used. */
 const SURE = 80
+type OcrWord = { text: string; confidence: number; h: number; symbols: Array<{ text: string; confidence: number; h: number }> }
+const ocrWords = (list: Array<{ text: string; confidence: number; bbox: { y0: number; y1: number }; symbols?: Array<{ text: string; confidence: number; bbox: { y0: number; y1: number } }> }> | undefined): OcrWord[] =>
+  (list ?? []).map(w => ({ text: w.text, confidence: w.confidence, h: w.bbox.y1 - w.bbox.y0, symbols: (w.symbols ?? []).map(x => ({ text: x.text, confidence: x.confidence, h: x.bbox.y1 - x.bbox.y0 })) }))
+const digitsSure = (w: OcrWord) => { const d = w.symbols.filter(x => /\d/.test(x.text)); return d.length ? Math.min(...d.map(x => x.confidence)) : w.confidence }
+const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : 0 }
+/*
+  A UPI payment screen — Google Pay, PhonePe, Paytm, BHIM (the user, 26 Oct: a Google Pay screenshot's amount was not
+  read at the demo). Its amount is the biggest figure on it, with a smaller ₹ before it ("the rupee sign is small size
+  comparing the numbers isnt? so why taking that?"): the reader takes that ₹ for a letter or a digit, and read ₹30 as
+  "R30", "x30" and "230". What is not a number before the digits is dropped ("what if we can avoid the text that is
+  not a number?"), and so is a first digit much shorter than the rest — the ₹ read as a 2.
+*/
+const PAYMENT_SCREEN = /\bUPI\b|\bUTR\b|transaction\s*id|google\s*pay|\bG\s?Pay\b|phone\s*pe|paytm|\bBHIM\b|paid\s+(?:to|successfully)|payment\s+(?:of|successful)|money\s+sent/i
+// What the reader makes of a ₹ (or Rs, INR); a +91, a # or a masked account's XXXX before digits is not a sign.
+const RUPEE = /^(?:[₹RZFXT%¥&=<€£$]|rs\.?|inr)$/i
+function figureOf(w: OcrWord): { value: number; h: number; sure: number; signed: boolean } | null {
+  let sy = w.symbols.length ? w.symbols : [...w.text].map(t => ({ text: t, confidence: w.confidence, h: w.h }))
+  while (sy.length && /[,.)\]]/.test(sy[sy.length - 1].text)) sy = sy.slice(0, -1)
+  const first = sy.findIndex(x => /\d/.test(x.text))
+  if (first < 0) return null
+  const sign = sy.slice(0, first).map(x => x.text).join('')
+  if (sign && !RUPEE.test(sign)) return null
+  sy = sy.slice(first)
+  let signed = sign !== ''
+  const digitH = (xs: typeof sy) => xs.filter(x => /\d/.test(x.text)).map(x => x.h)
+  // A ₹ read as a digit is a 2 or a 7 by its shape; a short 0 is a masked number's dot (PhonePe's "•3247").
+  if (digitH(sy).length >= 2 && /^[27]$/.test(sy[0].text) && sy[0].h < 0.8 * median(digitH(sy.slice(1)))) { sy = sy.slice(1); signed = true }
+  const body = sy.map(x => x.text).join('')
+  if (!/^(?:\d{1,3}(?:,\d{2,3})+|\d{1,6})(?:\.\d{1,2})?$/.test(body)) return null
+  const d = sy.filter(x => /\d/.test(x.text))
+  return { value: Number(body.replace(/,/g, '')), h: median(d.map(x => x.h)), sure: Math.min(...d.map(x => x.confidence)), signed }
+}
+/*
+  The screen's amount: the one figure clearly bigger than everything else on it (Google Pay, Paytm), read surely; else,
+  where the amount is no bigger than the rest (PhonePe's details), the figures with a ₹ before them, when they agree.
+  A lone digit with no ₹ is an icon read as one (PhonePe's arrow became a big "8"), never the amount. Anything unsure,
+  or the big figure and the ₹ figures disagreeing, is not read, and the person types it.
+*/
+function upiAmount(words: OcrWord[]): number | null {
+  // Google Pay's "Payment of ₹7 completed" holds the amount even when its ₹ is not read at all.
+  const figs = words.map((w, i) => { const f = figureOf(w); return f && /^payment$/i.test(words[i - 2]?.text ?? '') && /^of$/i.test(words[i - 1]?.text ?? '') ? { ...f, signed: true } : f })
+    .filter((x): x is NonNullable<typeof x> => !!x && x.value > 0 && x.value < 200000 && (x.signed || x.value >= 10))
+  if (!figs.length) return null
+  const text = median(words.filter(w => w.text.length >= 2).map(w => w.h))
+  const top = figs.reduce((a, b) => (b.h > a.h ? b : a))
+  const isBig = top.h >= 1.8 * text
+  const signed = [...new Set(figs.filter(x => x.signed && x.sure >= SURE && !(isBig && x === top)).map(x => x.value))]
+  if (signed.length > 1) return null
+  if (!isBig) return signed[0] ?? null
+  const big = top.sure >= SURE && !figs.some(x => x.h >= 0.8 * top.h && x.value !== top.value) ? top.value : null
+  return big != null && (signed.length === 0 || signed[0] === big) ? big : null
+}
 /** A phone photo made no wider than 2000px first: read as well, and many times faster. */
 async function shrink(file: Blob): Promise<Blob> {
   try {

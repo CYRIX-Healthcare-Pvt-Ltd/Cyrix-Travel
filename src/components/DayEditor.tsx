@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -42,6 +42,16 @@ const blankRide = (from?: Place | null, carry?: Pick<Ride, 'purpose' | 'project'
 })
 /** A breakdown ride's ticket ID, from the ticket kept under the ride's id (te_0060). */
 const withTickets = (day: Day): Day => ({ ...day, rides: day.rides.map(r => ({ ...r, ticket_no: r.ticket_no ?? day.tickets.find(t => t.id === r.id)?.ticket_no ?? '' })) })
+
+/*
+  An amount a bill can fill says so (the user, 26 Oct: management wants people to know attaching a bill fills it in):
+  empty, a scan mark at its end; filled with what the bill reads, a spark. Its input leaves room with pr-7.
+*/
+function BillHint({ value, read }: { value: number | null | undefined; read: number | null }) {
+  const at = 'pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-700'
+  if (!value) return <ScanLine className={`bill-scan ${at}`} aria-hidden />
+  return read != null && Math.abs(read - value) <= 1 ? <Sparkles className={`bill-spark ${at}`} aria-label="Read from the bill" /> : null
+}
 
 /*
   What is typed is kept in this browser until it is saved, so going back and coming again finds it as
@@ -595,11 +605,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       ) : (
                         <span className="relative min-w-0 max-w-[8rem] flex-1">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                          <input type="number" inputMode="decimal" min={0} step="1" aria-label="Fare" className="input h-10 w-full pl-7" value={r.fare ?? ''} placeholder="Fare"
+                          <input type="number" inputMode="decimal" min={0} step="1" aria-label="Fare" className="input h-10 w-full pl-7 pr-7" value={r.fare ?? ''} placeholder="Fare"
                             onChange={e => setRide(r.id, { fare: e.target.value === '' ? null : Number(e.target.value) })} />
+                          <BillHint value={r.fare} read={read} />
                         </span>
                       )}
-                      <BillButton compact large part="attach" accent={m} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
+                      <BillButton compact large part="attach" accent={m} fills={!m.perKm} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={(a, mode) => { const r1 = latest.current.rides.find(x => x.id === r.id); if (!MODES[mode ?? r1?.mode ?? r.mode].perKm && r1?.fare == null) setRide(r.id, { fare: a }) }}
                         onMode={mode => { if (mode !== r.mode) setRide(r.id, { mode }) }}
                         onSameTicket={refs => linkReturn(r.id, refs)}
@@ -720,7 +731,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     <label className="block"><span className="label">Amount</span>
                       <span className="relative mt-1 block">
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                        <input type="number" inputMode="decimal" min={0} className="input h-11 pl-7" value={h.amount || ''} onChange={e => setH({ amount: Number(e.target.value) })} />
+                        <input type="number" inputMode="decimal" min={0} className="input h-11 pl-7 pr-7" value={h.amount || ''} placeholder="from bill" onChange={e => setH({ amount: Number(e.target.value) })} />
+                        <BillHint value={h.amount} read={billRead(data.bills, h.id)} />
                       </span></label>
                     <div><span className="label">Room</span>
                       <div className="mt-1 grid h-11 grid-cols-2 overflow-hidden rounded-lg border border-ink-200">
@@ -754,7 +766,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     <span className={`text-xs ${limit != null && h.amount > limit ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
                       {limit == null ? '' : h.amount > limit ? `Over the ${money(limit)} limit — needs approval` : `Limit ${money(limit)}`}
                     </span>
-                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed={needsBill('hotel', h, over)} claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
+                    <BillButton compact large fills claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed={needsBill('hotel', h, over)} claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
                   </div>
                 </div>
               )
@@ -766,25 +778,26 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><ReceiptIndianRupee className="h-4 w-4 text-amber-600" /> Other expenses</h3>
             {d.expenses.length > 0 && (
               <div className="mb-2 overflow-hidden rounded-xl border border-ink-200">
-                <div className="hidden grid-cols-[11rem_7rem_1fr_auto_2.5rem] gap-2 bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
+                <div className="hidden grid-cols-[11rem_8rem_1fr_auto_2.5rem] gap-2 bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
                   <span>Category</span><span>Amount</span><span>Description</span><span>Bill</span><span />
                 </div>
                 {d.expenses.map(x => {
                   const put = (p: Partial<typeof x>) => set({ expenses: d.expenses.map(y => (y.id === x.id ? { ...y, ...p } : y)) })
                   return (
                     <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
-                      <div className="grid grid-cols-[1fr_7rem_2.5rem] items-center gap-2 sm:grid-cols-[11rem_7rem_1fr_auto_2.5rem]">
+                      <div className="grid grid-cols-[1fr_7.5rem_2.25rem] items-center gap-2 sm:grid-cols-[11rem_8rem_1fr_auto_2.5rem]">
                         <select className="input h-10" aria-label="Category" value={x.category} onChange={e => put({ category: e.target.value })}>
                           {EXPENSE_CATEGORIES.map(k => <option key={k}>{k}</option>)}
                         </select>
                         <span className="relative">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                          <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7" aria-label="Amount" value={x.amount || ''} onChange={e => put({ amount: Number(e.target.value) })} />
+                          <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7 pr-7" aria-label="Amount" value={x.amount || ''} placeholder="from bill" onChange={e => put({ amount: Number(e.target.value) })} />
+                          <BillHint value={x.amount} read={billRead(data.bills, x.id)} />
                         </span>
                         <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
                         <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
                         <span className="col-span-3 sm:col-span-1">
-                          <BillButton compact large claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
+                          <BillButton compact large fills claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
                             onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
                         </span>
                       </div>

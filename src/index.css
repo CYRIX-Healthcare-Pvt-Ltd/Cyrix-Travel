@@ -1832,3 +1832,20 @@
 @media (hover: none) and (pointer: coarse) {
   input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px !important; }
 }
+
+/*
+  The bill reader's hints move a little (the user, 26 Oct: "add animation for this and spark also"): the spark
+  twinkles and shines now and then ("like can it shine?"), the scan mark's line sweeps up and down, and the bubble on the paperclip rises in. Still
+  for anyone who asked for less motion.
+*/
+@keyframes bill-twinkle {
+  0%, 70%, 100% { transform: scale(1) rotate(0deg); filter: drop-shadow(0 0 0 transparent); }
+  80% { transform: scale(1.3) rotate(18deg); filter: drop-shadow(0 0 3px currentColor) brightness(1.35); }
+  90% { transform: scale(.92) rotate(-6deg); filter: drop-shadow(0 0 1px currentColor); }
+}
+@keyframes bill-sweep { 0%, 100% { transform: translateY(-4px); } 50% { transform: translateY(4px); } }
+.bill-spark { animation: bill-twinkle 3.2s ease-in-out infinite; transform-origin: center; }
+.bill-scan path:last-child { animation: bill-sweep 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .bill-spark, .bill-scan path:last-child { animation: none; }
+}

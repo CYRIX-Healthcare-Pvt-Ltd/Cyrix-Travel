@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
-import { Copy, FileText, Paperclip, TriangleAlert, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Camera, Copy, FileText, Paperclip, Sparkles, TriangleAlert, X } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import { billUrl, inkVars, readBill, uploadBill, money, type Bill, type ModeCode } from '@/lib/claims'
 import type { HotelStay, TicketRoute } from '@/lib/ticket'
@@ -11,8 +12,14 @@ import { useAsk } from '@/components/Ask'
   The bills on one ride, hotel night or expense. Attaching reads the amount off a photo with the
   free reader in the phone (the user, 17 Oct) and hands it back to fill the amount; the same file
   twice is refused, naming the claim it was used on; a look-alike is flagged for the approvers.
+
+  Where a bill fills the amount, the paperclip wears a small spark (the user, 26 Oct: management wants people to know
+  attaching a bill fills it in). On a phone the paperclip offers the camera as well as a file ("on click attachment in
+  mobile they should have option to scan bill also").
 */
-export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onMode, onSameTicket, onChange, compact = false, large = false, claimed, part = 'both', accent }: {
+export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onMode, onSameTicket, onChange, compact = false, large = false, claimed, part = 'both', accent, fills = false }: {
+  /** A bill attached here fills the amount: a fare, a hotel night or an expense — not a bike or car ride's km. */
+  fills?: boolean
   /** Where a ticket goes, and a voucher's hotel, read off it (the user, 21 Oct). */
   onTicket?: (route: TicketRoute, mode: ModeCode | null, refs: string[]) => void
   onStay?: (stay: HotelStay) => void
@@ -40,10 +47,35 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
   onChange: () => void
 }) {
   const input = useRef<HTMLInputElement>(null)
+  const camera = useRef<HTMLInputElement>(null)
+  const root = useRef<HTMLDivElement & HTMLSpanElement>(null)
+  const menuBox = useRef<HTMLSpanElement>(null)
+  /*
+    On a phone: Scan bill or Choose file, under the button pressed, on the side with room — over the page, so the card
+    the paperclip sits in does not cut it off; pinned to the page, it scrolls with the paperclip.
+  */
+  const [menu, setMenu] = useState<{ top: number; left?: number; right?: number } | null>(null)
+  // The spark's bubble opens toward the side with room: a card cuts off what sticks out of it. A mouse's only: a tap shows none.
+  const [tipRight, setTipRight] = useState(false)
+  const [tip, setTip] = useState<'clip' | 'spark' | null>(null)
+  const attach = (e: React.MouseEvent<HTMLElement>) => {
+    if (!window.matchMedia('(pointer: coarse)').matches) { input.current?.click(); return }
+    const r = e.currentTarget.getBoundingClientRect()
+    const top = r.bottom + window.scrollY + 6
+    setMenu(m => (m ? null : r.left > window.innerWidth / 2 ? { top, right: document.documentElement.clientWidth - r.right } : { top, left: r.left + window.scrollX }))
+  }
+  useEffect(() => {
+    if (!menu) return
+    const away = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node) && !menuBox.current?.contains(e.target as Node)) setMenu(null) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setMenu(null) } }
+    document.addEventListener('pointerdown', away); window.addEventListener('keydown', esc, true)
+    return () => { document.removeEventListener('pointerdown', away); window.removeEventListener('keydown', esc, true) }
+  }, [menu])
   const ask = useAsk()
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const mine = bills.filter(b => b.owner_id === ownerId)
+  const sparked = fills && !mine.length && !busy
 
   const pick = async (f: File | undefined) => {
     if (!f) return
@@ -94,14 +126,40 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
 
   // On a line of figures the clip comes first, so the clips stand in one column (the user, 19 Oct).
   const clip = editable && part !== 'bills' && (
-    <button type="button" disabled={!!busy} onClick={() => input.current?.click()} title={busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill"
+    <button type="button" disabled={!!busy} onClick={attach} title={sparked ? undefined : busy ?? (needed ? 'Bill needed' : 'Attach bill')} aria-label="Attach bill" aria-expanded={menu ? true : undefined}
+      onPointerEnter={e => { if (e.pointerType !== 'mouse') return; const b = root.current?.getBoundingClientRect(); setTipRight(!!b && b.left > window.innerWidth / 2); setTip('clip') }}
+      onPointerLeave={() => setTip(null)} onFocus={e => { if (e.currentTarget.matches(':focus-visible')) setTip('clip') }} onBlur={() => setTip(null)}
       style={needed && !mine.length && accent ? { borderColor: accent.color + '99', background: accent.color + '14', ...inkVars(accent) } : undefined}
-      className={`btn-lift grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? (accent ? 'mode-ink' : 'border-amber-400 bg-amber-50 text-amber-700') : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
+      className={`btn-lift relative grid ${large ? 'h-10 w-10 rounded-lg' : 'h-7 w-7 rounded-md'} shrink-0 place-items-center border ${needed && !mine.length ? (accent ? 'mode-ink' : 'border-amber-400 bg-amber-50 text-amber-700') : 'border-ink-200 text-ink-500 hover:bg-ink-100'}`}>
       {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className={large ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
+      {sparked && (
+        <>
+          <span className="absolute -right-2 -top-2 grid h-4 w-4 place-items-center rounded-full bg-surface" onPointerEnter={e => { if (e.pointerType === 'mouse') setTip('spark') }} onPointerLeave={e => { if (e.pointerType === 'mouse') setTip('clip') }}>
+            <Sparkles className="bill-spark h-3 w-3 text-violet-700" />
+          </span>
+          {/* The paperclip says Attach bill; only the spark says what it means ("on hover on spark, say it can read automatically"). */}
+          <span role="tooltip" className={`pointer-events-none absolute bottom-full z-30 mb-2 whitespace-nowrap rounded-md bg-ink-900 px-2 py-1 text-xs font-medium text-surface transition duration-200 ${tip ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'} ${tipRight ? 'right-0' : 'left-0'}`}>
+            {tip === 'spark' ? <><Sparkles className="mr-1 inline h-3 w-3 align-[-2px]" />Reads the amount from the bill automatically</> : 'Attach bill'}
+          </span>
+        </>
+      )}
     </button>
   )
+  const pickers = (
+    <>
+      <input ref={input} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pick(f) }} />
+      <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pick(f) }} />
+      {menu && createPortal(
+        <span ref={menuBox} style={{ top: menu.top, left: menu.left, right: menu.right }} className="absolute z-[70] flex w-44 flex-col overflow-hidden rounded-xl border border-ink-200 bg-surface py-1 shadow-lg">
+          <button type="button" className="flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-ink-900 hover:bg-ink-100" onClick={() => { setMenu(null); camera.current?.click() }}><Camera className="h-4 w-4 text-violet-700" /> Scan bill</button>
+          <button type="button" className="flex items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-ink-900 hover:bg-ink-100" onClick={() => { setMenu(null); input.current?.click() }}><FileText className="h-4 w-4 text-ink-500" /> Choose file</button>
+        </span>,
+        document.body,
+      )}
+    </>
+  )
   if (compact) return (
-    <span className="inline-flex items-center gap-1">
+    <span ref={root} className="relative inline-flex items-center gap-1">
       {!large && clip}
       {/* Each bill says what it reads (the user, 18 Oct: "the approver should see easily that this is the
           amount fetched"): green when it matches the claim, amber with a mark when it does not. */}
@@ -124,16 +182,16 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       })}
       {large && clip}
       {editable && part !== 'bills' && !large && needed && !mine.length && !busy && (
-        <button type="button" onClick={() => input.current?.click()} className="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md bg-cyrixRed-100 px-2 text-xs font-semibold text-cyrixRed-800 hover:bg-cyrixRed-200">Bill needed</button>
+        <button type="button" onClick={attach} className="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md bg-cyrixRed-100 px-2 text-xs font-semibold text-cyrixRed-800 hover:bg-cyrixRed-200">Bill needed</button>
       )}
       {!editable && needed && !mine.length && <span className="text-xs text-amber-700">No bill</span>}
-      <input ref={input} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pick(f) }} />
+      {pickers}
       {err && <span className="text-xs font-bold text-cyrixRed-700" title={err}>!</span>}
       {viewer}
     </span>
   )
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div ref={root} className="relative flex flex-wrap items-center gap-1.5">
       {mine.map(b => (
         <span key={b.id} className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-900' : 'bg-green-100 text-green-900'}`}>
           <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => void open(b)} title={b.name ?? 'Bill'}>
@@ -145,12 +203,12 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       ))}
       {editable && (
         <>
-          <button type="button" disabled={!!busy} onClick={() => input.current?.click()}
+          <button type="button" disabled={!!busy} onClick={attach}
             className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${needed && !mine.length ? 'border-amber-400 bg-amber-50 text-amber-900' : 'border-ink-200 text-ink-700 hover:bg-ink-100'}`}>
             {busy ? <Spinner className="h-3 w-3" /> : <Paperclip className="h-3.5 w-3.5" />}
             {busy ?? (mine.length ? 'Another bill' : needed ? 'Bill needed' : 'Attach bill')}
           </button>
-          <input ref={input} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pick(f) }} />
+          {pickers}
         </>
       )}
       {!editable && needed && !mine.length && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs text-amber-900">No bill</span>}
