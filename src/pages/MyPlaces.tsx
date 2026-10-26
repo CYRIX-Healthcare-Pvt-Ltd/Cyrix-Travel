@@ -94,20 +94,23 @@ export default function MyPlaces() {
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><IdCard className="h-5 w-5 text-teal-600" /> My profile</h1>
       {(fail || error) && <Alert kind="error">{fail ?? (error as Error).message}</Alert>}
       {home === null && <Alert kind="warning">{need ?? 'Home location is not yet set'}</Alert>}
-      <div className="card flex flex-wrap items-center gap-3 px-4 py-3">
+      {/* Home, cost centre and deputation side by side on a computer (the user, 26 Oct: "in desktop can we make home,
+          cost center and deputation in same row?"). */}
+      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3">
         <span className={`${TILE} bg-emerald-100 text-emerald-700`}><House className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Home</p>
           {home && <p className="truncate text-xs text-ink-500">{homeName ?? `${home.lat.toFixed(4)}, ${home.lng.toFixed(4)}`} · since {new Date(home.set_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{home.how === 'map' ? ' · set on the map' : ''}</p>}
         </div>
-        <div className="flex w-full gap-2 sm:w-auto">
-          <button type="button" className={`${home ? 'btn-secondary' : 'btn-primary'} flex-1 sm:flex-none`} disabled={marking} onClick={() => void markHome()}>
+        <div className="flex w-full gap-2 sm:w-auto lg:w-full">
+          <button type="button" className={`${home ? 'btn-secondary' : 'btn-primary'} flex-1 sm:flex-none lg:flex-1`} disabled={marking} onClick={() => void markHome()}>
             {marking ? <Spinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />} I'm at home
           </button>
-          <button type="button" className="btn-secondary flex-1 sm:flex-none" onClick={() => setHomeOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
+          <button type="button" className="btn-secondary flex-1 sm:flex-none lg:flex-1" onClick={() => setHomeOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
         </div>
       </div>
-      <div className="card flex items-center gap-3 px-4 py-3">
+      <div className="card flex items-center gap-3 px-4 py-3 lg:items-start">
         <span className={`${TILE} bg-sky-100 text-sky-700`}><Building2 className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Cost centre</p>
@@ -115,6 +118,7 @@ export default function MyPlaces() {
         </div>
       </div>
       <DeputationCard />
+      </div>
       <div className="flex items-center justify-between gap-3 pt-2">
         <h2 className="text-sm font-semibold text-ink-800">Saved places</h2>
         <button type="button" className="btn-primary !py-1.5 text-sm" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add a place</button>

@@ -65,14 +65,14 @@ export default function Shell() {
             </nav>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
-            {/* Who is signed in. */}
-            <div className="nav-profile flex items-center gap-3 rounded-lg py-1 pl-2 pr-1">
+            {/* Who is signed in: it opens My profile (the user, 26 Oct: "on click my name … it should come to my profile tab"). */}
+            <NavLink to="/profile" aria-label="My profile" title="My profile" className="nav-profile flex items-center gap-3 rounded-lg py-1 pl-2 pr-1">
               <span className="hidden text-right lg:block">
                 <span className="block text-sm font-medium leading-tight text-ink-900">{employee?.full_name}</span>
                 <span className="block text-xs leading-tight text-ink-500">{employee?.ecode}</span>
               </span>
               <Avatar name={employee?.full_name} src={employee?.avatar} size="header" />
-            </div>
+            </NavLink>
             <ThemeToggle />
             <button onClick={handleSignOut} className="btn-icon" aria-label="Sign out" title="Sign out">
               <LogOut className="h-4.5 w-4.5 text-cyrixRed-600" />

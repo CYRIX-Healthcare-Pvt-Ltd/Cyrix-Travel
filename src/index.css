@@ -1823,6 +1823,12 @@
 .mode-fill { fill: var(--mc); }
 .dark .mode-ink { color: var(--mcd); }
 .dark .mode-fill { fill: var(--mcd); }
+.mode-bg { background-color: var(--mc); }
+.dark .mode-bg { background-color: var(--mcd); }
+/* Summary's By kind: each bar grows in from the left, once. */
+.kind-grow { transform-origin: left; animation: kind-grow 700ms cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes kind-grow { from { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .kind-grow { animation: none; } }
 
 /*
   A phone's browser zooms into a box whose text is under 16px when it is tapped (the user, 21 Oct: "when

@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart3, CalendarDays, ChevronRight } from 'lucide-react'
-import Budget, { budgetLines, monthLong } from '@/components/Budget'
+import { BadgeCheck, BarChart3, BedDouble, CalendarDays, ChevronRight, CornerUpLeft, HandCoins, Hourglass, Navigation, ReceiptText, Wallet } from 'lucide-react'
+import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
 import AddClaim from '@/components/AddClaim'
 import Patterns from '@/components/Patterns'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
 import { Alert, PageLoader } from '@/components/ui'
-import { km, money, todayIso, useSummary } from '@/lib/claims'
+import { inkVars, km, money, todayIso, useSummary } from '@/lib/claims'
+import { useMyAdvances } from '@/lib/advances'
 
 /*
   Summary (te_0026; the user, 18 Oct: "need a summary tab also"): calendar months only — This month,
@@ -18,6 +19,22 @@ import { km, money, todayIso, useSummary } from '@/lib/claims'
   dashboard has Raise ticket.
 */
 // No Last month (the user, 19 Oct): Custom reaches any month.
+// Expense breakdown (the user, 26 Oct: "by kind? not good, name something with expense"): each kind its own colour
+// and picture ("make this more attractive, looks plain").
+const KIND_LOOK = {
+  Travel: { icon: Navigation, color: '#0284C7', onDark: '#38BDF8' },
+  DA: { icon: HandCoins, color: '#059669', onDark: '#34D399' },
+  Hotel: { icon: BedDouble, color: '#7C3AED', onDark: '#A78BFA' },
+  Other: { icon: ReceiptText, color: '#D97706', onDark: '#FBBF24' },
+}
+// Where the claimed stands, each in its status's colour as the claims' badges wear it (the user, 26 Oct: "make this
+// also beautiful may be based on status colors").
+const STANDING = [
+  { key: 'paid', label: 'Paid', icon: Wallet, tile: 'bg-teal-50 ring-teal-200', badge: 'bg-teal-100 text-teal-700', ink: 'text-teal-800' },
+  { key: 'approved', label: 'Approved', icon: BadgeCheck, tile: 'bg-green-50 ring-green-200', badge: 'bg-green-100 text-green-700', ink: 'text-green-800' },
+  { key: 'pending', label: 'With approvers', icon: Hourglass, tile: 'bg-amber-50 ring-amber-200', badge: 'bg-amber-100 text-amber-700', ink: 'text-amber-800' },
+  { key: 'sent_back', label: 'Sent back', icon: CornerUpLeft, tile: 'bg-cyrixRed-50 ring-cyrixRed-200', badge: 'bg-cyrixRed-100 text-cyrixRed-700', ink: 'text-cyrixRed-800' },
+] as const
 const PERIODS = [['this', 'This month'], ['all', 'All time'], ['custom', 'Custom']] as const
 type Period = typeof PERIODS[number][0]
 
@@ -46,7 +63,11 @@ export default function Summary() {
   const setRange = (next: [string, string]) => { setCustom(next); keep('te.summary.dates', next) }
   const m = data?.mine
   const kinds = m ? [['Travel', m.travel], ['DA', m.da], ['Hotel', m.hotel], ['Other', m.other]] as const : []
-  const kindMax = Math.max(1, ...kinds.map(k => k[1]))
+  // The advances given and what sent claims have taken of them (the user, 26 Oct: "those who have having advance it
+  // should show in summary also").
+  const { data: adv } = useMyAdvances()
+  const given = (adv?.advances ?? []).filter(a => a.status === 'given')
+  const advance = advanceLine({ given: given.reduce((t, a) => t + Number(a.amount), 0), before: given.reduce((t, a) => t + Number(a.used), 0) }, 0)
   const where = !from ? 'all time' : period === 'this' ? monthLong(from) : from === to ? dayLong(from) : `${dayLong(from)} – ${dayLong(to!)}`
   return (
     <div className="space-y-4">
@@ -90,29 +111,53 @@ export default function Summary() {
             <div>
               <p className="text-sm text-ink-500">Claimed in {where}</p>
               <p className="text-5xl font-semibold text-ink-900">{money(m.claimed)}</p>
-              <p className="mt-1 text-sm text-ink-500">{[`${m.days} day${m.days === 1 ? '' : 's'}`, km(m.km), `${m.tickets} ticket${m.tickets === 1 ? '' : 's'}`].join(' · ')}</p>
+              {/* No ticket count (the user, 26 Oct: "ticket count not needed"). */}
+              <p className="mt-1 text-sm text-ink-500">{[`${m.days} day${m.days === 1 ? '' : 's'}`, km(m.km)].join(' · ')}</p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {([['Paid', m.paid], ['Approved', m.approved], ['With approvers', m.pending], ['Sent back', m.sent_back]] as const).map(([l, v]) => (
-                <div key={l} className="rounded-xl border border-ink-200 p-3">
-                  <p className="text-xs text-ink-500">{l}</p>
-                  <p className="mt-0.5 text-lg font-semibold text-ink-900">{money(v)}</p>
-                </div>
-              ))}
+              {STANDING.map(t => {
+                const I = t.icon, v = m[t.key]
+                return (
+                  <div key={t.key} className={`flex items-center gap-3 rounded-xl p-3 ring-1 ${t.tile}`}>
+                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${t.badge}`}><I className="h-[18px] w-[18px]" /></span>
+                    <div className="min-w-0">
+                      <p className={`truncate text-xs font-medium ${t.ink}`}>{t.label}</p>
+                      <p className="text-lg font-semibold tabular-nums text-ink-900">{money(v)}</p>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             {m.claimed > 0 && (
               <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">By kind</p>
-                <div className="space-y-2">
-                  {kinds.map(([l, v]) => (
-                    <div key={l} className="grid grid-cols-[4.5rem_1fr_5rem] items-center gap-3 text-sm" title={`${l} ${money(v)} · ${Math.round((v / m.claimed) * 100)}% of the claimed`}>
-                      <span className="text-ink-700">{l}</span>
-                      <span className="h-3 rounded-r" style={{ width: `${(v / kindMax) * 100}%`, minWidth: v > 0 ? 4 : 0 }}>
-                        <span className="block h-full rounded-r bg-teal-600" />
-                      </span>
-                      <span className="text-right font-medium tabular-nums text-ink-900">{money(v)}</span>
-                    </div>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-500">Expense breakdown</p>
+                {/* The whole claimed as one bar, each kind its share. */}
+                <div className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-ink-100">
+                  {kinds.filter(([, v]) => v > 0).map(([l, v]) => (
+                    <span key={l} className="kind-grow mode-bg h-full" title={`${l} ${money(v)}`} style={{ ...inkVars(KIND_LOOK[l]), width: `${(v / m.claimed) * 100}%` }} />
                   ))}
+                </div>
+                <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                  {kinds.map(([l, v]) => {
+                    const k = KIND_LOOK[l], I = k.icon, pct = Math.round((v / m.claimed) * 100)
+                    return (
+                      <div key={l} className={`flex items-center gap-3 ${v > 0 ? '' : 'opacity-50'}`}>
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: k.color + '1F' }}><I className="mode-ink h-5 w-5" style={inkVars(k)} /></span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-sm font-medium text-ink-800">{l}</span>
+                            <span className="text-base font-semibold tabular-nums text-ink-900">{money(v)}</span>
+                          </div>
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <span className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: k.color + '26' }}>
+                              <span className="kind-grow mode-bg block h-full rounded-full" style={{ ...inkVars(k), width: `${pct}%`, minWidth: v > 0 ? 4 : 0 }} />
+                            </span>
+                            <span className="mode-ink w-9 text-right text-xs font-semibold tabular-nums" style={inkVars(k)}>{pct}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -124,7 +169,7 @@ export default function Summary() {
               lines={budgetLines(
                 { bike_rate: data.limits.bike_km ? 1 : null, bike_km_month: data.limits.bike_km, car_rate: data.limits.car_km ? 1 : null, car_km_month: data.limits.car_km },
                 { auto_month: data.limits.auto, phone_month: data.limits.phone },
-                { bike: m.bike_km, car: m.car_km, auto: m.auto, phone: m.phone })} />
+                { bike: m.bike_km, car: m.car_km, auto: m.auto, phone: m.phone }).concat(advance ? [advance] : [])} />
           )}
 
           {/* ---- the people this person approves for ---- */}
