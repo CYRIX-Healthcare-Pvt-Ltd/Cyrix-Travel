@@ -35,7 +35,7 @@ const RULE_COLS: Array<[keyof Rule, string]> = [
 ]
 const POLICY: Array<[string, string]> = [
   ['km_tolerance_pct', 'Km over the map allowed, %'], ['bill_over', 'Bill needed above ₹'], ['auto_month', 'Auto allowance a month ₹'],
-  ['phone_month', 'Phone allowance a month ₹'], ['tool_max', 'Tools above ₹ go to petty cash'], ['metro_extra_pct', 'Metro city hotel extra %'],
+  ['phone_month', 'Phone allowance a month ₹'], ['tool_max', 'Tools above ₹ go to petty cash'], ['metro_extra_pct', 'Metro city hotel extra %'], ['deputation_da', 'Deputation DA a day ₹'],
   ['bike_two_way_km', 'Bike two-way limit km'], ['car_two_way_km', 'Car two-way limit km'], ['submit_by_day', 'Submit by day of next month'],
   ['late_pct', 'Late deduction % (1, 2, 3 months)'], ['auto_per_km', 'Auto fare ₹ a km'], ['auto_min_fare', 'Auto minimum fare ₹'],
 ]
@@ -88,7 +88,7 @@ function Rules({ rules, onSave }: { rules: Rule[]; onSave: (r: Rule) => void }) 
     <div className="card overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead><tr className="border-b border-ink-200 text-left text-xs text-ink-500">
-          <th className="px-3 py-2">Grade</th>{RULE_COLS.map(([, l]) => <th key={l} className="px-2 py-2">{l}</th>)}<th className="px-2 py-2">Flight</th><th className="px-2 py-2">Taxi</th><th />
+          <th className="px-3 py-2">Grade</th>{RULE_COLS.map(([, l]) => <th key={l} className="px-2 py-2">{l}</th>)}<th className="px-2 py-2">Flight</th><th className="px-2 py-2">Taxi car</th><th />
         </tr></thead>
         <tbody>
           {grades.map(g => {

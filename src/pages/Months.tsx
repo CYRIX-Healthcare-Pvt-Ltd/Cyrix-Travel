@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, Paperclip, Pencil, ReceiptText, Trash2, Undo2 } from 'lucide-react'
+import { BriefcaseBusiness, ChevronRight, Paperclip, Pencil, ReceiptText, Trash2, Undo2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAsk } from '@/components/Ask'
@@ -64,6 +64,7 @@ export default function Months() {
                   <p className="truncate text-xs text-ink-600">{dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
                   {/* What is still missing and where it stands; no mode icons (the user, 23 Oct, as on Approvals). */}
                   <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+                    {c.deputation && <span title={c.deputation} className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-800"><BriefcaseBusiness className="h-3 w-3" />Deputation</span>}
                     {c.bills_missing > 0 && <span className="inline-flex items-center gap-1 font-semibold text-cyrixRed-700"><Paperclip className="h-3.5 w-3.5" />{c.bills_missing} bill{c.bills_missing > 1 ? 's' : ''} needed</span>}
                     {c.status === 'returned' || c.status === 'recalled' ? (c.returned_at && <span className="text-ink-500">{c.status === 'returned' ? 'Sent back' : 'Recalled'} {shortDay(c.returned_at)}</span>)
                       : c.submitted_at && c.status !== 'draft' && <span className="text-ink-500">Sent {shortDay(c.submitted_at)}</span>}

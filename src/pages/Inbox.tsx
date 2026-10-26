@@ -6,6 +6,8 @@ import { useAsk } from '@/components/Ask'
 import { claimIssues } from '@/pages/ClaimPage'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import AdvanceApprovals from '@/components/AdvanceApprovals'
+import DeputationApprovals from '@/components/DeputationApprovals'
+import { useDepInbox } from '@/lib/deputation'
 import { useAdvanceInbox } from '@/lib/advances'
 import { ChevronRight, ClipboardCheck } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
@@ -66,8 +68,10 @@ export default function Inbox() {
   const issues = useWaitingIssues((data ?? []).filter(c => c.waiting).map(c => c.id))
   // Claims, or advances (te_0063): the bell's advance messages open ?view=advances.
   const [params, setParams] = useSearchParams()
-  const view = params.get('view') === 'advances' ? 'advances' : 'claims'
+  // Deputations too (te_0075): the bell's deputation messages open ?view=deputation.
+  const view = params.get('view') === 'advances' ? 'advances' : params.get('view') === 'deputation' ? 'deputation' : 'claims'
   const { data: advances } = useAdvanceInbox()
+  const { data: deputations } = useDepInbox()
   if (isLoading) return <PageLoader />
   const found = (data ?? []).filter(find.test)
   /*
@@ -96,6 +100,7 @@ export default function Inbox() {
         <span className={`col-span-2 min-w-0 sm:order-5 sm:col-span-4 lg:order-1 lg:col-span-1 ${c.places?.length ? '' : 'hidden lg:block'}`}><PlaceChips places={c.places} /></span>
         <span className="flex items-center gap-1.5 justify-self-start sm:order-2">
           <span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span>
+          {c.deputation && <span title={c.deputation} className="badge whitespace-nowrap bg-violet-100 text-violet-900">Deputation</span>}
           {/* Out of policy (red) or something to check (grey, an amber mark: not the amber of With manager), beside the status; a press says what (the user, 23 Oct). */}
           {c.waiting && (issues[c.id]?.length ?? 0) > 0 && (() => {
             const list = issues[c.id], red = list.some(i => i.level === 'approve'), I = red ? ShieldAlert : TriangleAlert
@@ -117,14 +122,15 @@ export default function Inbox() {
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
       <div className="inline-flex rounded-xl bg-ink-100 p-1" role="tablist">
-        {([['claims', 'Claims', (data ?? []).filter(c => c.waiting).length], ['advances', 'Advances', (advances ?? []).filter(a => a.waiting).length]] as const).map(([k, l, n]) => (
-          <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setParams(k === 'advances' ? { view: 'advances' } : {}, { replace: true })}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-semibold ${view === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
+        {([['claims', 'Claims', (data ?? []).filter(c => c.waiting).length], ['advances', 'Advances', (advances ?? []).filter(a => a.waiting).length],
+           ...((deputations ?? []).length ? [['deputation', 'Deputation', deputations!.filter(x => x.waiting).length] as const] : [])] as const).map(([k, l, n]) => (
+          <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setParams(k === 'claims' ? {} : { view: k }, { replace: true })}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${view === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
             {l}{n > 0 && <span className="min-w-[1.25rem] rounded-full bg-cyrixRed-600 px-1.5 py-0.5 text-center text-xs font-bold text-white">{n}</span>}
           </button>
         ))}
       </div>
-      {view === 'advances' ? <AdvanceApprovals /> : <>
+      {view === 'advances' ? <AdvanceApprovals /> : view === 'deputation' ? <DeputationApprovals /> : <>
       {done && <Alert kind="success">{done}</Alert>}
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
       {(data?.length ?? 0) > 0 && find.bar}

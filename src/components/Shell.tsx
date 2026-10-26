@@ -1,9 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import clsx from 'clsx'
-import { BarChart3, Building2, ClipboardCheck, Grid2x2, HandCoins, LogOut, MapPin, Navigation, ReceiptText, Settings2 } from 'lucide-react'
+import { BarChart3, Building2, ClipboardCheck, Grid2x2, HandCoins, IdCard, LogOut, Navigation, ReceiptText, Settings2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInbox } from '@/lib/claims'
 import { useAdvanceInbox } from '@/lib/advances'
+import { useDepInbox } from '@/lib/deputation'
 import { TONE_TEXT, type Tone } from '@/lib/tones'
 import { Logo } from '@/components/Logo'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -18,15 +19,17 @@ export default function Shell() {
   const { data: inbox } = useInbox()
   // Claims and advances of other people's that wait on this person: as manager, coordinator or Travel Desk.
   const { data: advances } = useAdvanceInbox()
-  const waiting = (inbox ?? []).filter(c => c.waiting).length + (advances ?? []).filter(a => a.waiting).length
-  const manages = (inbox ?? []).length > 0 || (advances ?? []).length > 0 || isDesk
+  const { data: deputations } = useDepInbox()
+  const waiting = (inbox ?? []).filter(c => c.waiting).length + (advances ?? []).filter(a => a.waiting).length + (deputations ?? []).filter(d => d.waiting).length
+  const manages = (inbox ?? []).length > 0 || (advances ?? []).length > 0 || (deputations ?? []).length > 0 || isDesk
 
   const items: Array<{ to: string; label: string; short: string; icon: typeof Navigation; tone: Tone; end?: boolean; badge?: number }> = [
     { to: '/', label: 'Summary', short: 'Summary', icon: BarChart3, tone: 'sky', end: true },
     { to: '/claims', label: 'My claims', short: 'Claims', icon: ReceiptText, tone: 'amber' },
     // Expense advances (te_0063; the user, 24 Oct: "after my claim add my advance").
     { to: '/advances', label: 'My advance', short: 'Advance', icon: HandCoins, tone: 'indigo' },
-    { to: '/places', label: 'My places', short: 'Places', icon: MapPin, tone: 'teal' },
+    // Home, cost centre, deputation and saved places (te_0075; the user, 26 Oct: "make about changing my place tab to my details", then "ok then my profile").
+    { to: '/profile', label: 'My profile', short: 'Profile', icon: IdCard, tone: 'teal' },
     ...(manages || isAdmin ? [{ to: '/approvals', label: 'Approvals', short: 'Approve', icon: ClipboardCheck, tone: 'green' as Tone, badge: waiting }] : []),
     // The Travel Desk's MakeMyTrip report (te_0042).
     ...(isDesk || isAdmin ? [{ to: '/bookings', label: 'Bookings', short: 'Bookings', icon: Building2, tone: 'sky' as Tone }] : []),

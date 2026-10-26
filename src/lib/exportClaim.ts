@@ -5,7 +5,7 @@ import { MODES, STATUS, dayTotal, monthName, rideAmount, type ClaimData } from '
   accounts can keep working from the same sheet: a row per ride, the day's DA, hotel and other
   expense on its first row, then Total claimed, Advances, Net payable and the amount in words.
 */
-const MODE_CODE: Record<string, string> = { bike: 'Bi', car: 'C', bus: 'B', train: 'T', metro: 'M', auto: 'A', taxi: 'Taxi', flight: 'Flight' }
+const MODE_CODE: Record<string, string> = { bike: 'Bi', car: 'C', bus: 'B', train: 'T', metro: 'M', auto: 'A', taxi: 'Taxi car', taxi_bike: 'Taxi bike', flight: 'Flight' }
 
 export async function exportClaim(data: ClaimData) {
   const { default: ExcelJS } = await import('exceljs')

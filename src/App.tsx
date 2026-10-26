@@ -34,7 +34,8 @@ export default function App() {
           <Route path="claim/:id" element={<Claim />} />
           <Route path="claim/:id/day" element={<DayPage />} />
           <Route path="advances" element={<Advances />} />
-          <Route path="places" element={<MyPlaces />} />
+          <Route path="profile" element={<MyPlaces />} />
+          <Route path="places" element={<Navigate to="/profile" replace />} />
           <Route path="approvals" element={<Inbox />} />
           <Route path="bookings" element={isDesk || isAdmin ? <Bookings /> : <Navigate to="/" replace />} />
           <Route path="policy" element={isAdmin ? <TeAdmin /> : <Navigate to="/" replace />} />

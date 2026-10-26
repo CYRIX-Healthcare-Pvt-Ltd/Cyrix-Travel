@@ -19,6 +19,7 @@ import {
   DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmChanged, money, monthName, needsBill, newId,
   areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
+import { depOn, sameState } from '@/lib/deputation'
 
 /*
   One day of the claim (the user, 17 Oct: day cards): when, why, the rides with their places picked
@@ -149,7 +150,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const outOfState = d.da_kind === 'out_state_stay'
   // The day's purpose for its DA: a ride that gives DA, else the first (an office day has none).
   const dayPurpose = d.rides.find(r => r.purpose && !data.office_purposes.includes(r.purpose))?.purpose ?? d.rides.find(r => r.purpose)?.purpose ?? d.purpose
-  const da = daFor(rule, d.da_kind, dayPurpose, data.office_purposes)
+  // The approved deputation the day is inside (te_0075): its DA, the same for every grade.
+  const dep = depOn(data.deputations, d.day), depDa = Number(data.policy.deputation_da ?? 800)
+  const da = daFor(rule, d.da_kind, dayPurpose, data.office_purposes, depDa)
   /*
     Where a new ride's purpose and call centre come from: the last ride of this day, else of the latest earlier day.
     A day's first ride starts on the person's own cost centre (te_0063; the user, 24 Oct: "on add claim, we need
@@ -214,6 +217,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     until its places change.
   */
   const [auto, setAuto] = useState<DaKind | null>(start.da_auto ?? null)
+  // A place of the day outside the deputation's state ("Bengaluru, Karnataka"): the approvers' red observation.
+  const [off, setOff] = useState<string | null>(start.dep_off ?? null)
   const stops = useMemo(() => {
     const ps: Place[] = []
     for (const r of d.rides) {
@@ -224,18 +229,35 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   }, [d.rides])
   const stay = !!(d.hotel || d.room_by)
   const stopsKey = stops.map(p => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`).join('|') + (stay ? '|stay' : '')
-  const applied = useRef(saved || kept ? stopsKey : '')
+  const depKey = dep ? `|dep:${dep.state}:${dep.from_day}:${dep.to_day}` : ''
+  const applied = useRef(saved || kept ? stopsKey + depKey : '')
   useEffect(() => {
     if (!stops.length || !homeReady) return
     let live = true
-    void autoDa(home, stops, stay).then(k => {
+    void (async () => {
+      let k = await autoDa(home, stops, stay), outside: string | null = null
+      // Inside a deputation, every place in its state gives the deputation DA (the user, 26 Oct: "if the claim is from
+      // that state only we can claim in deputation"); one in another state is kept, and the day takes the usual DA.
+      if (dep) {
+        for (const p of stops) {
+          const a = await areaOf(p.lat, p.lng)
+          if (!sameState(a.state, dep.state)) { outside = [a.district, a.state].filter(Boolean).join(', '); break }
+        }
+        if (!outside) k = 'deputation'
+      }
       if (!live || !k) return
-      setAuto(k)
-      if (applied.current !== stopsKey) { applied.current = stopsKey; set({ da_kind: k }) }
-    })
+      setAuto(k); setOff(outside)
+      if (applied.current !== stopsKey + depKey) { applied.current = stopsKey + depKey; set({ da_kind: k }) }
+    })()
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopsKey, homeReady])
+  }, [stopsKey, homeReady, depKey])
+  // A new day inside a deputation with no rides yet is a day at the site; a day moved out of it loses that DA.
+  useEffect(() => {
+    if (dep && !saved && !kept && !stops.length && d.da_kind === 'none') set({ da_kind: 'deputation' })
+    if (!dep && d.da_kind === 'deputation') { set({ da_kind: auto && auto !== 'deputation' ? auto : 'none' }); setOff(null) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depKey])
   // The hospitals a ticket is chosen from: where the day's rides went (the user, 21 Oct).
   const visited = visitedPlaces(d.rides)
   // The month's budget with this day as it is now in the form: saved use, less this day as saved, plus this day now.
@@ -481,6 +503,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         place, district, place_lat: null, place_lng: null, tickets,
         continues_day: joined,
         da_auto: auto,
+        dep_off: dep ? off : null,
         hotel: d.hotel && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel)) ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
       },
     })
@@ -700,12 +723,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           <section>
             <label className="block">
               <span className="label flex flex-wrap items-center gap-2">Daily allowance
+                {dep && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-violet-800">Deputation · {dep.state}</span>}
+                {dep && off && <span title={off} className="rounded-full bg-cyrixRed-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-cyrixRed-800">Outside {dep.state}</span>}
                 {auto && (d.da_kind === auto
                   ? <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-teal-800">From the map</span>
                   : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-900">Map says {DA_KINDS.find(k => k.code === auto)?.label.toLowerCase()}</span>)}
               </span>
               <select className="input mt-1 h-11" value={d.da_kind} onChange={e => set({ da_kind: e.target.value as DaKind })}>
-                {DA_KINDS.map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, dayPurpose, data.office_purposes))}` : ''}</option>)}
+                {DA_KINDS.filter(k => k.code !== 'deputation' || dep || d.da_kind === 'deputation').map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, dayPurpose, data.office_purposes, depDa))}` : ''}</option>)}
               </select></label>
           </section>
           )}

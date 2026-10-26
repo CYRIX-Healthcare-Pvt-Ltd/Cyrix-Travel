@@ -20,7 +20,8 @@ export default function ModePicker({ value, onChange, blocked }: { value: ModeCo
     <div ref={box} className="relative">
       <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
         className="btn-lift mode-ink inline-flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold" style={{ background: m.color + '1F', borderColor: m.color + '4D', ...inkVars(m) }}>
-        <I className="h-4 w-4" />{m.label}<ChevronDown className="h-3.5 w-3.5 opacity-80" />
+        {/* The short name on the button (and, for those, no arrow on a phone), so the fare beside it keeps its room; the list says it in full. */}
+        <I className="h-4 w-4" />{m.short ?? m.label}<ChevronDown className={`h-3.5 w-3.5 opacity-80 ${m.short ? 'hidden sm:block' : ''}`} />
       </button>
       {/* Out of the grade's policy: a mark that cannot be missed (the user, 18 Oct). */}
       {blocked?.(value) && <span className="pointer-events-none absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-cyrixRed-600 text-xs font-bold text-white ring-2 ring-[rgb(var(--surface))]" aria-label="Not in your grade's policy">!</span>}

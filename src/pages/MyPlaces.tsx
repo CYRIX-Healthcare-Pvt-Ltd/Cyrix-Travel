@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'react-router-dom'
-import { Building2, House, LocateFixed, Map as MapIcon, MapPin, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Building2, House, IdCard, LocateFixed, Map as MapIcon, MapPin, Pencil, Plus, Trash2 } from 'lucide-react'
 import PlacePicker from '@/components/PlacePicker'
 import PlaceMapDialog from '@/components/PlaceMapDialog'
+import DeputationCard from '@/components/DeputationCard'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
@@ -14,7 +15,12 @@ import { distanceKm, km, rpc, type Place } from '@/lib/claims'
 /*
   My places (the user, 17 Oct): the places this person named — home, an office, a hospital they visit
   often — to pick with one tap in any place picker. Added on the map, moved on it and renamed, removed.
+
+  My profile since te_0075 (the user, 26 Oct: "make about changing my place tab to my details", then "my profile"):
+  the home, the cost centre, the deputation and the saved places, each with its own colour ("all icon are green
+  not good").
 */
+const TILE = 'grid h-9 w-9 shrink-0 place-items-center rounded-xl'
 export interface SavedPlace extends Place { id: string }
 export const useMyPlaces = () => useQuery({ queryKey: ['te_places'], queryFn: () => rpc<SavedPlace[]>('te_places') })
 
@@ -85,14 +91,11 @@ export default function MyPlaces() {
   if (isLoading) return <PageLoader />
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><MapPin className="h-5 w-5 text-teal-600" /> My places</h1>
-        <button type="button" className="btn-primary" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add a place</button>
-      </div>
+      <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><IdCard className="h-5 w-5 text-teal-600" /> My profile</h1>
       {(fail || error) && <Alert kind="error">{fail ?? (error as Error).message}</Alert>}
       {home === null && <Alert kind="warning">{need ?? 'Home location is not yet set'}</Alert>}
       <div className="card flex flex-wrap items-center gap-3 px-4 py-3">
-        <House className="h-5 w-5 shrink-0 text-teal-600" />
+        <span className={`${TILE} bg-emerald-100 text-emerald-700`}><House className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Home</p>
           {home && <p className="truncate text-xs text-ink-500">{homeName ?? `${home.lat.toFixed(4)}, ${home.lng.toFixed(4)}`} · since {new Date(home.set_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{home.how === 'map' ? ' · set on the map' : ''}</p>}
@@ -105,11 +108,16 @@ export default function MyPlaces() {
         </div>
       </div>
       <div className="card flex items-center gap-3 px-4 py-3">
-        <Building2 className="h-5 w-5 shrink-0 text-teal-600" />
+        <span className={`${TILE} bg-sky-100 text-sky-700`}><Building2 className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Cost centre</p>
           <p className="truncate text-xs text-ink-500">{costCentre ?? 'Not mapped'}</p>
         </div>
+      </div>
+      <DeputationCard />
+      <div className="flex items-center justify-between gap-3 pt-2">
+        <h2 className="text-sm font-semibold text-ink-800">Saved places</h2>
+        <button type="button" className="btn-primary !py-1.5 text-sm" onClick={() => setAdding(true)}><Plus className="h-4 w-4" /> Add a place</button>
       </div>
       {!data?.length ? (
         <div className="card p-8 text-center text-sm text-ink-500">No saved places yet.</div>
@@ -117,7 +125,7 @@ export default function MyPlaces() {
         <div className="card divide-y divide-ink-100 overflow-hidden">
           {data.map(p => (
             <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-              <MapPin className="h-4 w-4 shrink-0 text-teal-600" />
+              <span className={`${TILE} bg-amber-100 text-amber-700`}><MapPin className="h-5 w-5" /></span>
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-ink-900">{p.name}</p>
                 <p className="text-xs text-ink-500">{p.lat.toFixed(4)}, {p.lng.toFixed(4)}</p>

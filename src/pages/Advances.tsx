@@ -24,7 +24,7 @@ export default function Advances() {
   const balance = given.reduce((t, a) => t + (a.left ?? 0), 0)
   const m = data?.month
   // The base is the home (the user: "if need to add then redirect to places and tell to set home").
-  const request = () => (data?.home ? setAsking(true) : nav('/places', { state: { need: 'Set your home first — an advance is from your home' } }))
+  const request = () => (data?.home ? setAsking(true) : nav('/profile', { state: { need: 'Set your home first — an advance is from your home' } }))
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">

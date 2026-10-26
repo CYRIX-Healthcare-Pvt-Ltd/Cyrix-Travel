@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bike, Bus, Car, CarTaxiFront, Cog, Construction, Package, Plane, Printer, ReceiptIndianRupee, Smartphone, TrainFront, TramFront, Truck, Users, Utensils, Wrench, type LucideIcon } from 'lucide-react'
+import { Bike, Bus, Car, CarTaxiFront, Cog, createLucideIcon, Construction, Package, Plane, Printer, ReceiptIndianRupee, Smartphone, TrainFront, TramFront, Truck, Users, Utensils, Wrench, type LucideIcon } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
 import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
@@ -10,25 +10,36 @@ import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
   and other expenses, each with its bills.
 */
 
-export type ModeCode = 'bike' | 'car' | 'bus' | 'train' | 'metro' | 'auto' | 'taxi' | 'flight'
+export type ModeCode = 'bike' | 'car' | 'bus' | 'train' | 'metro' | 'auto' | 'taxi' | 'taxi_bike' | 'flight'
+/** A motorbike with its rider, drawn as the icon set draws (it has no motorbike): Rapido, Uber Moto, Ola Bike. */
+const TaxiBike = createLucideIcon('TaxiBike', [
+  ['circle', { cx: '5', cy: '17', r: '3', key: 'rear' }],
+  ['circle', { cx: '19', cy: '17', r: '3', key: 'front' }],
+  ['path', { d: 'M5 17h6l3-5h3', key: 'frame' }],
+  ['path', { d: 'm19 17-3.5-8H13', key: 'fork' }],
+  ['path', { d: 'M6 12h6', key: 'seat' }],
+  ['circle', { cx: '10', cy: '5', r: '2', key: 'rider' }],
+])
 
 /*
   One colour per mode, never two alike (the user, 17 Oct: "avoid look alike colors for modes"),
   the same in the chips, the drawn route and the map. Red is the hospitals' pins, so no mode is red.
 */
-export const MODES: Record<ModeCode, { label: string; color: string; onDark: string; bg: string; fg: string; icon: LucideIcon; perKm: boolean }> = {
+export const MODES: Record<ModeCode, { label: string; short?: string; color: string; onDark: string; bg: string; fg: string; icon: LucideIcon; perKm: boolean }> = {
   bike:   { label: 'Bike', color: '#EF9F27', onDark: '#F6B95A', bg: '#FEF3C7', fg: '#78350F', icon: Bike, perKm: true },
   car:    { label: 'Car', color: '#2563EB', onDark: '#7AA7FF', bg: '#DBEAFE', fg: '#1E3A8A', icon: Car, perKm: true },
   bus:    { label: 'Bus', color: '#16A34A', onDark: '#4ADE80', bg: '#DCFCE7', fg: '#14532D', icon: Bus, perKm: false },
   train:  { label: 'Train', color: '#7C3AED', onDark: '#B197FC', bg: '#EDE9FE', fg: '#4C1D95', icon: TrainFront, perKm: false },
   metro:  { label: 'Metro', color: '#06B6D4', onDark: '#22D3EE', bg: '#CFFAFE', fg: '#164E63', icon: TramFront, perKm: false },
   auto:   { label: 'Auto', color: '#DB2777', onDark: '#F472B6', bg: '#FCE7F3', fg: '#831843', icon: Truck, perKm: false },
-  taxi:   { label: 'Uber / Taxi', color: '#374151', onDark: '#B8C0CC', bg: '#E5E7EB', fg: '#111827', icon: CarTaxiFront, perKm: false },
+  // Uber / Taxi as a car (from MM3, by the grade's taxi rule) or a bike (any grade, bill always) — the user, 26 Oct.
+  taxi:   { label: 'Uber / Taxi · Car', short: 'Taxi · Car', color: '#374151', onDark: '#B8C0CC', bg: '#E5E7EB', fg: '#111827', icon: CarTaxiFront, perKm: false },
+  taxi_bike: { label: 'Uber / Taxi · Bike', short: 'Taxi · Bike', color: '#0D9488', onDark: '#2DD4BF', bg: '#CCFBF1', fg: '#134E4A', icon: TaxiBike, perKm: false },
   flight: { label: 'Flight', color: '#92400E', onDark: '#E0A46E', bg: '#FDE7D3', fg: '#7C2D12', icon: Plane, perKm: false },
 }
 /** A mode's colour for text and icons, its lighter shade on a dark page: with the class "mode-ink" (or "mode-fill" in a drawing). */
 export const inkVars = (m: { color: string; onDark: string }) => ({ '--mc': m.color, '--mcd': m.onDark }) as CSSProperties
-export const MODE_ORDER: ModeCode[] = ['bike', 'car', 'bus', 'train', 'metro', 'auto', 'taxi', 'flight']
+export const MODE_ORDER: ModeCode[] = ['bike', 'car', 'bus', 'train', 'metro', 'auto', 'taxi_bike', 'taxi', 'flight']
 
 export const DA_KINDS = [
   { code: 'none', label: 'No DA' },
@@ -37,6 +48,8 @@ export const DA_KINDS = [
   // The ₹300 DA is out of district with a night away; ₹400 out of state with one (the user, 23 Oct).
   { code: 'out_state', label: 'Out of district, staying' },
   { code: 'out_state_stay', label: 'Out of state, staying' },
+  // Inside an approved deputation, in its state: the same for every grade (te_0075, te_policy deputation_da).
+  { code: 'deputation', label: 'Deputation' },
 ] as const
 export type DaKind = typeof DA_KINDS[number]['code']
 
@@ -106,6 +119,8 @@ export interface Day {
   /** The hospital's pin, and the DA the map gave for the day's places (te_0025). */
   place_lat?: number | null; place_lng?: number | null; da_auto?: DaKind | null
   room_by?: { name: string; ecode: string; amount: number; number: string | null } | null
+  /** A place of the day outside its deputation's state, as the map named it (te_0075). */
+  dep_off?: string | null
 }
 export interface Bill {
   /** A ticket's service report is kept with the bills (te_0037). */
@@ -171,6 +186,8 @@ export interface ClaimData {
   home?: { how: 'here' | 'map'; set_at: string } | null
   /** The company's bookings for this person in the month that no bill carries (te_0042). */
   company_unlinked?: CompanyBooking[]
+  /** The person's approved deputations over the month (te_0075). */
+  deputations?: Array<{ state: string; from_day: string; to_day: string }>
 }
 /** One step of a claim's history (te_0025): who did what, when, and the note given. */
 export interface HistoryStep {
@@ -214,10 +231,11 @@ export function dayTotal(d: Day, rule: Rule | undefined) {
   return d.rides.reduce((t, r) => t + rideAmount(r, rule), 0) + (d.da_amount ?? 0) + (d.hotel?.amount ?? 0)
     + d.expenses.reduce((t, x) => t + (x.amount ?? 0), 0)
 }
-export function daFor(rule: Rule | undefined, kind: DaKind, purpose: string | null, office: string[]) {
+export function daFor(rule: Rule | undefined, kind: DaKind, purpose: string | null, office: string[], depDa = 800) {
   if (!rule || (purpose && office.includes(purpose))) return 0
   return kind === 'in_district' ? rule.da_in_district : kind === 'out_district' ? rule.da_out_district
-    : kind === 'out_state' ? rule.da_out_state : kind === 'out_state_stay' ? rule.da_out_state_stay : 0
+    : kind === 'out_state' ? rule.da_out_state : kind === 'out_state_stay' ? rule.da_out_state_stay
+    : kind === 'deputation' ? depDa : 0
 }
 /** The hotel limit for the night: grade, single or double, in or out of state, +20% in a metropolitan city. */
 export function hotelLimit(rule: Rule | undefined, h: Pick<Hotel, 'occupancy' | 'metro'>, outOfState: boolean, metroPct: number) {
@@ -242,7 +260,8 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
   if (kind === 'ride') {
     const r = item as Ride
     if (r.same_ticket || MODES[r.mode].perKm) return false
-    return rideAmount(r, rule) > over
+    // A bike taxi's bill (the Uber or Rapido invoice) whatever the amount (te_0074).
+    return r.mode === 'taxi_bike' || rideAmount(r, rule) > over
   }
   // A courier or a tool always brings its bill, whatever it cost (the user, 23 Oct).
   const x = item as Expense
@@ -557,7 +576,7 @@ export async function autoDa(from: Place | null, places: Place[], stay: boolean)
   if (district) return stay ? 'out_state' : 'out_district'
   return 'in_district'
 }
-export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4 }
+export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4, deputation: 5 }
 
 /** Straight-line km between two points. */
 export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -850,7 +869,7 @@ const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
 }
 export const useMyClaims = () => useQuery({
   queryKey: ['te_my_claims'],
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; bills_missing: number; submitted_at: string | null; returned_at: string | null; places: string[]; find: string }>>('te_my_claims'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; bills_missing: number; submitted_at: string | null; returned_at: string | null; places: string[]; find: string; deputation: string | null }>>('te_my_claims'),
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
@@ -858,7 +877,7 @@ export const useClaim = (id: string | undefined) => useQuery({
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string }>>('te_inbox'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string; deputation: string | null }>>('te_inbox'),
 })
 export interface Summary {
   mine: { claimed: number; sent_back: number; pending: number; approved: number; paid: number; claims: number

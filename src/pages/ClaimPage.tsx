@@ -3,8 +3,9 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
+import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
@@ -198,6 +199,11 @@ export default function ClaimPage() {
               return c.number ? `${c.number} · ${days}${monthName(c.month)}` : `${days}${monthName(c.month)} claim`
             })()}</h1>
             <span className={`badge ${status.tone}`}>{status.label}</span>
+            {/* On deputation (te_0075; the user, 26 Oct: "for their each claim a tag should show deputation"). */}
+            {(() => {
+              const st = data.days.length ? data.days.map(x => depOn(data.deputations, x.day)?.state).find(Boolean) : data.deputations?.[0]?.state
+              return st && <span className="badge inline-flex items-center gap-1 bg-violet-100 text-violet-900"><BriefcaseBusiness className="h-3.5 w-3.5" /> Deputation · {st}</span>
+            })()}
           </div>
           <p className="mt-1 text-sm text-ink-700">{c.name} · {c.ecode} · Grade {c.grade ?? '—'}{c.designation ? ` · ${c.designation}` : ''}</p>
           <Header data={data} onSaved={() => void refetch()} />
@@ -392,6 +398,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const ask = useAsk()
   const outOfState = d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
+  const dep = depOn(data.deputations, d.day)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300'
     : focus === id ? ' -mx-2 rounded-lg px-2' : '')
@@ -449,7 +456,12 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold text-ink-900">{dayName(d.day)}{d.place ? ` · ${d.place}` : ''}{d.district ? `, ${d.district}` : ''}</p>
-          <p className="text-sm text-ink-500">{[d.purpose, d.da_kind !== 'none' ? `DA ${daLabel?.toLowerCase()} ${money(d.da_amount)}` : null, tripDay].filter(Boolean).join(' · ')}</p>
+          <p className="text-sm text-ink-500">
+            {dep && (d.dep_off
+              ? <span title={d.dep_off} className="mr-1.5 inline-flex rounded-full bg-cyrixRed-100 px-2 py-0.5 align-middle text-[11px] font-semibold text-cyrixRed-800">Outside {dep.state}</span>
+              : <span className="mr-1.5 inline-flex rounded-full bg-violet-100 px-2 py-0.5 align-middle text-[11px] font-semibold text-violet-800">Deputation</span>)}
+            {[d.purpose, d.da_kind !== 'none' ? `DA ${daLabel?.toLowerCase()} ${money(d.da_amount)}` : null, tripDay].filter(Boolean).join(' · ')}
+          </p>
         </div>
         <div className="flex items-center gap-1">
           {/* The day's km beside its money, as weighty (the user, 21 Oct: "km by modes, emphasise km also like the amount"). */}
@@ -660,6 +672,8 @@ const OBS = {
   tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange },
   retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
+  depoff:   { title: 'Outside the deputation state', level: 'approve', icon: MapPinOff },
+  depout:   { title: 'Deputation DA outside its dates', level: 'approve', icon: BriefcaseBusiness },
   month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
   changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
   visit:    { title: 'Ticket visited before',    level: 'info',    icon: TicketIcon },
@@ -745,6 +759,11 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Hotel · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
       if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Hotel · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
     }
+    // Deputation (te_0075): a place in another state is red (the user, 26 Oct: "in observation it should show as
+    // critical if claming from other states"), and so is its DA on a day no approved deputation covers.
+    const dep = depOn(data.deputations, d.day)
+    if (dep && d.dep_off) items.push({ kind: 'depoff', day, to: d.id, detail: `${d.dep_off} · the deputation is in ${dep.state}` })
+    if (!dep && d.da_kind === 'deputation') items.push({ kind: 'depout', day, to: d.id, detail: `DA ${money(d.da_amount)} · no approved deputation on this day` })
     if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ kind: 'da', day, to: d.id, detail: `Claimed ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
     for (const x of d.expenses) {
       const xr = billRead(data.bills, x.id)
