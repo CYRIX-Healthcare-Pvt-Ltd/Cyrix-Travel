@@ -14,7 +14,9 @@ import { X } from 'lucide-react'
 export default function Dialog({
   title, icon, children, onClose, wide = false, huge = false,
 }: {
-  /** A map: much wider on a computer (the user, 17 Oct). */
+  /** A map: much wider on a computer (the user, 17 Oct), and one screen tall with no scroll — the map takes what the
+      rest leaves, so the buttons under it are always in sight (the user, 26 Oct: "we dont need scroll in map pop up,
+      bcz something the below buttons not visible, same for mobile also"). */
   huge?: boolean
   title: string
   icon?: ReactNode
@@ -49,7 +51,7 @@ export default function Dialog({
       <div
         ref={panel}
         onClick={e => e.stopPropagation()}
-        className={`animate-pop-in max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl ${huge ? 'sm:max-w-5xl' : wide ? 'sm:max-w-xl' : 'sm:max-w-md'}`}
+        className={`animate-pop-in w-full rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl ${huge ? 'flex h-[90dvh] flex-col overflow-y-auto sm:max-w-5xl' : wide ? 'max-h-[90vh] overflow-y-auto sm:max-w-xl' : 'max-h-[90vh] overflow-y-auto sm:max-w-md'}`}
       >
         <div className="flex items-start justify-between gap-3">
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-ink-900">{icon}{title}</h2>
@@ -62,7 +64,7 @@ export default function Dialog({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="mt-4 space-y-3">{children}</div>
+        <div className={huge ? 'mt-4 flex min-h-0 flex-1 flex-col' : 'mt-4 space-y-3'}>{children}</div>
       </div>
     </div>,
     document.body,

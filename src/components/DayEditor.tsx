@@ -253,13 +253,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     setRide(nx.id, { from_name: p.name, from_lat: p.lat, from_lng: p.lng, map_km: null })
     if (nx.to_lat != null) setRide(nx.id, { map_km: (await roadKm(p, { name: '', lat: nx.to_lat, lng: nx.to_lng! }, nx.mode))?.km ?? null })
   }
-  const placed = async (rideId: string, end: 'from' | 'to', p: Place) => {
+  const placed = async (rideId: string, end: 'from' | 'to', p: Place, named = false) => {
     setPicking(null)
     const r = d.rides.find(x => x.id === rideId)!
     if (end === 'to') void chainNext(rideId, { lat: r.to_lat, lng: r.to_lng }, p)
     const next = end === 'from'
-      ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng }
-      : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng }
+      ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng, from_named: named }
+      : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng, to_named: named }
     setRide(rideId, { ...next, map_km: null })
     if (next.from_lat != null && next.to_lat != null) {
       const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! }, next.mode)
@@ -474,8 +474,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         hotel: d.hotel && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel)) ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
       },
     })
+    if (error) { setBusy(false); setErr(friendlyError(error)); return }
+    // Places the map does not have, named by hand on this day: offered to everyone from now on (te_0071; the user,
+    // 26 Oct: "not only location with ticket"). The day is saved whatever this says.
+    const named = d.rides.flatMap(r => [
+      r.from_named && r.from_lat != null ? { name: r.from_name, lat: r.from_lat, lng: r.from_lng, district: null } : null,
+      r.to_named && r.to_lat != null ? { name: r.to_name, lat: r.to_lat, lng: r.to_lng, district: distOf.get(r.id) ?? null } : null,
+    ]).filter(Boolean)
+    if (named.length) await supabase.rpc('te_learn_named_places', { p_day: d.id, p_places: named }).then(() => undefined, () => undefined)
     setBusy(false)
-    if (error) { setErr(friendlyError(error)); return }
     writeKept(key, null)
     refresh(); void qc.invalidateQueries({ queryKey: ['te_my_claims'] })
     onClose()
@@ -821,7 +828,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           start={picking.end === 'from' ? (ride.from_lat != null ? { name: ride.from_name!, lat: ride.from_lat, lng: ride.from_lng! } : null) : (ride.to_lat != null ? { name: ride.to_name!, lat: ride.to_lat, lng: ride.to_lng! } : null)}
           near={picking.end === 'to' && ride.from_lat != null ? { name: ride.from_name ?? '', lat: ride.from_lat, lng: ride.from_lng! } : null}
           quick={quick}
-          onPick={p => void placed(picking.ride, picking.end, p)}
+          onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
           onClose={() => setPicking(null)}
         />
       )}

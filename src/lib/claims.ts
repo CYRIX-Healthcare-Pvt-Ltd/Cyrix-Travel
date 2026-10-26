@@ -72,6 +72,8 @@ export interface Ride {
   id: string; mode: ModeCode
   from_name: string | null; from_lat: number | null; from_lng: number | null
   to_name: string | null; to_lat: number | null; to_lng: number | null
+  /** An end the map does not have, named by hand: learned for everyone once the day is saved (te_0071). Not stored. */
+  from_named?: boolean; to_named?: boolean
   claimed_km: number | null; map_km: number | null; fare: number | null; amount?: number; note?: string | null
   /** Booked by the company (te_0042): it claims nothing, and its company cost is kept beside it. */
   company_booking?: string | null; company_amount?: number | null
@@ -485,6 +487,28 @@ export async function findLearned(q: string, near?: { lat: number; lng: number }
   if (error) return []
   return ((data ?? []) as Array<{ id: string; name: string; full_name: string; lat: number; lng: number; district: string | null; visits: number }>)
     .map(x => ({ id: x.id, name: x.full_name, short: x.name, lat: x.lat, lng: x.lng, district: x.district, visits: x.visits }))
+}
+/*
+  Names for a spot being named (te_0071; the user, 26 Oct: "on name type can we show suggestion? like in chrome"):
+  what the map calls the places within 2 km of it, nearest first — with nothing typed, those within 300 m. One
+  Photon call a pause in typing; roads and towns left out.
+*/
+export async function namesNear(q: string, at: { lat: number; lng: number }): Promise<Array<{ name: string; km: number }>> {
+  try {
+    const r = await timed(q.trim().length >= 2
+      ? `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&lat=${at.lat}&lon=${at.lng}&limit=10&lang=en`
+      : `https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lng}&limit=8&radius=0.3&lang=en`)
+    const j = await r.json() as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+    const out: Array<{ name: string; km: number }> = []
+    for (const f of j.features ?? []) {
+      const p = f.properties
+      if (!p.name || p.osm_key === 'highway' || p.osm_key === 'place' || (p.countrycode ?? '').toUpperCase() !== 'IN') continue
+      const km = distanceKm(at, { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] })
+      if (km > 2 || out.some(o => o.name.toLowerCase() === p.name.toLowerCase())) continue
+      out.push({ name: p.name, km })
+    }
+    return out.sort((a, b) => a.km - b.km).slice(0, 6)
+  } catch { return [] }
 }
 export async function nameOf(lat: number, lng: number): Promise<string> {
   try {

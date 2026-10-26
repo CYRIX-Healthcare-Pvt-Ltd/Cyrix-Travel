@@ -1,7 +1,8 @@
-import { lazy, Suspense, useState } from 'react'
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Check, Hospital, Map as MapIcon, Pencil, Settings2, Trash2, X } from 'lucide-react'
+import { Check, Pencil, Settings2, Trash2, X } from 'lucide-react'
+import LearnedPlacesTable from '@/components/LearnedPlacesTable'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { rpc, type Rule } from '@/lib/claims'
@@ -338,52 +339,8 @@ function DeleteClaim() {
   )
 }
 
-/*
-  Places learned from tickets (Travel te_0038; the user, 21 Oct): every hospital a ticket was saved
-  against, offered to everyone who searches. Nobody keeps this list; a wrong one is taken off here.
-*/
-// The map only when a place is opened on it, so this page does not carry it otherwise.
-const PlaceMapDialog = lazy(() => import('@/components/PlaceMapDialog'))
+// Places our engineers taught the search, checked here (te_0038, te_0071): the list shared with KPI's SW Admin.
 function LearnedPlaces() {
-  const qc = useQueryClient()
   const ask = useAsk()
-  const { data, isLoading, error } = useQuery({ queryKey: ['te_admin_places'], queryFn: () => rpc<Array<{ id: string; name: string; full_name: string; district: string | null; visits: number; first_by: string | null; created_at: string; lat: number; lng: number }>>('te_admin_places') })
-  const [onMap, setOnMap] = useState<{ id: string; name: string; full_name: string; lat: number; lng: number } | null>(null)
-  const [q, setQ] = useState('')
-  const [fail, setFail] = useState<string | null>(null)
-  const remove = async (id: string, name: string) => {
-    if (!(await ask.confirm({ title: `Remove ${name}?`, body: 'It is no longer offered when engineers search. Claims that used it keep it.', yes: 'Remove', danger: true }))) return
-    try { await rpc('te_hide_place', { p_id: id }); await qc.invalidateQueries({ queryKey: ['te_admin_places'] }) } catch (e) { setFail((e as Error).message) }
-  }
-  if (isLoading) return <PageLoader />
-  const list = (data ?? []).filter(p => !q.trim() || `${p.name} ${p.full_name} ${p.district ?? ''}`.toLowerCase().includes(q.trim().toLowerCase()))
-  return (
-    <div className="card overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-200 bg-ink-50 px-4 py-2.5">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-800"><Hospital className="h-4 w-4 text-cyrixRed-600" /> Learned places <span className="font-normal text-ink-500">· {data?.length ?? 0}</span></h3>
-        <input className="input h-9 w-full sm:w-56" placeholder="Search" value={q} onChange={e => setQ(e.target.value)} />
-      </div>
-      {(fail || error) && <div className="p-3"><Alert kind="error">{fail ?? (error as Error).message}</Alert></div>}
-      {list.length === 0 ? <p className="p-6 text-center text-sm text-ink-500">No places yet.</p> : (
-        <div className="divide-y divide-ink-100">
-          {list.map(p => (
-            <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-ink-900">{p.name}{p.district && <span className="font-normal text-ink-500"> · {p.district}</span>}</p>
-                <p className="truncate text-xs text-ink-500">{p.visits} visit{p.visits === 1 ? '' : 's'} · first by {p.first_by ?? '—'} · {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
-              </div>
-              <button type="button" className="btn-icon text-teal-600" aria-label={`${p.name} on the map`} title="See and move on the map" onClick={() => setOnMap(p)}><MapIcon className="h-4 w-4" /></button>
-              <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => void remove(p.id, p.name)}><Trash2 className="h-4 w-4" /></button>
-            </div>
-          ))}
-        </div>
-      )}
-      {onMap && (
-        <Suspense fallback={null}>
-          <PlaceMapDialog place={onMap} onClose={() => setOnMap(null)}
-            onSave={async p => { await rpc('te_edit_place', { p_id: onMap.id, p_name: p.name, p_lat: p.lat, p_lng: p.lng }); setOnMap(null); await qc.invalidateQueries({ queryKey: ['te_admin_places'] }) }} />
-        </Suspense>
-      )}
-    </div>
-  )
+  return <LearnedPlacesTable call={rpc} confirmRemove={name => ask.confirm({ title: `Remove ${name}?`, body: 'It is no longer offered when engineers search. Claims that used it keep it.', yes: 'Remove', danger: true })} />
 }

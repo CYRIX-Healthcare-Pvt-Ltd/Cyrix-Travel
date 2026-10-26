@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useBackCloses } from '@/lib/useBackCloses'
-import { BedDouble, Crosshair, Home, Hospital, MapPin, Search, Star } from 'lucide-react'
+import { BedDouble, Crosshair, Home, Hospital, MapPin, Search, Star, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMyPlaces } from '@/pages/MyPlaces'
 import 'leaflet/dist/leaflet.css'
 import Dialog from '@/components/Dialog'
 import { Spinner } from '@/components/ui'
-import { distanceKm, findLearned, nameOf, rpc, searchPlaces, type Learned, type Place } from '@/lib/claims'
+import { distanceKm, findLearned, nameOf, namesNear, rpc, searchPlaces, type Learned, type Place } from '@/lib/claims'
+import { readPasted, spotFrom } from '@/lib/pasted'
 
 /*
   Choosing a place is required, and is done on the map (the user, 17 Oct: "there mandatory option
@@ -19,7 +21,8 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
   near?: Place | null
   quick: Array<Place & { label?: string; home?: boolean; hospital?: boolean; stay?: boolean }>
-  onPick: (p: Place, name?: string) => void
+  /** `named`: a spot the map does not have, given its name by hand — learned for everyone once its day is saved (te_0071). */
+  onPick: (p: Place, name?: string, named?: boolean) => void
   onClose: () => void
   /** Adding a saved place: the name is asked for, not offered. */
   askName?: boolean
@@ -46,9 +49,41 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
   const [none, setNone] = useState(false)
   const [picked, setPicked] = useState<Place | null>(start ?? null)
   const [err, setErr] = useState<string | null>(null)
+  /*
+    The list of what a search found closes on a tap anywhere else, on Escape, or with the box's ×; a tap in the box
+    brings it back (the user, 26 Oct: "how to cancel the search? clicking outside not going"). The tap that closes it
+    on the map drops no pin.
+  */
+  const [listOpen, setListOpen] = useState(true)
+  const showList = listOpen && (learned.length > 0 || found.length > 0)
+  const searchBox = useRef<HTMLDivElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const dismissing = useRef(false)
+  useEffect(() => {
+    if (!showList) return
+    const away = (e: PointerEvent) => {
+      if (searchBox.current?.contains(e.target as Node)) return
+      setListOpen(false)
+      dismissing.current = true
+      window.setTimeout(() => { dismissing.current = false }, 400)
+    }
+    document.addEventListener('pointerdown', away)
+    return () => document.removeEventListener('pointerdown', away)
+  }, [showList])
+  /*
+    Coordinates or a Google Maps link pasted into the search drop the pin there (te_0071; the user, 26 Oct: a place
+    our map does not have). A spot placed by hand — pasted, pressed or where the phone is — is named in a pop-up
+    when it is used ("on click use this place clicked then a pop up needed ie name this place"), with the name a
+    link carried filled in.
+  */
+  const [pasteErr, setPasteErr] = useState<string | null>(null)
+  const [naming, setNaming] = useState<string | null>(null)
+  const linkName = useRef<string | undefined>(undefined)
+  const handPlaced = fromMap && !askName && !plain
   useBackCloses(onClose)
 
-  const put = async (lat: number, lng: number, name?: string, move = true) => {
+  const put = async (lat: number, lng: number, name?: string, move = true, fromLink?: string) => {
+    linkName.current = fromLink
     const L = (await import('leaflet')).default
     const map = mapRef.current
     if (!map) return
@@ -90,15 +125,36 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
       }
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map)
       mapRef.current = map
+      // The map takes the room the rest of the pop-up leaves, which changes as a name or save line comes and goes.
+      const ro = new ResizeObserver(() => map.invalidateSize())
+      ro.observe(box.current)
+      map.on('unload', () => ro.disconnect())
       if (start) void put(start.lat, start.lng, start.name, false)
       // A home tapped on a far view is brought close, to be put right to the street.
-      map.on('click', e => void put(e.latlng.lat, e.latlng.lng, undefined, plain && map.getZoom() < 15))
+      map.on('click', e => {
+        if (dismissing.current) { dismissing.current = false; return }
+        void put(e.latlng.lat, e.latlng.lng, undefined, plain && map.getZoom() < 15)
+      })
     })()
     return () => { alive = false; mapRef.current?.remove(); mapRef.current = null; pinRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
+    setPasteErr(null)
+    const pasted = readPasted(q)
+    if (pasted) {
+      setFound([]); setLearned([]); setNone(false)
+      const t = window.setTimeout(async () => {
+        // A short share link says where it leads only to a server (the place-link function).
+        if ('short' in pasted) setBusy(true)
+        const hit = await spotFrom(pasted)
+        setBusy(false)
+        if ('bad' in hit) { setPasteErr(hit.bad); return }
+        void put(hit.at.lat, hit.at.lng, undefined, true, hit.name)
+      }, 400)
+      return () => window.clearTimeout(t)
+    }
     if (q.trim().length < 3) { setFound([]); setLearned([]); setNone(false); return }
     const t = window.setTimeout(async () => {
       setBusy(true)
@@ -121,7 +177,7 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
 
   return (
     <Dialog title={title} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} huge>
-      <div className="mt-3 space-y-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
         {/*
           Every quick place in one row, side by side, wrapping only when full (the user, 22 Oct: "if 10 locations are
           there why downward?"); each kind its own colour — saved amber star, home teal, hotel violet, hospital red,
@@ -145,14 +201,17 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
             })}
           </div>
         )}
-        <div className="relative">
+        {/* What a search finds drops over the map, not pushing it and the buttons down (the user, 26 Oct). */}
+        <div ref={searchBox} className="relative shrink-0">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-          <input className="input pl-9" value={q} onChange={e => setQ(e.target.value)} placeholder="Search a hospital, bus stand or place" />
-          {busy && <Spinner className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />}
-        </div>
-        {none && !busy && <p className="text-sm text-ink-500">No match. Try another spelling, or tap the place on the map.</p>}
-        {(learned.length > 0 || found.length > 0) && (
-          <div className="max-h-48 overflow-y-auto rounded-xl border border-ink-200">
+          <input ref={searchInput} className="input pl-9 pr-10" value={q} onChange={e => { setQ(e.target.value); setListOpen(true) }} placeholder="Search a hospital, bus stand or place"
+            onFocus={() => setListOpen(true)}
+            onKeyDown={e => { if (e.key === 'Escape' && showList) { e.stopPropagation(); setListOpen(false) } }} />
+          {busy ? <Spinner className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+            : q && <button type="button" aria-label="Clear search" className="absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                onClick={() => { setQ(''); searchInput.current?.focus() }}><X className="h-4 w-4" /></button>}
+          {showList && (
+          <div className="absolute inset-x-0 top-full z-[1001] mt-1 max-h-60 overflow-y-auto rounded-xl border border-ink-200 bg-surface shadow-lg">
             {learned.map(p => (
               <button key={p.id} type="button" className="flex w-full items-center gap-2 border-b border-ink-100 px-3 py-2 text-left text-sm last:border-0 hover:bg-ink-100"
                 onClick={() => { setFound([]); setLearned([]); setQ(''); void put(p.lat, p.lng, p.name) }}>
@@ -166,17 +225,15 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
                 onClick={() => { setFound([]); setQ(''); void put(p.lat, p.lng, p.name) }}>{p.name}</button>
             ))}
           </div>
-        )}
-        <div ref={box} className="h-64 w-full overflow-hidden rounded-xl border border-ink-200 sm:h-[55vh]" />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={here}><Crosshair className="h-4 w-4" /> Use my location</button>
-          {!(fromMap && picked && !askName && !plain) && <span className="min-w-0 flex-1 truncate text-right text-sm text-ink-600">{picked ? picked.name : 'Tap the map or search'}</span>}
+          )}
         </div>
-        {fromMap && picked && !askName && !plain && (
-          <label className="block"><span className="label">Name</span>
-            <input className="input mt-1" value={picked.name === '…' ? '' : picked.name} placeholder="Hospital or place name"
-              onChange={e => { edited.current = true; setPicked({ ...picked, name: e.target.value }) }} /></label>
-        )}
+        {pasteErr && <p className="shrink-0 text-sm text-cyrixRed-700">{pasteErr}</p>}
+        {none && !busy && <p className="shrink-0 text-sm text-ink-500">No match. Try another spelling, or tap the place on the map.</p>}
+        <div ref={box} className="min-h-[10rem] w-full flex-1 overflow-hidden rounded-xl border border-ink-200" />
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={here}><Crosshair className="h-4 w-4" /> Use my location</button>
+          <span className="min-w-0 flex-1 truncate text-right text-sm text-ink-600">{picked ? picked.name : 'Tap the map or search'}</span>
+        </div>
         {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
         {picked && picked.name !== '…' && !plain && (saveAs === null ? (
           <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline" onClick={() => setSaveAs(picked.name.split(',')[0])}><Star className="h-4 w-4" /> Save to my places</button>
@@ -187,18 +244,86 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
         {saveErr && <p className="text-sm text-cyrixRed-700">{saveErr}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={!picked || (!plain && (picked.name === '…' || !picked.name.trim())) || (askName && !(saveAs ?? '').trim())} onClick={async () => {
+          <button type="button" className="btn-primary" disabled={!picked || (!plain && !handPlaced && (picked.name === '…' || !picked.name.trim())) || (askName && !(saveAs ?? '').trim())} onClick={() => {
             if (!picked) return
-            const name = (saveAs ?? '').trim()
-            if (name && !askName) {
-              setSaveErr(null)
-              try { await rpc('te_save_place', { p_id: null, p_name: name, p_lat: picked.lat, p_lng: picked.lng }); await qc.invalidateQueries({ queryKey: ['te_places'] }) }
-              catch (e) { setSaveErr((e as Error).message); return }
-              onPick({ ...picked, name }, name)
-            } else onPick(picked, name || undefined)
+            if (handPlaced) setNaming(linkName.current ?? '')
+            else void finish(picked, false)
           }}>{yes ?? (askName ? 'Save place' : 'Use this place')}</button>
         </div>
       </div>
+      {naming !== null && picked && (
+        <NameThisPlace at={picked} start={naming} onCancel={() => setNaming(null)}
+          onDone={name => { setNaming(null); void finish({ ...picked, name }, true) }} />
+      )}
     </Dialog>
+  )
+
+  async function finish(p: Place, named: boolean) {
+    const name = (saveAs ?? '').trim()
+    if (name && !askName) {
+      setSaveErr(null)
+      try { await rpc('te_save_place', { p_id: null, p_name: name, p_lat: p.lat, p_lng: p.lng }); await qc.invalidateQueries({ queryKey: ['te_places'] }) }
+      catch (e) { setSaveErr((e as Error).message); return }
+      // A place named by hand keeps its official name on the ride; the saved one is the person's own.
+      onPick(named ? p : { ...p, name }, name, named)
+    } else onPick(p, name || undefined, named)
+  }
+}
+
+/*
+  "Name this place": the official name of a spot the map does not have, with names offered as it is typed (the user,
+  26 Oct: "on name type can we show suggestion? like in chrome") — places our engineers named first, then what the
+  map calls the places within 2 km. A name offered only fills the box; the pin stays where it was put.
+*/
+function NameThisPlace({ at, start, onCancel, onDone }: { at: Place; start: string; onCancel: () => void; onDone: (name: string) => void }) {
+  const [text, setText] = useState(start)
+  const [offers, setOffers] = useState<Array<{ name: string; ours: boolean; km: number }>>([])
+  useEffect(() => {
+    let alive = true
+    const t = window.setTimeout(async () => {
+      const [ours, map] = await Promise.all([
+        text.trim().length >= 3 ? findLearned(text, at).catch(() => []) : Promise.resolve([] as Learned[]),
+        namesNear(text, at),
+      ])
+      if (!alive) return
+      const mine = ours.map(o => ({ name: o.short, ours: true, km: distanceKm(at, o) })).filter(o => o.km <= 2)
+      const rest = map.filter(m => !mine.some(o => o.name.toLowerCase() === m.name.toLowerCase())).map(m => ({ ...m, ours: false }))
+      setOffers([...mine, ...rest].filter(o => o.name.toLowerCase() !== text.trim().toLowerCase()).slice(0, 6))
+    }, text === start ? 0 : 400)
+    return () => { alive = false; window.clearTimeout(t) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text])
+  const ok = text.trim().length >= 2
+  const far = (km: number) => (km < 1 ? `${Math.max(10, Math.round(km * 100) * 10)} m` : `${km.toFixed(1)} km`)
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="Name this place" className="fixed inset-0 z-[60] flex items-end justify-center bg-shade/60 sm:items-center sm:p-4"
+      onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); onCancel() } }}>
+      <div className="animate-pop-in w-full rounded-t-2xl bg-surface p-5 shadow-xl sm:max-w-md sm:rounded-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-ink-900"><MapPin className="h-5 w-5 text-cyrixRed-600" />Name this place</h2>
+          <button type="button" onClick={onCancel} aria-label="Close" className="btn-press -mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-500 hover:bg-ink-100 hover:text-ink-900"><X className="h-5 w-5" /></button>
+        </div>
+        <label className="mt-4 block"><span className="label">Official name</span>
+          <input className="input mt-1" autoFocus value={text} placeholder="Taluk Headquarters Hospital, Aluva" onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && ok) onDone(text.trim()) }} /></label>
+        {offers.length > 0 && (
+          <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-ink-200">
+            {offers.map(o => (
+              <button key={`${o.ours}-${o.name}`} type="button" className="flex w-full items-center gap-2 border-b border-ink-100 px-3 py-2 text-left text-sm last:border-0 hover:bg-ink-100"
+                onClick={() => setText(o.name)}>
+                {o.ours ? <Hospital className="h-4 w-4 shrink-0 text-cyrixRed-600" /> : <MapPin className="h-4 w-4 shrink-0 text-ink-400" />}
+                <span className="min-w-0 flex-1 truncate text-ink-900">{o.name}</span>
+                <span className="shrink-0 text-xs text-ink-500">{far(o.km)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
+          <button type="button" className="btn-primary" disabled={!ok} onClick={() => onDone(text.trim())}>Use this place</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
