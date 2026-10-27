@@ -653,12 +653,13 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
   coloured blocks (the user, 19 Oct: "make this more professional and beautiful"): what needs approval
   first, then what to check, then what is for information.
 */
-type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string }
+type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string; sub?: string }
 const OBS = {
   policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert },
   nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip },
   twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy },
   km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge },
+  kmfixed:  { title: 'Km changed from the map · corrected', level: 'info', icon: Gauge },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText },
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
@@ -716,7 +717,19 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
       // Any km changed from the map's (te_0060; the user, 23 Oct).
-      if (m.perKm && kmChanged(r)) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · typed ${km(r.claimed_km)}, the map gives ${km(r.map_km)}${k && k.over > 0 ? ` — ${km(k.over)} over the ${tol}%` : ''}` })
+      /*
+        The km an approver changed keeps the engineer's own figure beside the map's, under the approver's change (the
+        user, 27 Oct: "better to add, bcz travel desk can understand it", "under that sub tree show km changed ie eng
+        did"); for information, no longer out of policy.
+      */
+      const fixes = m.perKm ? (data.adjustments ?? []).filter(a => a.item_id === r.id && a.unit === 'km') : []
+      const typed = fixes[0]?.old_value
+      if (fixes.length && typed != null && r.map_km != null && Math.abs(typed - r.map_km) > 0.05) {
+        const last = fixes[fixes.length - 1], who = data.claim.name.split(' ')[0]
+        const under = items.find(i => i.kind === 'changed' && i.to === r.id)
+        if (under) under.sub = `${who} typed ${km(typed)}, the map gives ${km(r.map_km)}`
+        else items.push({ kind: 'kmfixed', day, to: r.id, detail: `${leg} · ${who} typed ${km(typed)}, the map gives ${km(r.map_km)} · corrected by ${(last.by ?? 'an approver').split(' ')[0]} to ${km(last.new_value)}` })
+      } else if (m.perKm && !fixes.length && kmChanged(r)) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · typed ${km(r.claimed_km)}, the map gives ${km(r.map_km)}${k && k.over > 0 ? ` — ${km(k.over)} over the ${tol}%` : ''}` })
       // A ride the company booked: not claimed; its date set against the booking's (te_0042).
       const co = companyOf(data.bills, r)
       if (co) {
@@ -847,6 +860,11 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-ink-900">{o.title}</span>
                 <span className="block text-sm text-ink-600">{it.detail}</span>
+                {it.sub && (
+                  <span className="mt-1.5 flex items-start gap-1.5 border-l-2 border-ink-200 pl-2.5 text-[13px] text-ink-500">
+                    <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span><b className="font-semibold text-ink-700">Km changed from the map</b> · {it.sub}</span>
+                  </span>
+                )}
               </span>
               {it.day && <span className="shrink-0 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-600">{it.day}</span>}
             </li>
