@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, CheckCheck, ShieldAlert, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCheck, ReceiptText, Route, ShieldAlert, TriangleAlert } from 'lucide-react'
 import ApproveAll from '@/components/ApproveAll'
 import { initialsOf } from '@/components/Avatar'
 import { useAsk } from '@/components/Ask'
@@ -11,7 +11,7 @@ import { TABS, useWaitingIssues } from '@/pages/Inbox'
 /*
   One person's claims in Approvals (te_0080; the user, 27 Oct: "on click it should go the tab, instead of expanding
   down"): who and the cost centre, a short summary, each claim with its number, km, where it started and ended and its
-  amount, View for the claim itself, and Approve all for this person's claims at the manager's step.
+  amount, View for the claim itself, and Approve all for this person's claims waiting on whoever looks.
 */
 export default function ApprovalPerson() {
   const { id } = useParams()
@@ -28,9 +28,30 @@ export default function ApprovalPerson() {
   const who = all[0]
   const sum = (k: 'total' | 'km' | 'travel' | 'da' | 'hotel' | 'other') => list.reduce((t, c) => t + Number(c[k] ?? 0), 0)
   const red = list.filter(c => issues[c.id]?.some(i => i.level === 'approve')).length
-  const managerOnes = list.filter(c => c.waiting && c.status === 'with_manager')
+  // Every claim waiting on this person, at whichever step: manager, coordinator or Travel Desk (the user, 27 Oct: "whr is approval all?").
+  const managerOnes = list.filter(c => c.waiting && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status))
   const tabName = TABS.find(([k]) => k === tab)?.[1] ?? ''
-  const chip = 'rounded-lg bg-surface px-2.5 py-1 text-xs text-ink-800 ring-1 ring-ink-200'
+  /*
+    The summary as coloured tiles, each with its picture (the user, 27 Oct: "show total km also beautifully", "looks
+    very plain"); hotel after the other expenses, as in the day.
+  */
+  // Km, then the claim with what it is made of, small inside it (the user, 27 Oct: "add km then claim ie travel + da inside as small").
+  const parts = [
+    { label: 'Travel', v: sum('travel'), dot: 'bg-sky-500' }, { label: 'DA', v: sum('da'), dot: 'bg-emerald-500' },
+    { label: 'Other', v: sum('other'), dot: 'bg-amber-500' }, { label: 'Hotel', v: sum('hotel'), dot: 'bg-violet-500' },
+  ].filter(p => p.v > 0)
+  const tiles = [
+    { label: 'Km', value: km(sum('km')), show: sum('km') > 0, icon: Route, tone: 'ink', wide: false },
+    { label: 'Claim', value: money(sum('total')), show: true, icon: ReceiptText, tone: 'sky', wide: false },
+    { label: 'Out of policy', value: `${red} ${red === 1 ? 'claim' : 'claims'}`, show: red > 0, icon: ShieldAlert, tone: 'cyrixRed', wide: true },
+  ].filter(t => t.show)
+  // Written out whole, so Tailwind keeps them.
+  const TONE: Record<string, { tile: string; dot: string; ink: string }> = {
+    // Km in grey, apart from the rupees (teal beside the DA's green read as one).
+    ink: { tile: 'bg-ink-50 ring-ink-200', dot: 'bg-ink-100 text-ink-700', ink: 'text-ink-700' },
+    sky: { tile: 'bg-sky-50 ring-sky-200', dot: 'bg-sky-100 text-sky-700', ink: 'text-sky-800' },
+    cyrixRed: { tile: 'bg-cyrixRed-50 ring-cyrixRed-200', dot: 'bg-cyrixRed-100 text-cyrixRed-700', ink: 'text-cyrixRed-800' },
+  }
 
   return (
     <div className="space-y-4">
@@ -42,20 +63,35 @@ export default function ApprovalPerson() {
             <p className="truncate font-semibold text-ink-900">{who.name} <span className="text-xs font-normal text-ink-500">{who.ecode}</span></p>
             <p className="truncate text-xs text-ink-500">{who.cost_centre ?? 'No cost centre'} · {list.length} {list.length === 1 ? 'claim' : 'claims'} {tabName.toLowerCase()}</p>
           </div>
-          <span className="text-right">
-            <span className="block text-lg font-semibold text-ink-900">{money(sum('total'))}</span>
-            {sum('km') > 0 && <span className="block text-xs text-ink-500">{km(sum('km'))}</span>}
-          </span>
+          <span className="text-right text-lg font-semibold text-ink-900">{money(sum('total'))}</span>
+          {/* At the top, not under a hundred claims (the user, 27 Oct: "why approve all down? what if 100 entries?"). */}
+          {managerOnes.length > 0 && (
+            <button type="button" className="btn-primary btn-go w-full sm:w-auto" onClick={() => setApproving(true)}>
+              <CheckCheck className="h-4 w-4" /> Approve all {managerOnes.length} · {money(managerOnes.reduce((t, c) => t + Number(c.total), 0))}
+            </button>
+          )}
         </div>
 
         {/* Very brief: what it is spent on, and how many claims are out of policy (the user: "need good summary very brief"). */}
         {list.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {sum('travel') > 0 && <span className={chip}>Travel {money(sum('travel'))}</span>}
-            {sum('da') > 0 && <span className={chip}>DA {money(sum('da'))}</span>}
-            {sum('hotel') > 0 && <span className={chip}>Hotel {money(sum('hotel'))}</span>}
-            {sum('other') > 0 && <span className={chip}>Other {money(sum('other'))}</span>}
-            {red > 0 && <span className="rounded-lg bg-cyrixRed-50 px-2.5 py-1 text-xs font-semibold text-cyrixRed-700 ring-1 ring-cyrixRed-200">{red} out of policy</span>}
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            {tiles.map(t => {
+              const I = t.icon, c = TONE[t.tone]
+              return (
+                <div key={t.label} className={`flex items-center gap-2.5 rounded-xl p-3 ring-1 ${c.tile} ${t.wide ? 'col-span-2 lg:col-span-1' : ''}`}>
+                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${c.dot}`}><I className="h-4 w-4" /></span>
+                  <div className="min-w-0">
+                    <p className={`truncate text-xs font-medium ${c.ink}`}>{t.label}</p>
+                    <p className="truncate text-base font-semibold tabular-nums text-ink-900">{t.value}</p>
+                    {t.label === 'Claim' && parts.length > 0 && (
+                      <p className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-ink-600">
+                        {parts.map(p => <span key={p.label} className="inline-flex items-center gap-1 whitespace-nowrap"><span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} />{p.label} {money(p.v)}</span>)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
 
@@ -89,13 +125,6 @@ export default function ApprovalPerson() {
           </div>
         )}
 
-        {managerOnes.length > 0 && (
-          <div className="flex justify-end">
-            <button type="button" className="btn-primary btn-go" onClick={() => setApproving(true)}>
-              <CheckCheck className="h-4 w-4" /> Approve all {managerOnes.length} · {money(managerOnes.reduce((t, c) => t + Number(c.total), 0))}
-            </button>
-          </div>
-        )}
         {approving && <ApproveAll list={managerOnes} onClose={() => setApproving(false)} />}
       </>}
     </div>

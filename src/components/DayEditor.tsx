@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -747,7 +747,44 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           </section>
           )}
 
-          {/* ---- hotel ---- */}
+          {/* ---- other expenses ---- */}
+          <section>
+            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><ReceiptIndianRupee className="h-4 w-4 text-amber-600" /> Other expenses</h3>
+            {d.expenses.length > 0 && (
+              <div className="mb-2 overflow-hidden rounded-xl border border-ink-200">
+                <div className="hidden grid-cols-[11rem_8rem_1fr_auto_2.5rem] gap-2 bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
+                  <span>Category</span><span>Amount</span><span>Description</span><span>Bill</span><span />
+                </div>
+                {d.expenses.map(x => {
+                  const put = (p: Partial<typeof x>) => set({ expenses: d.expenses.map(y => (y.id === x.id ? { ...y, ...p } : y)) })
+                  return (
+                    <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
+                      <div className="grid grid-cols-[1fr_7.5rem_2.25rem] items-center gap-2 sm:grid-cols-[11rem_8rem_1fr_auto_2.5rem]">
+                        <select className="input h-10" aria-label="Category" value={x.category} onChange={e => put({ category: e.target.value })}>
+                          {EXPENSE_CATEGORIES.map(k => <option key={k}>{k}</option>)}
+                        </select>
+                        <span className="relative">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
+                          <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7 pr-7" aria-label="Amount" value={x.amount || ''} placeholder="from bill" onChange={e => put({ amount: Number(e.target.value) })} />
+                          <BillHint value={x.amount} read={billRead(data.bills, x.id)} />
+                        </span>
+                        <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
+                        <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
+                        <span className="col-span-3 sm:col-span-1">
+                          <BillButton compact large fills claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
+                            onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
+                        </span>
+                      </div>
+                      {x.category === 'Tools' && x.amount > Number(data.policy.tool_max ?? 500) && <p className="mt-1 text-xs text-amber-800">Tools above {money(Number(data.policy.tool_max ?? 500))} go through petty cash</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ expenses: [...d.expenses, { id: newId(), category: 'Courier', description: '', amount: 0 }] })}><Plus className="h-4 w-4" /> Expense</button>
+          </section>
+
+          {/* ---- hotel, after the other expenses (the user, 27 Oct) ---- */}
           <section>
             <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><BedDouble className="h-4 w-4 text-violet-600" /> Hotel</h3>
             {d.room_by ? (
@@ -810,49 +847,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             })()}
           </section>
 
-          {/* ---- other expenses ---- */}
-          <section>
-            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><ReceiptIndianRupee className="h-4 w-4 text-amber-600" /> Other expenses</h3>
-            {d.expenses.length > 0 && (
-              <div className="mb-2 overflow-hidden rounded-xl border border-ink-200">
-                <div className="hidden grid-cols-[11rem_8rem_1fr_auto_2.5rem] gap-2 bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
-                  <span>Category</span><span>Amount</span><span>Description</span><span>Bill</span><span />
-                </div>
-                {d.expenses.map(x => {
-                  const put = (p: Partial<typeof x>) => set({ expenses: d.expenses.map(y => (y.id === x.id ? { ...y, ...p } : y)) })
-                  return (
-                    <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
-                      <div className="grid grid-cols-[1fr_7.5rem_2.25rem] items-center gap-2 sm:grid-cols-[11rem_8rem_1fr_auto_2.5rem]">
-                        <select className="input h-10" aria-label="Category" value={x.category} onChange={e => put({ category: e.target.value })}>
-                          {EXPENSE_CATEGORIES.map(k => <option key={k}>{k}</option>)}
-                        </select>
-                        <span className="relative">
-                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                          <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7 pr-7" aria-label="Amount" value={x.amount || ''} placeholder="from bill" onChange={e => put({ amount: Number(e.target.value) })} />
-                          <BillHint value={x.amount} read={billRead(data.bills, x.id)} />
-                        </span>
-                        <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
-                        <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
-                        <span className="col-span-3 sm:col-span-1">
-                          <BillButton compact large fills claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
-                            onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
-                        </span>
-                      </div>
-                      {x.category === 'Tools' && x.amount > Number(data.policy.tool_max ?? 500) && <p className="mt-1 text-xs text-amber-800">Tools above {money(Number(data.policy.tool_max ?? 500))} go through petty cash</p>}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ expenses: [...d.expenses, { id: newId(), category: 'Courier', description: '', amount: 0 }] })}><Plus className="h-4 w-4" /> Expense</button>
-          </section>
-
           <label className="block"><span className="label">Claim remarks</span>
             <textarea rows={2} className="input mt-1" value={d.remarks ?? ''} onChange={e => set({ remarks: e.target.value })} placeholder="What was done" /></label>
         </div>
       </div>
         <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
-          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : rideAmount(r, rule)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}</span></span>
+          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : rideAmount(r, rule)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
+            {/* The day's km beside its rupees (the user, 27 Oct: "show total km also beautifully"). */}
+            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}</span> })()}</span></span>
           <div className="flex items-center gap-2">
             {err ? <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>
               : blockers.length > 0 && (
