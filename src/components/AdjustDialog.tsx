@@ -3,7 +3,7 @@ import { Ban, PencilLine } from 'lucide-react'
 import Dialog from '@/components/Dialog'
 import { Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
-import { money, useClaimAction } from '@/lib/claims'
+import { kmRange, money, useClaimAction } from '@/lib/claims'
 
 /*
   Whoever the claim waits on changes one figure (te_0027; the user, 18 Oct: "if manager / coord /
@@ -16,6 +16,8 @@ export interface AdjustTarget {
   unit: 'km' | '₹'; value: number; amount: number; rate?: number
   /** A bike or car ride's road km on the map, and the allowance over it (%). */
   map?: number | null; tol?: number
+  /** The Travel Desk: any km; the manager and the coordinator from the map's km to the tolerance more (te_0079). */
+  free?: boolean
 }
 
 export default function AdjustDialog({ claimId, target, onClose }: { claimId: string; target: AdjustTarget; onClose: () => void }) {
@@ -28,6 +30,10 @@ export default function AdjustDialog({ claimId, target, onClose }: { claimId: st
   const save = async () => {
     setErr(null)
     if (v.trim() === '' || !Number.isFinite(n) || n < 0) { setErr('Type the new figure'); return }
+    if (km && target.map != null && !target.free) {
+      const g = kmRange(target.map, target.tol ?? 10)
+      if (n < g.lo || n > g.hi) { setErr(`The km can be ${g.lo} to ${g.hi} km`); return }
+    }
     if (!why.trim()) { setErr('Say why it is changed'); return }
     try {
       await act.mutateAsync({ fn: 'te_adjust', args: { p_claim: claimId, p_kind: target.kind, p_item: target.id, p_value: n, p_reason: why } })
@@ -44,10 +50,10 @@ export default function AdjustDialog({ claimId, target, onClose }: { claimId: st
           <p className="text-ink-600">Claimed {km ? `${target.value} km · ${money(target.amount)}` : money(target.value)}</p>
           {/* What the map says, to change to (the user, 19 Oct: "need to show how much km was there in map"). */}
           {km && target.map != null && (() => {
-            const allowed = Math.round(target.map * (1 + (target.tol ?? 10) / 100) * 10) / 10
+            const allowed = kmRange(target.map, target.tol ?? 10).hi
             return (
               <p className="mt-1 flex flex-wrap items-center gap-2 text-ink-700">
-                <span>Map <b className="font-semibold">{target.map} km</b> · allowed <b className="font-semibold">{allowed} km</b> (+{target.tol ?? 10}%)</span>
+                <span>Map <b className="font-semibold">{target.map} km</b>{!target.free && <> · allowed <b className="font-semibold">{target.map} to {allowed} km</b></>}</span>
                 <button type="button" className="rounded-md border border-ink-200 px-2 py-0.5 text-xs font-semibold hover:bg-ink-100" onClick={() => setV(String(target.map))}>Use {target.map}</button>
                 <button type="button" className="rounded-md border border-ink-200 px-2 py-0.5 text-xs font-semibold hover:bg-ink-100" onClick={() => setV(String(allowed))}>Use {allowed}</button>
               </p>

@@ -146,6 +146,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     } catch (e) { setErr(friendlyError(e as never)) } finally { setBusy(false) }
   }
   const c = data.claim, rule = data.rule
+  // The km box being typed in: under the map's km is not called out until it is left (8 on the way to 8.8).
+  const [typingKm, setTypingKm] = useState<string | null>(null)
   const over = Number(data.policy.bill_over ?? 300), metroPct = Number(data.policy.metro_extra_pct ?? 20), tol = Number(data.policy.km_tolerance_pct ?? 10)
   const outOfState = d.da_kind === 'out_state_stay'
   // The day's purpose for its DA: a ride that gives DA, else the first (an office day has none).
@@ -630,8 +632,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                               if (v != null && r.map_km != null && v > kmRange(r.map_km, tol).hi) return
                               setRide(r.id, { claimed_km: v })
                             }}
-                            // Emptied and left: the map's km again (the user, 26 Oct).
-                            onBlur={() => { if (r.claimed_km == null && r.map_km != null) setRide(r.id, { claimed_km: r.map_km }) }} />
+                            // Emptied, or under the map's km, and left: the map's km again (the user, 26–27 Oct: "he shouldnt be able to type less than map km").
+                            onFocus={() => setTypingKm(r.id)}
+                            onBlur={() => { setTypingKm(null); if (r.map_km != null && (r.claimed_km == null || r.claimed_km < kmRange(r.map_km, tol).lo)) setRide(r.id, { claimed_km: r.map_km }) }} />
                           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
                         </span>
                       ) : (
@@ -687,7 +690,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {r.map_km != null && (
                       <div className="mt-1.5 flex items-center gap-3 pl-6">
                         <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmOutside(r, tol) ? ' · km does not match' : m.perKm && kmChanged(r) ? ' · changed' : ''}
+                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match' : m.perKm && kmChanged(r) ? ' · changed' : ''}
                         </p>
                         <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
                           <MapIcon className="h-3.5 w-3.5" /> View on map
