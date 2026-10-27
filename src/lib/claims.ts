@@ -333,13 +333,52 @@ export async function roadKm(a: Place, b: Place, mode?: ModeCode | null): Promis
     const rail = await railKm(a, b)
     if (rail) return rail
   }
+  const key = `${a.lat.toFixed(5)},${a.lng.toFixed(5)};${b.lat.toFixed(5)},${b.lng.toFixed(5)}`
+  const kept = roads.get(key)
+  if (kept) return kept
+  const p = hedgedRoad(`${a.lng},${a.lat};${b.lng},${b.lat}`)
+  roads.set(key, p)
+  void p.then(v => { if (!v) roads.delete(key) })
+  return p
+}
+
+/*
+  The road between two places from two public routers (the user, 27 Oct: "it took nearly 1 min to load the km"): the
+  first asked, the second too if the first has not answered in 2.5 s, whichever answers first; each given 12 s. Both
+  read the same map, so they give the same km. Kept for the session, so the same two places again are at once.
+*/
+type Road = { km: number; line: [number, number][] } | null
+const roads = new Map<string, Promise<Road>>()
+const ROUTERS = [
+  (ll: string) => `https://routing.openstreetmap.de/routed-car/route/v1/driving/${ll}?overview=full&geometries=geojson`,
+  (ll: string) => `https://router.project-osrm.org/route/v1/driving/${ll}?overview=full&geometries=geojson`,
+]
+async function askRouter(url: string, ms: number): Promise<Road> {
+  const stop = new AbortController(), t = setTimeout(() => stop.abort(), ms)
   try {
-    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`)
-    const j = await r.json()
+    const j = await (await fetch(url, { signal: stop.signal })).json()
     const route = j.routes?.[0]
     if (!route) return null
     return { km: Math.round((route.distance / 1000) * 10) / 10, line: route.geometry.coordinates.map(([x, y]: [number, number]) => [y, x]) }
-  } catch { return null }
+  } catch { return null } finally { clearTimeout(t) }
+}
+function hedgedRoad(ll: string): Promise<Road> {
+  return new Promise(done => {
+    let over = false, asked = 0, answered = 0
+    const ask = (i: number) => {
+      asked++
+      void askRouter(ROUTERS[i](ll), 12_000).then(v => {
+        answered++
+        if (over) return
+        if (v) { over = true; clearTimeout(slow); done(v) }
+        // One that fails asks the next at once.
+        else if (asked < ROUTERS.length) { clearTimeout(slow); ask(asked) }
+        else if (answered === asked) { over = true; done(null) }
+      })
+    }
+    const slow = setTimeout(() => { if (!over && asked < ROUTERS.length) ask(asked) }, 2500)
+    ask(0)
+  })
 }
 
 /*
@@ -907,7 +946,7 @@ export const useClaim = (id: string | undefined) => useQuery({
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string; deputation: string | null }>>('te_inbox'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string; deputation: string | null; employee_id: string; cost_centre: string | null; route_from: string | null; route_to: string | null; travel: number; da: number; hotel: number; other: number }>>('te_inbox'),
 })
 export interface Summary {
   mine: { claimed: number; sent_back: number; pending: number; approved: number; paid: number; claims: number

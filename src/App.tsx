@@ -13,6 +13,7 @@ const Claim   = lazyRoute(() => import('@/pages/ClaimPage'))
 const DayPage = lazyRoute(() => import('@/pages/DayPage'))
 const MyPlaces = lazyRoute(() => import('@/pages/MyPlaces'))
 const Inbox   = lazyRoute(() => import('@/pages/Inbox'))
+const ApprovalPerson = lazyRoute(() => import('@/pages/ApprovalPerson'))
 const TeAdmin = lazyRoute(() => import('@/pages/TeAdmin'))
 const Summary = lazyRoute(() => import('@/pages/Summary'))
 const Bookings = lazyRoute(() => import('@/pages/Bookings'))
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="profile" element={<MyPlaces />} />
           <Route path="places" element={<Navigate to="/profile" replace />} />
           <Route path="approvals" element={<Inbox />} />
+          <Route path="approvals/person/:id" element={<ApprovalPerson />} />
           <Route path="bookings" element={isDesk || isAdmin ? <Bookings /> : <Navigate to="/" replace />} />
           <Route path="policy" element={isAdmin ? <TeAdmin /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
