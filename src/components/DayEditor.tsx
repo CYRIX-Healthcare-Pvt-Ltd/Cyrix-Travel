@@ -16,7 +16,7 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
+  DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
   areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
@@ -628,8 +628,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                           <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full pr-9" value={r.claimed_km ?? ''} placeholder="0"
                             onChange={e => {
                               const v = e.target.value === '' ? null : Number(e.target.value)
-                              // A key past the map's km and its 10% is not taken: map 10, "12" stays "1" (the user, 26 Oct).
-                              if (v != null && r.map_km != null && v > kmRange(r.map_km, tol).hi) return
+                              // A key that cannot end in the band is not taken: map 10, "12" stays "1"; map 8.8, "7" is not taken (the user, 26–27 Oct).
+                              if (v != null && r.map_km != null && !kmCanReach(e.target.value, kmRange(r.map_km, tol))) return
                               setRide(r.id, { claimed_km: v })
                             }}
                             // Emptied, or under the map's km, and left: the map's km again (the user, 26–27 Oct: "he shouldnt be able to type less than map km").

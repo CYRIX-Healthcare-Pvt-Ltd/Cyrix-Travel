@@ -281,6 +281,22 @@ export function kmRange(mapKm: number, tolerance: number) {
   const tenth = (v: number, f: (x: number) => number) => f(Math.round(v * 1e4) / 1e3) / 10
   return { lo: tenth(mapKm, Math.floor), hi: tenth(mapKm * (1 + tolerance / 100), Math.ceil) }
 }
+/**
+ * Whether the km typed so far can still become one in the band: map 8.8 takes "8" (to 8.8) and "9", not "7"; map 10
+ * takes "1" and "11", not "12" (the user, 27 Oct). "8." or "8.8" is the run of numbers it can still grow into.
+ */
+export function kmCanReach(typed: string, g: { lo: number; hi: number }) {
+  const t = typed.trim()
+  if (t === '') return true
+  const overlaps = (a: number, b: number) => a <= g.hi && b > g.lo
+  const [int, frac] = t.split('.')
+  if (frac !== undefined) { const a = Number(`${int || '0'}.${frac || '0'}`); return overlaps(a, a + 10 ** -frac.length) }
+  const n = Number(int)
+  if (!Number.isFinite(n)) return false
+  if (n === 0) return overlaps(0, 1)
+  for (let k = 0, a = n; a <= g.hi; k++, a = n * 10 ** k) if (overlaps(a, (n + 1) * 10 ** k)) return true
+  return false
+}
 export const kmOutside = (r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: number) => {
   if (r.claimed_km == null || r.map_km == null) return false
   const { lo, hi } = kmRange(r.map_km, tolerance)
