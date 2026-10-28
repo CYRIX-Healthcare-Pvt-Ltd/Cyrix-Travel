@@ -461,6 +461,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
     if (photoNeeded(r) && r.photo_skip != null && !r.photo_skip.trim()) blockers.push({ text: `Write why the visit photo of ${n} was not possible`, to })
+    // A day gone by can no longer have its photo taken: Photo not possible and why, before it is saved (the user, 28 Oct).
+    // Today the photo may still come, so the day saves and Send asks for it.
+    else if (photoNeeded(r) && r.photo_skip == null && d.day && d.day < today) {
+      const out = (setup!.skips - skipsUsed) <= 0 && setup!.after === 'block'
+      blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : `Choose Photo not possible for ${n} and say why`, to })
+    }
     if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(rideAmount(r, rule))}`, to })
   }
   if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {

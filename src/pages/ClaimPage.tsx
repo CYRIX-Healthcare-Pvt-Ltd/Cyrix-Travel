@@ -676,6 +676,7 @@ const OBS = {
   km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge },
   kmfixed:  { title: 'Km changed from the map · corrected', level: 'info', icon: Gauge },
   nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff },
+  photoyet: { title: 'No visit photo', level: 'check', icon: CameraOff },
   photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText },
@@ -737,6 +738,8 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (needsPhoto(r, setup)) {
         const hit = photoFor(r, d.day, data.visit_photos, setup!.near_m), late = hit && lateBy(hit.photo)
         if (!hit && r.photo_skip) items.push({ kind: 'nophoto', day, to: r.id, detail: `${leg} · “${r.photo_skip}”${skipped > setup!.skips ? ` · ${skipped} this month, over the ${setup!.skips}` : ''}` })
+        // Saved today without one yet: Send asks for the photo or Photo not possible (te_submit).
+        else if (!hit) items.push({ kind: 'photoyet', day, to: r.id, detail: leg })
         if (late) items.push({ kind: 'photolate', day, to: r.id, detail: `${leg} · ${late}` })
       }
       if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
