@@ -914,14 +914,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : rideAmount(r, rule)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
             {/* The day's km beside its rupees (the user, 27 Oct: "show total km also beautifully"). */}
             {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}</span> })()}</span></span>
-          <div className="flex items-center gap-2">
-            {err ? <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>
+          {/* What stops it wraps; Save claim stays on one line (the user, 28 Oct: it broke into "Save / claim"). */}
+          <div className="flex min-w-0 items-center gap-2">
+            {err ? <span className="min-w-0 max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>
               : blockers.length > 0 && (
-                <button type="button" onClick={() => goTo(blockers[0].to)} className="max-w-[13rem] text-right text-xs font-semibold leading-snug text-amber-800 underline-offset-2 hover:underline sm:max-w-[18rem] sm:text-sm">
+                <button type="button" onClick={() => goTo(blockers[0].to)} className="min-w-0 max-w-[13rem] text-right text-xs font-semibold leading-snug text-amber-800 underline-offset-2 hover:underline sm:max-w-[18rem] sm:text-sm">
                   {blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}
                 </button>
               )}
-            <button type="button" className={`btn-primary h-11 px-6 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
+            <button type="button" className={`btn-primary h-11 shrink-0 whitespace-nowrap px-5 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
           </div>
         </div>
       {dating && (
