@@ -27,7 +27,7 @@ type AdminData = {
   /** SW Admin, who alone deletes claims (te_0028). */
   sw?: boolean
 }
-const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['photos', 'Visit photos'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk'], ['places', 'Places']] as const
+const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk'], ['places', 'Places']] as const
 const RULE_COLS: Array<[keyof Rule, string]> = [
   ['da_in_district', 'DA in district'], ['da_out_district', 'DA out of district'], ['da_out_state', 'DA out of district, staying'], ['da_out_state_stay', 'DA out of state, staying'],
   ['hotel_in_single', 'Hotel in state S'], ['hotel_in_double', 'Hotel in state D'], ['hotel_out_single', 'Hotel out of state S'], ['hotel_out_double', 'Hotel out of state D'],
@@ -43,7 +43,7 @@ const POLICY: Array<[string, string]> = [
 export default function TeAdmin() {
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['te_admin'], queryFn: () => rpc<AdminData>('te_admin_data') })
-  const [tab, setTab] = useState<typeof TABS[number][0] | 'delete'>('rules')
+  const [tab, setTab] = useState<typeof TABS[number][0] | 'photos' | 'delete'>('rules')
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
   // A tab that shows its own refusal beside the button pressed passes here, and gets the message back.
@@ -58,7 +58,8 @@ export default function TeAdmin() {
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Settings2 className="h-5 w-5 text-violet-600" /> Travel policy</h1>
       <div className="flex flex-wrap gap-1.5">
-        {[...TABS, ...(data.sw ? [['delete', 'Delete'] as const] : [])].map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={clsx('rounded-full px-3 py-1.5 text-sm font-medium', tab === k ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-700 hover:bg-ink-200')}>{l}</button>)}
+        {/* Visit photos are SW Admin's alone, not ACC Admin's (te_0084; the user, 28 Oct: "i told only sw admin"). */}
+        {[...TABS.slice(0, 3), ...(data.sw ? [['photos', 'Visit photos'] as const] : []), ...TABS.slice(3), ...(data.sw ? [['delete', 'Delete'] as const] : [])].map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={clsx('rounded-full px-3 py-1.5 text-sm font-medium', tab === k ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-700 hover:bg-ink-200')}>{l}</button>)}
       </div>
       {msg && <Alert kind="success">{msg}</Alert>}
       {fail && <Alert kind="error">{fail}</Alert>}
@@ -69,8 +70,8 @@ export default function TeAdmin() {
           {POLICY.map(([k, l]) => <PolicyField key={k} label={l} value={data.policy[k]} onSave={v => void call('te_set_policy', { p_key: k, p_value: v })} />)}
         </div>
       )}
-      {tab === 'purposes' && <Purposes list={data.purposes} call={call} />}
-      {tab === 'photos' && <VisitPhotoSettings policy={data.policy} purposes={data.purposes} call={async (fn, args, done) => { const e = await call(fn, args, done); await qc.invalidateQueries({ queryKey: ['te_visit_setup'] }); return e }} />}
+      {tab === 'purposes' && <Purposes list={data.purposes} call={call} sw={!!data.sw} />}
+      {tab === 'photos' && data.sw && <VisitPhotoSettings policy={data.policy} purposes={data.purposes} call={async (fn, args, done) => { const e = await call(fn, args, done); await qc.invalidateQueries({ queryKey: ['te_visit_setup'] }); return e }} />}
       {tab === 'projects' && <Projects list={data.projects} call={call} />}
       {tab === 'coord' && <Coordinators list={data.coordinators} centres={data.cost_centres} call={call} />}
       {tab === 'desk' && <Desk list={data.desk} call={call} />}
@@ -180,7 +181,7 @@ function VisitPhotoSettings({ policy, purposes, call }: { policy: Record<string,
   )
 }
 /* Purposes, renamed in place too (te_0063; the user, 24 Oct: "need edit option"). */
-function Purposes({ list, call }: { list: AdminData['purposes']; call: Call }) {
+function Purposes({ list, call, sw }: { list: AdminData['purposes']; call: Call; sw: boolean }) {
   const [label, setLabel] = useState('')
   const [editing, setEditing] = useState<{ id: number; label: string } | null>(null)
   const [err, setErr] = useState<{ id: number; text: string; n: number } | null>(null)
@@ -214,10 +215,10 @@ function Purposes({ list, call }: { list: AdminData['purposes']; call: Call }) {
           )}
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.gives_da} onChange={e => void call('te_set_purpose', { p_id: p.id, p_label: p.label, p_gives_da: e.target.checked, p_active: p.is_active })} /> Gives DA</label>
           <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.is_active} onChange={e => void call('te_set_purpose', { p_id: p.id, p_label: p.label, p_gives_da: p.gives_da, p_active: e.target.checked })} /> In use</label>
-          {/* The ride needs a visit photo (te_0082; the user, 28 Oct: "image mandatory check box"). */}
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.photo_needed} onChange={e => void call('te_set_purpose_photo', { p_id: p.id, p_on: e.target.checked })} /> Photo needed</label>
-          {/* Gone only while nothing names it; after that In use is unticked instead (te_0082). */}
-          <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Delete ${p.label}`} title="Delete" onClick={() => void remove(p)}><Trash2 className="h-3.5 w-3.5" /></button>
+          {/* The ride needs a visit photo (te_0082; the user, 28 Oct: "image mandatory check box"). SW Admin only (te_0084). */}
+          {sw && <label className="flex items-center gap-1.5"><input type="checkbox" checked={p.photo_needed} onChange={e => void call('te_set_purpose_photo', { p_id: p.id, p_on: e.target.checked })} /> Photo needed</label>}
+          {/* Gone only while nothing names it; after that In use is unticked instead (te_0082). SW Admin only (te_0084). */}
+          {sw && <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Delete ${p.label}`} title="Delete" onClick={() => void remove(p)}><Trash2 className="h-3.5 w-3.5" /></button>}
         </div>
         {err?.id === p.id && <Alert key={err.n} kind="error">{err.text}</Alert>}
         </div>

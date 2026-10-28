@@ -179,14 +179,16 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     The km box takes the map's km as soon as the map has the road (te_0060; the user, 23 Oct). Typed otherwise, it is
     kept — and the approver sees the change. A km the map put in follows the map when the places change.
   */
-  const autoKm = useRef(new Map<string, number>())
+  // Every km the map put in a ride's box, so one put in while another mode's km was showing still follows the road's
+  // (the user, 28 Oct: Bike → Metro → Bike left the box at the track's 12.6 km under a road map of 8.8 km).
+  const autoKm = useRef(new Map<string, Set<number>>())
   const kmKey = d.rides.map(r => `${r.id}:${r.mode}:${r.map_km ?? ''}`).join('|')
   useEffect(() => {
     for (const r of latest.current.rides) {
       if (!MODES[r.mode].perKm || r.map_km == null) continue
-      const was = autoKm.current.get(r.id)
-      if (r.claimed_km == null || (was != null && r.claimed_km === was)) {
-        autoKm.current.set(r.id, r.map_km)
+      const put = autoKm.current.get(r.id) ?? new Set<number>()
+      if (r.claimed_km == null || put.has(r.claimed_km)) {
+        put.add(r.map_km); autoKm.current.set(r.id, put)
         if (r.claimed_km !== r.map_km) setRide(r.id, { claimed_km: r.map_km })
       }
     }
@@ -194,6 +196,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   }, [kmKey])
   const set = (p: Partial<Day>) => setD(x => ({ ...x, ...p }))
   const setRide = (id: string, p: Partial<Ride>) => setD(x => ({ ...x, rides: x.rides.map(r => (r.id === id ? { ...r, ...p } : r)) }))
+  // Another way of measuring (road, rail, air): the old km goes at once, so a bike never shows the track's km while the road's is fetched.
+  const setMode = (id: string, mode: Ride['mode']) =>
+    setD(x => ({ ...x, rides: x.rides.map(r => (r.id !== id ? r : { ...r, mode, ...(kmWay(mode) !== kmWay(r.mode) ? { map_km: null } : {}) })) }))
   const refresh = () => void qc.invalidateQueries({ queryKey: ['te_claim', c.id] })
   const firstDay = c.month.slice(0, 8) + '01'
   const monthEnd = new Date(new Date(c.month + 'T00:00:00').getFullYear(), new Date(c.month + 'T00:00:00').getMonth() + 1, 0).toLocaleDateString('en-CA')
@@ -361,7 +366,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       const now = kmWay(r.mode)
       if (!before.has(r.id) || before.get(r.id) === now || r.from_lat == null || r.to_lat == null) continue
       void roadKm({ name: '', lat: r.from_lat, lng: r.from_lng! }, { name: '', lat: r.to_lat, lng: r.to_lng! }, r.mode)
-        .then(road => { const r1 = latest.current.rides.find(x => x.id === r.id); if (r1 && r1.mode === r.mode) setRide(r.id, { map_km: road?.km ?? null }) })
+        .then(road => { const r1 = latest.current.rides.find(x => x.id === r.id); if (r1 && kmWay(r1.mode) === now) setRide(r.id, { map_km: road?.km ?? null }) })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railKey])
@@ -633,7 +638,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-4 w-4" /></button>
                     </div>
                     <div className="mt-2.5 flex items-center gap-2 pl-6">
-                      <ModePicker value={r.mode} onChange={code => setRide(r.id, { mode: code })} blocked={code => outOfPolicy(code, rule)} />
+                      <ModePicker value={r.mode} onChange={code => setMode(r.id, code)} blocked={code => outOfPolicy(code, rule)} />
                       {m.perKm ? (
                         <span className="relative min-w-0 max-w-[8rem] flex-1">
                           <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full pr-9" value={r.claimed_km ?? ''} placeholder="0"
@@ -658,7 +663,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       )}
                       <BillButton compact large part="attach" accent={m} fills={!m.perKm} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={(a, mode) => { const r1 = latest.current.rides.find(x => x.id === r.id); if (!MODES[mode ?? r1?.mode ?? r.mode].perKm && r1?.fare == null) setRide(r.id, { fare: a }) }}
-                        onMode={mode => { if (mode !== r.mode) setRide(r.id, { mode }) }}
+                        onMode={mode => { if (mode !== r.mode) setMode(r.id, mode) }}
                         onSameTicket={refs => linkReturn(r.id, refs)}
                         onTicket={(rt, mode, refs) => void fillFromTicket(r.id, rt, mode, refs)} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
