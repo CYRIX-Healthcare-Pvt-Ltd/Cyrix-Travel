@@ -17,7 +17,7 @@ const ApprovalPerson = lazyRoute(() => import('@/pages/ApprovalPerson'))
 const TeAdmin = lazyRoute(() => import('@/pages/TeAdmin'))
 const Summary = lazyRoute(() => import('@/pages/Summary'))
 const Bookings = lazyRoute(() => import('@/pages/Bookings'))
-const Advances = lazyRoute(() => import('@/pages/Advances'))
+const VisitPhotos = lazyRoute(() => import('@/pages/VisitPhotos'))
 
 export default function App() {
   const { session, loading, hasAccess, isAdmin, isDesk } = useAuth()
@@ -34,7 +34,9 @@ export default function App() {
           <Route path="claims" element={<Months />} />
           <Route path="claim/:id" element={<Claim />} />
           <Route path="claim/:id/day" element={<DayPage />} />
-          <Route path="advances" element={<Advances />} />
+          {/* My advance is a tab of My profile (the user, 28 Oct); its old address, in mails and the bell, still opens it. */}
+          <Route path="advances" element={<Navigate to="/profile?tab=advance" replace />} />
+          <Route path="photos" element={<VisitPhotos />} />
           <Route path="profile" element={<MyPlaces />} />
           <Route path="places" element={<Navigate to="/profile" replace />} />
           <Route path="approvals" element={<Inbox />} />

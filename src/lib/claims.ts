@@ -3,6 +3,7 @@ import { Bike, Bus, Car, CarTaxiFront, Cog, createLucideIcon, Construction, Pack
 import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
 import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
+import type { VisitPhoto, VisitSetup } from './visits'
 
 /*
   The month's claim by the day (te_0012; the user, 17 Oct 2026): the expense reimbursement Excel
@@ -100,6 +101,8 @@ export interface Ride {
   inter?: boolean | null
   /** Why, and for which call centre (project): each ride its own, the next starting with the last one's (te_0060). */
   purpose?: string | null; project?: string | null
+  /** Why there is no visit photo, when its purpose needs one (te_0082); '' while it is being written. */
+  photo_skip?: string | null
   /** A breakdown call's ticket ID, kept in te_tickets under the ride's id (te_0060). */
   ticket_no?: string
   /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */
@@ -177,6 +180,8 @@ export interface ClaimData {
   policy: Record<string, number | number[]>
   purposes: string[]
   office_purposes: string[]
+  /** Visit photos (te_0082): the setup, the person's photos of the month, and "Photo not possible" on their other claims that month. */
+  photo_setup?: VisitSetup; visit_photos?: VisitPhoto[]; photo_skips_other?: number
   history: HistoryStep[]
   /** Figures an approver changed (te_0027), oldest first. */
   adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>

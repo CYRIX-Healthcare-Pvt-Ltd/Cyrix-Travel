@@ -14,7 +14,7 @@ import { ADVANCE_STATUS, shortDate, useAdvanceRefresh, useMyAdvances, type Advan
   — out of the state only, two a month and ₹20,000 a month at most, none while one is unsettled — and each one
   given shows what the claims have taken of it and what is left.
 */
-export default function Advances() {
+export default function Advances({ inProfile = false }: { inProfile?: boolean }) {
   const { data, isLoading, error } = useMyAdvances()
   const nav = useNavigate()
   const [asking, setAsking] = useState(false)
@@ -27,8 +27,8 @@ export default function Advances() {
   const request = () => (data?.home ? setAsking(true) : nav('/profile', { state: { need: 'Set your home first — an advance is from your home' } }))
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><HandCoins className="h-5 w-5 text-indigo-600" /> My advance</h1>
+      <div className={`flex flex-wrap items-center gap-3 ${inProfile ? 'justify-end' : 'justify-between'}`}>
+        {!inProfile && <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><HandCoins className="h-5 w-5 text-indigo-600" /> My advance</h1>}
         {!asking && !data?.blocked && <button type="button" className="btn-primary" onClick={request}><Plus className="h-4 w-4" /> Request an advance</button>}
       </div>
       {error && <Alert kind="error">{(error as Error).message}</Alert>}

@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
+import VisitThumb from '@/components/VisitThumb'
+import { clock, lateBy, metres, needsPhoto, photoFor } from '@/lib/visits'
 import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -541,6 +543,19 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol, free: data.claim.status === 'with_desk' },
                   `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
                 {(r.purpose || r.project) && <span className="col-span-full pl-1 text-xs text-ink-500">{[r.purpose, r.project].filter(Boolean).join(' · ')}</span>}
+                {/* The visit photo, found by itself (te_0082), or why there is none. */}
+                {needsPhoto(r, data.photo_setup) && (() => {
+                  const hit = photoFor(r, d.day, data.visit_photos, data.photo_setup!.near_m)
+                  if (hit) return (
+                    <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
+                      <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? short(r.to_name)} · ${clock(hit.photo.shot_at)}`} className="h-9 w-9" />
+                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)} · {metres(hit.m)} from {short(r.to_name)}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}</span>
+                    </span>
+                  )
+                  return r.photo_skip
+                    ? <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><CameraOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />Photo not possible · “{r.photo_skip}”</span>
+                    : <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-amber-700"><CameraOff className="h-3.5 w-3.5 shrink-0" />No visit photo</span>
+                })()}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
                 {/* A round trip whose return is not on the claim yet (te_0058). */}
                 {r.return_leg?.date && !data.days.some(x => x.rides.some(o => o.same_ticket?.ref === r.return_leg!.ref)) && (
@@ -660,6 +675,8 @@ const OBS = {
   twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy },
   km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge },
   kmfixed:  { title: 'Km changed from the map · corrected', level: 'info', icon: Gauge },
+  nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff },
+  photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText },
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
@@ -709,11 +726,19 @@ export function claimObservations(data: ClaimData): Obs[] {
   const billed = new Set(data.bills.map(b => b.owner_id))
   // Bills on a line, none of whose amounts could be read.
   const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null) }
+  // "Photo not possible" this month, on this claim and the person's others (te_0082), against the monthly limit.
+  const setup = data.photo_setup
+  const skipped = (data.photo_skips_other ?? 0) + data.days.reduce((t, x) => t + x.rides.filter(r => r.photo_skip).length, 0)
   for (const d of data.days) {
     const day = dn(d.day)
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
+      if (needsPhoto(r, setup)) {
+        const hit = photoFor(r, d.day, data.visit_photos, setup!.near_m), late = hit && lateBy(hit.photo)
+        if (!hit && r.photo_skip) items.push({ kind: 'nophoto', day, to: r.id, detail: `${leg} · “${r.photo_skip}”${skipped > setup!.skips ? ` · ${skipped} this month, over the ${setup!.skips}` : ''}` })
+        if (late) items.push({ kind: 'photolate', day, to: r.id, detail: `${leg} · ${late}` })
+      }
       if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
       // Any km changed from the map's (te_0060; the user, 23 Oct).
