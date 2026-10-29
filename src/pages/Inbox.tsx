@@ -7,7 +7,7 @@ import AdvanceApprovals from '@/components/AdvanceApprovals'
 import DeputationApprovals from '@/components/DeputationApprovals'
 import { useDepInbox } from '@/lib/deputation'
 import { useAdvanceInbox } from '@/lib/advances'
-import { CheckCheck, ChevronRight, ClipboardCheck, FileSpreadsheet } from 'lucide-react'
+import { CheckCheck, ChevronRight, ClipboardCheck, FileSpreadsheet, IndianRupee, ReceiptText, Route, Users, type LucideIcon } from 'lucide-react'
 import ApproveAll from '@/components/ApproveAll'
 import { exportApprovals } from '@/lib/exportApprovals'
 import { Alert, PageLoader } from '@/components/ui'
@@ -112,10 +112,13 @@ export default function Inbox() {
     }))
   // Everyone's claims waiting on this person, as on each person's page (the user, 29 Oct: "here also keep approve all").
   const approvable = tab === 'waiting' ? shown.filter(c => ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)) : []
-  const strip = [
-    ['Claims', String(shown.length)], ['People', String(people.length)],
-    ['Km', km(shown.reduce((t, c) => t + Number(c.km), 0))], ['Amount', money(shown.reduce((t, c) => t + Number(c.total), 0))],
-  ] as Array<[string, string]>
+  // Each figure in its own colour with its picture, as on a person's page (the user, 29 Oct: light mode "looks blank").
+  const strip: Array<[string, string, LucideIcon, string, string]> = [
+    ['Claims', String(shown.length), ReceiptText, 'bg-sky-50 ring-sky-200', 'bg-sky-100 text-sky-700'],
+    ['People', String(people.length), Users, 'bg-teal-50 ring-teal-200', 'bg-teal-100 text-teal-700'],
+    ['Km', km(shown.reduce((t, c) => t + Number(c.km), 0)), Route, 'bg-violet-50 ring-violet-200', 'bg-violet-100 text-violet-700'],
+    ['Amount', money(shown.reduce((t, c) => t + Number(c.total), 0)), IndianRupee, 'bg-amber-50 ring-amber-200', 'bg-amber-100 text-amber-700'],
+  ]
   const Person = ({ p }: { p: typeof people[number] }) => (
     <Link to={`/approvals/person/${p.id}?tab=${tab}`} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto_1rem] items-center gap-3 px-4 py-3 hover:bg-ink-100/60 sm:grid-cols-[2.25rem_minmax(0,1fr)_9rem_12rem_7rem_1rem]">
       <span className="grid h-9 w-9 place-items-center rounded-full bg-teal-100 text-xs font-semibold text-teal-800">{initialsOf(p.name)}</span>
@@ -159,7 +162,12 @@ export default function Inbox() {
       </div>
       {shown.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">
-          {strip.map(([l, v]) => <div key={l} className="rounded-xl bg-ink-50 px-3 py-2 ring-1 ring-ink-200"><p className="text-xs font-medium text-ink-500">{l}</p><p className="text-base font-semibold tabular-nums text-ink-900">{v}</p></div>)}
+          {strip.map(([l, v, I, tile, dot]) => (
+            <div key={l} className={`flex items-center gap-2.5 rounded-xl px-3 py-2 ring-1 ${tile}`}>
+              <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${dot}`}><I className="h-4 w-4" /></span>
+              <div className="min-w-0"><p className="text-xs font-medium text-ink-600">{l}</p><p className="truncate text-base font-semibold tabular-nums text-ink-900">{v}</p></div>
+            </div>
+          ))}
           <button type="button" className="btn-lift inline-flex items-center justify-center gap-2 rounded-lg border border-green-600/40 px-3 text-sm font-semibold text-green-700 hover:bg-green-50 col-span-2 h-10 sm:col-span-1 sm:h-auto" onClick={() => void exportApprovals({ file: `Travel approvals - ${TABS.find(([k]) => k === tab)?.[1]}`, heading: `Travel claims · ${TABS.find(([k]) => k === tab)?.[1]}`, rows: shown })}>
             <FileSpreadsheet className="h-4 w-4" /> Excel
           </button>
@@ -171,7 +179,7 @@ export default function Inbox() {
         </div>
       )}
       {/* Approve all is inside each person now (ApprovalPerson). */}
-      {people.length ? <div className="card divide-y divide-ink-100 overflow-hidden">{people.map(p => <Person key={p.id} p={p} />)}</div>
+      {people.length ? <div className="card divide-y divide-ink-100 overflow-hidden shadow-sm">{people.map(p => <Person key={p.id} p={p} />)}</div>
         : <div className="card p-6 text-center text-sm text-ink-500">{find.active ? find.empty : EMPTY[tab]}</div>}
       {approving && <ApproveAll list={approvable} onClose={() => setApproving(false)} />}
       </>}

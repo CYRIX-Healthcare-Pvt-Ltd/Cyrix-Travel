@@ -14,7 +14,7 @@
      * Light here; dark restates the same names further down and nothing
      * else in the app has to know which one is in force.
      */
-    --canvas: 255 255 255;
+    --canvas: 243 244 247;
     --surface: 255 255 255;
     --on-ink: 255 255 255;
 
@@ -543,8 +543,8 @@
     -webkit-text-size-adjust: 100%;
   }
   body {
-    /* canvas, not surface: identical in light, but in dark the page sits a
-       step below the cards so a card reads as raised without a shadow. */
+    /* canvas, not surface: in both themes the page sits a step from the
+       cards so a card reads as raised (light: the user, 29 Oct, "looks blank"). */
     @apply bg-canvas font-sans text-ink-900 antialiased;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
