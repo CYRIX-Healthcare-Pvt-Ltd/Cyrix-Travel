@@ -7,10 +7,12 @@ import AdvanceApprovals from '@/components/AdvanceApprovals'
 import DeputationApprovals from '@/components/DeputationApprovals'
 import { useDepInbox } from '@/lib/deputation'
 import { useAdvanceInbox } from '@/lib/advances'
-import { ChevronRight, ClipboardCheck } from 'lucide-react'
+import { CheckCheck, ChevronRight, ClipboardCheck, FileSpreadsheet } from 'lucide-react'
+import ApproveAll from '@/components/ApproveAll'
+import { exportApprovals } from '@/lib/exportApprovals'
 import { Alert, PageLoader } from '@/components/ui'
 import { useClaimFilter } from '@/components/ClaimRows'
-import { km, money, rpc, useInbox, type ClaimData } from '@/lib/claims'
+import { claimName, km, money, rpc, useInbox, type ClaimData } from '@/lib/claims'
 
 /**
  * Claims waiting on this person — manager, coordinator or Travel Desk — and the ones they passed on, still to
@@ -32,16 +34,22 @@ type Issues = ReturnType<typeof claimIssues>
   also?"): each claim read a few at a time and kept in the cache, so the claim page and Approve all find it there.
 */
 export function useWaitingIssues(ids: string[]) {
+  const full = useClaimsData(ids)
+  return Object.fromEntries(Object.entries(full).map(([id, d]) => [id, d ? claimIssues(d) : []])) as Record<string, Issues>
+}
+
+/** Each claim whole (te_claim), read a few at a time and kept in the cache; null where it could not be read. */
+export function useClaimsData(ids: string[]) {
   const qc = useQueryClient()
-  const [map, setMap] = useState<Record<string, Issues>>({})
+  const [map, setMap] = useState<Record<string, ClaimData | null>>({})
   const key = ids.join(',')
   useEffect(() => {
     let live = true
     void (async () => {
       for (let i = 0; i < ids.length; i += 6) {
         const part = await Promise.all(ids.slice(i, i + 6).map(async id => {
-          try { return [id, claimIssues(await qc.fetchQuery({ queryKey: ['te_claim', id], queryFn: () => rpc<ClaimData>('te_claim', { p_claim: id }), staleTime: 60_000 }))] as const }
-          catch { return [id, [] as Issues] as const }
+          try { return [id, await qc.fetchQuery({ queryKey: ['te_claim', id], queryFn: () => rpc<ClaimData>('te_claim', { p_claim: id }), staleTime: 60_000 })] as const }
+          catch { return [id, null] as const }
         }))
         if (!live) return
         setMap(m => ({ ...m, ...Object.fromEntries(part) }))
@@ -71,6 +79,7 @@ export default function Inbox() {
   const view = params.get('view') === 'advances' ? 'advances' : params.get('view') === 'deputation' ? 'deputation' : 'claims'
   const { data: advances } = useAdvanceInbox()
   const { data: deputations } = useDepInbox()
+  const [approving, setApproving] = useState(false)
   if (isLoading) return <PageLoader />
   const found = (data ?? []).filter(find.test)
   /*
@@ -92,19 +101,33 @@ export default function Inbox() {
       id, name: cs[0].name, ecode: cs[0].ecode, cost: cs[0].cost_centre, n: cs.length,
       km: cs.reduce((t, c) => t + Number(c.km), 0), total: cs.reduce((t, c) => t + Number(c.total), 0),
       red: cs.filter(c => issues[c.id]?.some(i => i.level === 'approve')).length,
+      check: cs.filter(c => issues[c.id]?.length && !issues[c.id].some(i => i.level === 'approve')).length,
+      // The reasons, most common first (the user, 29 Oct: the director found the list "very blank").
+      why: [...cs.flatMap(c => issues[c.id] ?? []).reduce((m, i) => m.set(i.title, (m.get(i.title) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([t]) => t),
+      months: [...new Set(cs.map(c => claimName(c.month, c.part)))],
+      days: cs.reduce((t, c) => t + Number(c.days ?? 0), 0),
+      places: new Set(cs.flatMap(c => c.places ?? [])).size,
+      parts: [['bg-sky-500', 'Travel', cs.reduce((t, c) => t + Number(c.travel ?? 0), 0)], ['bg-emerald-500', 'DA', cs.reduce((t, c) => t + Number(c.da ?? 0), 0)],
+        ['bg-amber-500', 'Other', cs.reduce((t, c) => t + Number(c.other ?? 0), 0)], ['bg-violet-500', 'Hotel', cs.reduce((t, c) => t + Number(c.hotel ?? 0), 0)]] as Array<[string, string, number]>,
     }))
+  // Everyone's claims waiting on this person, as on each person's page (the user, 29 Oct: "here also keep approve all").
+  const approvable = tab === 'waiting' ? shown.filter(c => ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)) : []
+  const strip = [
+    ['Claims', String(shown.length)], ['People', String(people.length)],
+    ['Km', km(shown.reduce((t, c) => t + Number(c.km), 0))], ['Amount', money(shown.reduce((t, c) => t + Number(c.total), 0))],
+  ] as Array<[string, string]>
   const Person = ({ p }: { p: typeof people[number] }) => (
-    <Link to={`/approvals/person/${p.id}?tab=${tab}`} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto_1rem] items-center gap-3 px-4 py-3 hover:bg-ink-100/60 sm:grid-cols-[2.25rem_minmax(0,1fr)_9rem_9rem_7rem_1rem]">
+    <Link to={`/approvals/person/${p.id}?tab=${tab}`} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto_1rem] items-center gap-3 px-4 py-3 hover:bg-ink-100/60 sm:grid-cols-[2.25rem_minmax(0,1fr)_9rem_12rem_7rem_1rem]">
       <span className="grid h-9 w-9 place-items-center rounded-full bg-teal-100 text-xs font-semibold text-teal-800">{initialsOf(p.name)}</span>
       <div className="min-w-0">
         <p className="truncate font-medium text-ink-900">{p.name} <span className="text-xs text-ink-500">{p.ecode}</span></p>
         <p className="truncate text-xs text-ink-500">
-          {p.n} {p.n === 1 ? 'claim' : 'claims'}<span className="sm:hidden">{p.cost ? ` · ${p.cost}` : ''}{p.km > 0 ? ` · ${km(p.km)}` : ''}</span>
+          {p.n} {p.n === 1 ? 'claim' : 'claims'} · {p.months.join(', ')}{p.days > 0 ? ` · ${p.days} ${p.days === 1 ? 'day' : 'days'}` : ''}{p.places > 0 ? ` · ${p.places} ${p.places === 1 ? 'place' : 'places'}` : ''}<span className="sm:hidden">{p.cost ? ` · ${p.cost}` : ''}{p.km > 0 ? ` · ${km(p.km)}` : ''}</span>
           {p.red > 0 && <span className="ml-1.5 rounded-full bg-cyrixRed-100 px-1.5 py-0.5 font-semibold text-cyrixRed-700 sm:hidden">{p.red} out of policy</span>}
         </p>
       </div>
       <span className="hidden truncate text-sm text-ink-600 sm:block">{p.cost ?? '—'}</span>
-      <span className="hidden items-center gap-1.5 text-sm text-ink-600 sm:flex">{p.km > 0 ? km(p.km) : '—'}{p.red > 0 && <span className="rounded-full bg-cyrixRed-100 px-1.5 py-0.5 text-xs font-semibold text-cyrixRed-700">{p.red} out of policy</span>}</span>
+      <span className="hidden items-center gap-1.5 whitespace-nowrap text-sm text-ink-600 sm:flex">{p.km > 0 ? km(p.km) : '—'}{p.red > 0 && <span className="whitespace-nowrap rounded-full bg-cyrixRed-100 px-1.5 py-0.5 text-xs font-semibold text-cyrixRed-700">{p.red} out of policy</span>}</span>
       <span className="text-right text-base font-semibold text-ink-900">{money(p.total)}</span>
       <ChevronRight className="h-4 w-4 justify-self-end text-ink-400" />
     </Link>
@@ -134,9 +157,23 @@ export default function Inbox() {
           </button>
         ))}
       </div>
+      {shown.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">
+          {strip.map(([l, v]) => <div key={l} className="rounded-xl bg-ink-50 px-3 py-2 ring-1 ring-ink-200"><p className="text-xs font-medium text-ink-500">{l}</p><p className="text-base font-semibold tabular-nums text-ink-900">{v}</p></div>)}
+          <button type="button" className="btn-lift inline-flex items-center justify-center gap-2 rounded-lg border border-green-600/40 px-3 text-sm font-semibold text-green-700 hover:bg-green-50 col-span-2 h-10 sm:col-span-1 sm:h-auto" onClick={() => void exportApprovals({ file: `Travel approvals - ${TABS.find(([k]) => k === tab)?.[1]}`, heading: `Travel claims · ${TABS.find(([k]) => k === tab)?.[1]}`, rows: shown })}>
+            <FileSpreadsheet className="h-4 w-4" /> Excel
+          </button>
+          {approvable.length > 0 && (
+            <button type="button" className="btn-primary btn-go col-span-2 sm:col-span-1 sm:h-auto" onClick={() => setApproving(true)}>
+              <CheckCheck className="h-4 w-4" /> Approve all {approvable.length} · {money(approvable.reduce((t, c) => t + Number(c.total), 0))}
+            </button>
+          )}
+        </div>
+      )}
       {/* Approve all is inside each person now (ApprovalPerson). */}
       {people.length ? <div className="card divide-y divide-ink-100 overflow-hidden">{people.map(p => <Person key={p.id} p={p} />)}</div>
         : <div className="card p-6 text-center text-sm text-ink-500">{find.active ? find.empty : EMPTY[tab]}</div>}
+      {approving && <ApproveAll list={approvable} onClose={() => setApproving(false)} />}
       </>}
     </div>
   )

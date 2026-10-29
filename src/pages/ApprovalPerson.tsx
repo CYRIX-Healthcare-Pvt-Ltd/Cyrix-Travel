@@ -1,12 +1,15 @@
 import { useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, CheckCheck, ReceiptText, Route, ShieldAlert, TriangleAlert } from 'lucide-react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, CheckCheck, FileSpreadsheet, History, ReceiptText, Route, ShieldAlert, TriangleAlert, Wallet } from 'lucide-react'
 import ApproveAll from '@/components/ApproveAll'
+import ClaimBrief from '@/components/ClaimBrief'
+import { exportApprovals } from '@/lib/exportApprovals'
 import { initialsOf } from '@/components/Avatar'
 import { useAsk } from '@/components/Ask'
 import { PageLoader } from '@/components/ui'
-import { STATUS, claimName, km, money, useInbox } from '@/lib/claims'
-import { TABS, useWaitingIssues } from '@/pages/Inbox'
+import { STATUS, claimName, dayRange, km, money, useInbox } from '@/lib/claims'
+import { TABS, useClaimsData } from '@/pages/Inbox'
+import { claimIssues } from '@/pages/ClaimPage'
 
 /*
   One person's claims in Approvals (te_0080; the user, 27 Oct: "on click it should go the tab, instead of expanding
@@ -16,6 +19,7 @@ import { TABS, useWaitingIssues } from '@/pages/Inbox'
 export default function ApprovalPerson() {
   const { id } = useParams()
   const ask = useAsk()
+  const go = useNavigate()
   const { data, isLoading } = useInbox()
   // The tab the person was opened from in Approvals.
   const asked = useSearchParams()[0].get('tab')
@@ -23,7 +27,9 @@ export default function ApprovalPerson() {
   const [approving, setApproving] = useState(false)
   const all = (data ?? []).filter(c => c.employee_id === id)
   const list = all.filter(c => (tab === 'waiting' ? c.waiting : tab === 'pending' ? !c.waiting && c.status !== 'paid' : !c.waiting && c.status === 'paid'))
-  const issues = useWaitingIssues(list.filter(c => c.waiting).map(c => c.id))
+  // Each claim whole, opened out under its row (the user, 29 Oct: the director found it "very blank").
+  const full = useClaimsData(list.map(c => c.id))
+  const issues = Object.fromEntries(list.filter(c => c.waiting && full[c.id]).map(c => [c.id, claimIssues(full[c.id]!)]))
   if (isLoading) return <PageLoader />
   const who = all[0]
   const sum = (k: 'total' | 'km' | 'travel' | 'da' | 'hotel' | 'other') => list.reduce((t, c) => t + Number(c[k] ?? 0), 0)
@@ -40,9 +46,20 @@ export default function ApprovalPerson() {
     { label: 'Travel', v: sum('travel'), dot: 'bg-sky-500' }, { label: 'DA', v: sum('da'), dot: 'bg-emerald-500' },
     { label: 'Other', v: sum('other'), dot: 'bg-amber-500' }, { label: 'Hotel', v: sum('hotel'), dot: 'bg-violet-500' },
   ].filter(p => p.v > 0)
-  const tiles = [
+  // This person's claims before these, as far as Approvals has them: the last three.
+  const firstMonth = list.reduce((m, c) => (c.month < m ? c.month : m), list[0]?.month ?? '')
+  const earlier = all.filter(c => !list.includes(c) && c.month < firstMonth).sort((a, b) => b.month.localeCompare(a.month)).slice(0, 3)
+  const avg = earlier.length ? earlier.reduce((t, c) => t + Number(c.total), 0) / earlier.length : 0
+  const per = list.length ? sum('total') / list.length : 0
+  const change = avg > 0 ? `This claim ${per >= avg ? '+' : '−'}${Math.round(Math.abs(per - avg) / avg * 100)}%` : undefined
+  // What the person was given in advance and no claim has taken yet (te_0063).
+  const box = list.map(c => full[c.id]?.claim.advance_box).find(Boolean)
+  const open = box ? Math.max(0, Number(box.given) - Number(box.before) - list.reduce((t, c) => t + Number(full[c.id]?.claim.advance ?? 0), 0)) : 0
+  const tiles: Array<{ label: string; value: string; sub?: string; show: boolean; icon: typeof Route; tone: string; wide: boolean }> = [
     { label: 'Km', value: km(sum('km')), show: sum('km') > 0, icon: Route, tone: 'ink', wide: false },
     { label: 'Claim', value: money(sum('total')), show: true, icon: ReceiptText, tone: 'sky', wide: false },
+    { label: earlier.length === 1 ? 'Last claim' : `Last ${earlier.length} claims, average`, value: money(avg), sub: change, show: earlier.length > 0, icon: History, tone: 'ink', wide: false },
+    { label: 'Advance not settled', value: money(open), show: open > 0, icon: Wallet, tone: 'amber', wide: false },
     { label: 'Out of policy', value: `${red} ${red === 1 ? 'claim' : 'claims'}`, show: red > 0, icon: ShieldAlert, tone: 'cyrixRed', wide: true },
   ].filter(t => t.show)
   // Written out whole, so Tailwind keeps them.
@@ -50,6 +67,7 @@ export default function ApprovalPerson() {
     // Km in grey, apart from the rupees (teal beside the DA's green read as one).
     ink: { tile: 'bg-ink-50 ring-ink-200', dot: 'bg-ink-100 text-ink-700', ink: 'text-ink-700' },
     sky: { tile: 'bg-sky-50 ring-sky-200', dot: 'bg-sky-100 text-sky-700', ink: 'text-sky-800' },
+    amber: { tile: 'bg-amber-50 ring-amber-200', dot: 'bg-amber-100 text-amber-700', ink: 'text-amber-800' },
     cyrixRed: { tile: 'bg-cyrixRed-50 ring-cyrixRed-200', dot: 'bg-cyrixRed-100 text-cyrixRed-700', ink: 'text-cyrixRed-800' },
   }
 
@@ -64,6 +82,10 @@ export default function ApprovalPerson() {
             <p className="truncate text-xs text-ink-500">{who.cost_centre ?? 'No cost centre'} · {list.length} {list.length === 1 ? 'claim' : 'claims'} {tabName.toLowerCase()}</p>
           </div>
           <span className="text-right text-lg font-semibold text-ink-900">{money(sum('total'))}</span>
+          <button type="button" className="btn-lift inline-flex items-center justify-center gap-2 rounded-lg border border-green-600/40 px-3 text-sm font-semibold text-green-700 hover:bg-green-50 h-10 w-full sm:w-auto" disabled={!list.length}
+            onClick={() => void exportApprovals({ file: `${who.ecode} ${who.name} - Travel claims ${tabName}`, heading: `${who.name} (${who.ecode}) · Travel claims · ${tabName}`, rows: list, full })}>
+            <FileSpreadsheet className="h-4 w-4" /> Excel
+          </button>
           {/* At the top, not under a hundred claims (the user, 27 Oct: "why approve all down? what if 100 entries?"). */}
           {managerOnes.length > 0 && (
             <button type="button" className="btn-primary btn-go w-full sm:w-auto" onClick={() => setApproving(true)}>
@@ -83,6 +105,7 @@ export default function ApprovalPerson() {
                   <div className="min-w-0">
                     <p className={`truncate text-xs font-medium ${c.ink}`}>{t.label}</p>
                     <p className="truncate text-base font-semibold tabular-nums text-ink-900">{t.value}</p>
+                    {t.sub && <p className="truncate text-[11px] text-ink-600">{t.sub}</p>}
                     {t.label === 'Claim' && parts.length > 0 && (
                       <p className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-ink-600">
                         {parts.map(p => <span key={p.label} className="inline-flex items-center gap-1 whitespace-nowrap"><span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} />{p.label} {money(p.v)}</span>)}
@@ -96,13 +119,17 @@ export default function ApprovalPerson() {
         )}
 
         {list.length === 0 ? <div className="card p-6 text-center text-sm text-ink-500">Nothing {tabName.toLowerCase()} for {who.name.split(' ')[0]}.</div> : (
-          <div className="card divide-y divide-ink-100 overflow-hidden">
+          <div className="space-y-3">
             {list.map(c => {
               const s = STATUS[c.status] ?? STATUS.draft
               const found = issues[c.id] ?? [], bad = found.some(i => i.level === 'approve'), I = bad ? ShieldAlert : TriangleAlert
               return (
-                <div key={c.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[7rem_5rem_minmax(0,1fr)_6rem_auto]">
-                  <p className="min-w-0 truncate text-sm"><b className="font-semibold text-ink-900">{c.number}</b> <span className="text-xs text-ink-500">{claimName(c.month, c.part)}</span></p>
+                // The whole claim opens it, as View does (the user, 29 Oct).
+                <div key={c.id} role="link" tabIndex={0} className="card cursor-pointer overflow-hidden transition-shadow hover:ring-2 hover:ring-sky-400/60"
+                  onClick={() => go(`/claim/${c.id}`)} onKeyDown={e => { if (e.key === 'Enter') go(`/claim/${c.id}`) }}>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[9rem_5rem_minmax(0,1fr)_6rem_auto]">
+                  <p className="min-w-0 text-sm"><b className="font-semibold text-ink-900">{c.number}</b> <span className="text-xs text-ink-500">{claimName(c.month, c.part)}</span>
+                    <span className="block truncate text-xs text-ink-500">{dayRange(c.first_day, c.last_day)} · {c.days} {c.days === 1 ? 'day' : 'days'}</span></p>
                   <span className="text-right text-sm font-semibold text-ink-900 sm:order-4">{money(c.total)}</span>
                   <span className="text-xs text-ink-600 sm:order-2 sm:text-sm">{c.km > 0 ? km(c.km) : '—'}</span>
                   {/* Where it started and where it ended, the place before home when it ended there. */}
@@ -112,13 +139,15 @@ export default function ApprovalPerson() {
                   <span className="col-span-2 flex items-center justify-end gap-1.5 sm:order-5 sm:col-span-1">
                     {tab !== 'waiting' && <span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span>}
                     {c.waiting && found.length > 0 && (
-                      <button type="button" title={found.map(i => i.title).join(', ')} onClick={() => void ask.alert(`${c.number ?? ''} · ${bad ? 'Out of policy' : 'To check'}`, found.map(i => i.title).join('\n'), bad ? 'warn' : 'info')}
+                      <button type="button" title={found.map(i => i.title).join(', ')} onClick={e => { e.stopPropagation(); void ask.alert(`${c.number ?? ''} · ${bad ? 'Out of policy' : 'To check'}`, found.map(i => i.title).join('\n'), bad ? 'warn' : 'info') }}
                         className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${bad ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-ink-100 text-ink-700 ring-1 ring-ink-200'}`}>
                         <I className={`h-3.5 w-3.5 ${bad ? '' : 'text-amber-600'}`} />{bad ? 'Out of policy' : 'To check'}
                       </button>
                     )}
-                    <Link to={`/claim/${c.id}`} className="btn-secondary !px-3 !py-1.5 text-xs">View</Link>
+                    <Link to={`/claim/${c.id}`} onClick={e => e.stopPropagation()} className="btn-secondary !px-3 !py-1.5 text-xs">View</Link>
                   </span>
+                </div>
+                {full[c.id] && <ClaimBrief data={full[c.id]!} />}
                 </div>
               )
             })}

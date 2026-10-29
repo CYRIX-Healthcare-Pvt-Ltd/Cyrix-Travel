@@ -669,7 +669,7 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
   first, then what to check, then what is for information.
 */
 type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string; sub?: string }
-const OBS = {
+export const OBS = {
   policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert },
   nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip },
   twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy },
@@ -697,7 +697,7 @@ const OBS = {
   changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
   visit:    { title: 'Ticket visited before',    level: 'info',    icon: TicketIcon },
 } as const
-const LEVEL = {
+export const LEVEL = {
   approve: { label: 'need approval', chip: 'bg-cyrixRed-100 text-cyrixRed-700', dot: 'bg-cyrixRed-600' },
   check:   { label: 'to check',      chip: 'bg-amber-100 text-amber-700',       dot: 'bg-amber-500' },
   info:    { label: 'for information', chip: 'bg-sky-100 text-sky-700',         dot: 'bg-sky-500' },
