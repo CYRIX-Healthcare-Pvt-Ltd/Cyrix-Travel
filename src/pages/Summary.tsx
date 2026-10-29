@@ -177,11 +177,11 @@ export default function Summary() {
             <section>
               <h2 className="mb-2 text-sm font-semibold text-ink-700">{data.scope === 'all' ? 'Everyone' : 'Your team'} · {where}</h2>
               <div className="card overflow-hidden">
-                <div className="hidden grid-cols-[1fr_3.5rem_6rem_7rem_6rem_1.25rem] gap-3 border-b border-ink-100 bg-ink-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
+                <div className="hidden grid-cols-[1fr_4rem_6.5rem_9.5rem_6.5rem_1.25rem] gap-3 whitespace-nowrap border-b border-ink-100 bg-ink-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
                   <span>Person</span><span className="text-right">Claims</span><span className="text-right">Claimed</span><span className="text-right">With approvers</span><span className="text-right">Paid</span><span />
                 </div>
                 {data.team.map(p => (
-                  <Link key={p.ecode} to="/approvals" className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-b border-ink-100 px-4 py-3 last:border-0 hover:bg-ink-100/60 sm:grid-cols-[1fr_3.5rem_6rem_7rem_6rem_1.25rem]">
+                  <Link key={p.ecode} to="/approvals" className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-b border-ink-100 px-4 py-3 last:border-0 hover:bg-ink-100/60 sm:grid-cols-[1fr_4rem_6.5rem_9.5rem_6.5rem_1.25rem]">
                     <span className="min-w-0">
                       <span className="block truncate font-medium text-ink-900">{p.name} <span className="text-xs font-normal text-ink-500">{p.ecode}</span></span>
                       {p.waiting > 0 && <span className="text-xs font-semibold text-amber-800">{p.waiting} waiting on you</span>}
