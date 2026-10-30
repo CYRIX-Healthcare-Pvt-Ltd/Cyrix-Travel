@@ -190,7 +190,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   */
   // Every km the map put in a ride's box, so one put in while another mode's km was showing still follows the road's
   // (the user, 28 Oct: Bike → Metro → Bike left the box at the track's 12.6 km under a road map of 8.8 km).
-  const autoKm = useRef(new Map<string, Set<number>>())
+  /*
+    A km that was the map's as the day was saved, or as the form kept it, counts as the map's too (the user, 30 Oct: Lakeshore
+    changed to Cyrix kept its 11 km under a map of 7.9 — "still not changing").
+  */
+  const autoKm = useRef<Map<string, Set<number>>>(null!)
+  if (!autoKm.current) {
+    autoKm.current = new Map()
+    for (const r of [...initial.rides, ...start.rides]) if (r.map_km != null && r.claimed_km === r.map_km) autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(r.map_km))
+  }
   const kmKey = d.rides.map(r => `${r.id}:${r.mode}:${r.map_km ?? ''}`).join('|')
   useEffect(() => {
     for (const r of latest.current.rides) {
@@ -314,15 +322,33 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const same = nx.from_lat == null || (was.lat != null && Math.abs(nx.from_lat - was.lat) < 1e-5 && Math.abs((nx.from_lng ?? 0) - (was.lng ?? 0)) < 1e-5)
     if (!same || (nx.from_lat === p.lat && nx.from_lng === p.lng)) return
     setRide(nx.id, { from_name: p.name, from_lat: p.lat, from_lng: p.lng, map_km: null })
+    /*
+      The next ride now starting where it ends is the one the new To took the place of (the user, 30 Oct: Lakeshore changed
+      to Cyrix left "cyrix to cyrix"): offered for removal.
+    */
+    if (nx.to_lat != null && distanceKm(p, { lat: nx.to_lat, lng: nx.to_lng! }) < 0.15) {
+      const n = data.bills.filter(b => b.owner_id === nx.id).length, at = p.name.split(',')[0]
+      if (await ask.confirm({ title: `Remove ride ${i + 2}?`, body: `It now goes from ${at} to ${at}.${n ? ` Its ${n === 1 ? 'bill comes' : n + ' bills come'} off too.` : ''}`, yes: 'Remove', danger: true })) {
+        await dropBills([nx.id])
+        set({ rides: latest.current.rides.filter(x => x.id !== nx.id) })
+        return
+      }
+    }
     if (nx.to_lat != null) setRide(nx.id, { map_km: (await roadKm(p, { name: '', lat: nx.to_lat, lng: nx.to_lng! }, nx.mode))?.km ?? null })
   }
   const placed = async (rideId: string, end: 'from' | 'to', p: Place, named = false) => {
     setPicking(null)
     const r = d.rides.find(x => x.id === rideId)!
+    // The km box holding the old road's km takes the new road's.
+    if (r.map_km != null && r.claimed_km === r.map_km) autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(r.map_km))
     if (end === 'to') void chainNext(rideId, { lat: r.to_lat, lng: r.to_lng }, p)
+    // A ride to home is for Home, one to the work location for Office (the user, 30 Oct); another can still be chosen.
+    const goal = end !== 'to' ? undefined
+      : near(home, p.lat, p.lng) ? data.purposes.find(x => /home/i.test(x))
+      : near(work, p.lat, p.lng) ? data.purposes.find(x => /office/i.test(x)) : undefined
     const next = end === 'from'
       ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng, from_named: named }
-      : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng, to_named: named }
+      : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng, to_named: named, ...(goal ? { purpose: goal } : {}) }
     setRide(rideId, { ...next, map_km: null })
     if (next.from_lat != null && next.to_lat != null) {
       const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! }, next.mode)
@@ -954,6 +980,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           near={picking.end === 'to' && ride.from_lat != null ? { name: ride.from_name ?? '', lat: ride.from_lat, lng: ride.from_lng! } : null}
           quick={quick}
           photos={dayPhotos}
+          used={setup && d.day ? d.rides.map(r => photoFor(r, d.day, data.visit_photos, setup.near_m)?.photo.id).filter((x): x is string => !!x) : []}
           onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
           onClose={() => setPicking(null)}
         />

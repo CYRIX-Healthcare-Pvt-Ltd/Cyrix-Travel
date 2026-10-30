@@ -52,7 +52,8 @@ export default function Shell() {
       <header className="sticky top-0 z-30 border-b border-ink-200 bg-surface">
         <div className="flex h-14 items-center gap-3 px-4 sm:h-16">
           <a href="/" className="btn-press flex shrink-0 items-center gap-2.5 rounded-lg py-1 pr-1" aria-label="All Cyrix modules" title="All Cyrix modules">
-            <Logo className="h-9 sm:h-11" />
+            {/* Its width stated (300 x 92 art): Safari otherwise lays the link out at the picture's own 300 px and the header overflows. */}
+            <Logo className="h-9 w-[calc(2.25rem*300/92)] sm:h-11 sm:w-[calc(2.75rem*300/92)]" />
           </a>
           <div className="relative ml-6 hidden min-w-0 flex-1 lg:block">
             <nav className="nav-scroll flex items-center gap-1 overflow-x-auto">

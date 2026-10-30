@@ -402,8 +402,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const dep = depOn(data.deputations, d.day)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
-  const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300'
-    : focus === id ? ' -mx-2 rounded-lg px-2' : '')
+  // Each line its own raised card (the user, 30 Oct: "it looks very plain", "like each ride 3d? div?"); red while its bill is still needed.
+  const tile = ' rounded-lg border px-3 shadow-[0_1px_2px_rgb(15_23_42/0.07),0_3px_8px_-2px_rgb(15_23_42/0.08)]'
+  const mark = (id: string) => tile + (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' border-cyrixRed-300 bg-cyrixRed-50' : ' border-ink-200 bg-surface')
   const lit = (id: string, color: string) => (focus === id && !(need?.has(id) && !data.bills.some(b => b.owner_id === id)) ? { boxShadow: `0 0 0 2px ${color}`, background: color + '14' } : undefined)
   const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
   // An amount: what was claimed struck through once an approver changed it.
@@ -433,7 +434,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
     have a standardised look"): its kind as a chip, what it is written out in full under it, and on the right
     the amount, then the bill and the pencil. A ride stacks a third row on the right, for its map.
   */
-  const row = 'col-span-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1.5 py-2 text-sm sm:grid-cols-subgrid'
+  const row = 'col-span-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1.5 py-2.5 text-sm sm:grid-cols-subgrid'
   const name = 'col-start-1 row-span-2 row-start-1 flex min-w-0 flex-col items-start gap-1 self-start sm:col-span-2 sm:row-span-1 sm:row-start-auto sm:flex-row sm:items-center sm:gap-2 sm:self-auto'
   // A bill's clip first for whoever attaches (the clips in one column); for an approver the bills beside the amount.
   // The bill on its own row under the amount and the pencil under it, as on a ride (the user, 21 Oct: "make it same like modes").
@@ -501,9 +502,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
       })()}
 
       {(
-        <div data-details className="grid gap-x-2 divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3" style={{ gridTemplateColumns: cols }}>
+        <div data-details className="grid gap-x-2 gap-y-2 rounded-xl bg-ink-100/60 p-2" style={{ gridTemplateColumns: cols }}>
           {hasMap && (
-            <div className="col-span-full flex justify-end py-2">
+            <div className="col-span-full flex justify-end px-1 pt-0.5">
               <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>
             </div>
           )}
@@ -608,7 +609,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             )
           })()}
           {d.room_by && (
-            <div className={row}>
+            <div className={row + tile + ' border-ink-200 bg-surface'}>
               <span className={name}>{(() => { const t = `Room shared · claimed by ${d.room_by.name} (${d.room_by.ecode})${d.room_by.number ? ` on ${d.room_by.number}` : ''}`; return lead(BedDouble, 'text-green-600', 'Hotel', 'bg-green-100 text-green-900', t, t) })()}</span>
               <span className={`${amtAt} text-right font-medium text-ink-500`}>{money(d.room_by.amount)}</span>
             </div>
@@ -630,7 +631,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
               {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount }, penAt(2))}
             </div>
           )}
-          {d.remarks && <p className="col-span-full py-2 text-sm text-ink-600">{d.remarks}</p>}
+          {d.remarks && <p className="col-span-full px-1 py-1 text-sm text-ink-600">{d.remarks}</p>}
         </div>
       )}
     </div>
