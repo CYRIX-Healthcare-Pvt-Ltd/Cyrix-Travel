@@ -9,7 +9,11 @@ import { hospitalAt, newId, sha256 } from './claims'
   camera, stamped on the phone, kept in the private bucket te-visits; a ride for a purpose that needs one finds the
   photo taken that day nearest where it went.
 */
-export interface VisitSetup { on: boolean; near_m: number; skips: number; after: 'block' | 'send'; keep_days: number; needs: string[] }
+export interface VisitSetup {
+  on: boolean; near_m: number; skips: number; after: 'block' | 'send'; keep_days: number; needs: string[]
+  /** The travel time check between photos and the km/h each way of travel can do (te_0089). */
+  speed_on?: boolean; speeds?: Record<string, number>
+}
 export interface VisitPhoto {
   id: string; day: string; shot_at: string; taken_at: string; lat: number; lng: number; accuracy: number | null
   place: string | null; path: string | null
@@ -65,6 +69,54 @@ export function photoOrder<R extends { id: string; to_lat: number | null; to_lng
     if (Date.parse(seen[k].photo.shot_at) < Date.parse(seen[k - 1].photo.shot_at)) return { late: seen[k], early: seen[k - 1] }
   }
   return null
+}
+
+/*
+  Two visit photos of a day too far apart for the time between them (the user, 30 Oct: "do the travel time check between
+  photos"; SW Admin sets the km/h each way of travel can do, te_0089): the km claimed on the rides between the two
+  photos' places — never less than the straight line — over the minutes between the photos. The server's time is used
+  when both went up within 10 minutes of being taken; else the phone's, as photos kept for a signal go up together.
+  Photos under 2 km apart, a location worse than 500 m and a flight between are left out.
+*/
+const SPEEDS: Record<string, number> = { bike: 60, car: 80, bus: 60, train: 100, metro: 80, auto: 40, taxi: 80, taxi_bike: 60 }
+export interface Rush { from: VisitPhoto; to: VisitPhoto; fromRide: number; toRide: number; km: number; min: number; kmh: number; limit: number; modes: string[] }
+export function photoRush<R extends { mode: string; from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null; claimed_km: number | null; map_km: number | null }>(
+  rides: R[], day: string, photos: VisitPhoto[] | undefined, setup: VisitSetup | null | undefined,
+): Rush[] {
+  if (!setup?.on || setup.speed_on === false) return []
+  const speeds = { ...SPEEDS, ...(setup.speeds ?? {}) }
+  const shot = (p: VisitPhoto) => Date.parse(p.shot_at)
+  const sent = (p: VisitPhoto) => Date.parse(p.taken_at) - shot(p) <= 10 * 60_000
+  const list = (photos ?? []).filter(p => p.day === day && (p.accuracy == null || p.accuracy <= 500)).sort((a, b) => shot(a) - shot(b))
+  // The ride a photo was taken at the end of: the nearest To within the photo distance.
+  const rideAt = (p: VisitPhoto) => {
+    let best = -1, bm = Infinity
+    rides.forEach((r, i) => {
+      if (r.to_lat == null || r.to_lng == null) return
+      const m = lineKm(p, { lat: r.to_lat, lng: r.to_lng }) * 1000
+      if (m <= setup.near_m && m < bm) { best = i; bm = m }
+    })
+    return best
+  }
+  const rideKm = (r: R) => r.claimed_km ?? r.map_km
+    ?? (r.from_lat != null && r.from_lng != null && r.to_lat != null && r.to_lng != null ? lineKm({ lat: r.from_lat, lng: r.from_lng }, { lat: r.to_lat, lng: r.to_lng }) : 0)
+  const out: Rush[] = []
+  for (let k = 1; k < list.length; k++) {
+    const a = list[k - 1], b = list[k], line = lineKm(a, b)
+    if (line < 2) continue
+    const ia = rideAt(a), ib = rideAt(b), ridden = ia >= 0 && ib > ia
+    // The rides between the two places; photos not at a ride's end weigh the day's rides, at the fastest of them.
+    const between = ridden ? rides.slice(ia + 1, ib + 1) : rides
+    if (between.some(r => r.mode === 'flight')) continue
+    const modes = [...new Set(between.map(r => r.mode))]
+    const limit = Math.max(0, ...(modes.length ? modes : Object.keys(speeds)).map(m => speeds[m] ?? 0))
+    if (!limit) continue
+    const km = Math.max(line, ridden ? between.reduce((s, r) => s + rideKm(r), 0) : 0)
+    const min = Math.max(1, ((sent(a) && sent(b) ? Date.parse(b.taken_at) - Date.parse(a.taken_at) : shot(b) - shot(a)) / 60_000))
+    const kmh = km / (min / 60)
+    if (kmh > limit) out.push({ from: a, to: b, fromRide: ia, toRide: ib, km, min, kmh, limit, modes: ridden ? modes : [] })
+  }
+  return out
 }
 
 /** Uploaded this long after it was taken, said beside it (a phone with no signal at the hospital sends it later). */

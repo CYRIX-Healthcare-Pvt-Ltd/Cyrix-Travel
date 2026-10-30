@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
-import { Camera, Check, Pencil, Settings2, Trash2, X } from 'lucide-react'
+import { Camera, Check, Pencil, Settings2, Timer, Trash2, X } from 'lucide-react'
 import LearnedPlacesTable from '@/components/LearnedPlacesTable'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
@@ -71,7 +71,7 @@ export default function TeAdmin() {
         </div>
       )}
       {tab === 'purposes' && <Purposes list={data.purposes} call={call} sw={!!data.sw} />}
-      {tab === 'photos' && data.sw && <VisitPhotoSettings policy={data.policy} purposes={data.purposes} call={async (fn, args, done) => { const e = await call(fn, args, done); await qc.invalidateQueries({ queryKey: ['te_visit_setup'] }); return e }} />}
+      {tab === 'photos' && data.sw && <VisitPhotoSettings policy={data.policy} purposes={data.purposes} call={async (fn, args, done, here) => { const e = await call(fn, args, done, here); await qc.invalidateQueries({ queryKey: ['te_visit_setup'] }); return e }} />}
       {tab === 'projects' && <Projects list={data.projects} call={call} />}
       {tab === 'coord' && <Coordinators list={data.coordinators} centres={data.cost_centres} call={call} />}
       {tab === 'desk' && <Desk list={data.desk} call={call} />}
@@ -135,6 +135,46 @@ function PolicyField({ label, value, onSave }: { label: string; value: unknown; 
 type Call = (fn: string, args: Record<string, unknown>, done?: string, here?: boolean) => Promise<string | null>
 
 /*
+  The travel time check between a day's visit photos (te_0089; the user, 30 Oct: "sw admin can change km/h"): on or
+  off, and the km/h each way of travel can do. Faster than that between two photos is an observation on the claim.
+*/
+const SPEED_MODES: Array<[string, string]> = [['bike', 'Bike'], ['car', 'Car'], ['bus', 'Bus'], ['train', 'Train'], ['metro', 'Metro'], ['auto', 'Auto'], ['taxi', 'Taxi · Car'], ['taxi_bike', 'Taxi · Bike']]
+function TravelTime({ policy, call }: { policy: Record<string, unknown>; call: Call }) {
+  const on = policy.photo_speed_on !== false
+  const saved = (policy.photo_speeds ?? {}) as Record<string, number>
+  const [v, setV] = useState<Record<string, string>>(() => Object.fromEntries(SPEED_MODES.map(([m]) => [m, String(saved[m] ?? '')])))
+  const [err, setErr] = useState<string | null>(null)
+  const changed = SPEED_MODES.some(([m]) => v[m] !== String(saved[m] ?? ''))
+  const save = async () => setErr(await call('te_set_policy', { p_key: 'photo_speeds', p_value: Object.fromEntries(SPEED_MODES.map(([m]) => [m, Number(v[m])])) }, 'Speeds saved.', true))
+  return (
+    <div className="space-y-3 border-t border-ink-100 pt-4">
+      <div className="flex items-center gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700"><Timer className="h-4 w-4" /></span>
+        <p className="min-w-0 flex-1 font-semibold text-ink-900">Travel time between photos</p>
+        <button type="button" role="switch" aria-checked={on} aria-label="Travel time check on or off" onClick={() => void call('te_set_policy', { p_key: 'photo_speed_on', p_value: !on }, on ? 'Travel time check is off.' : 'Travel time check is on.')}
+          className={clsx('relative h-7 w-12 shrink-0 rounded-full transition-colors', on ? 'bg-emerald-600' : 'bg-ink-300')}>
+          <span className={clsx('absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all', on ? 'left-[22px]' : 'left-0.5')} />
+        </button>
+      </div>
+      <div className={clsx('grid grid-cols-2 gap-2 sm:grid-cols-4', !on && 'opacity-60')}>
+        {SPEED_MODES.map(([m, label]) => (
+          <label key={m} className="block"><span className="label">{label}</span>
+            <span className="relative mt-1 block">
+              <input className="input pr-12" inputMode="numeric" value={v[m]} onChange={e => { setErr(null); setV(x => ({ ...x, [m]: e.target.value.replace(/\D/g, '').slice(0, 3) })) }} />
+              <span className="pointer-events-none absolute inset-y-0 right-3 grid place-items-center text-xs text-ink-500">km/h</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {err && <span className="text-sm text-cyrixRed-700">{err}</span>}
+        <button type="button" className="btn-primary !py-1.5 text-sm" disabled={!changed || SPEED_MODES.some(([m]) => !v[m])} onClick={() => void save()}>Save speeds</button>
+      </div>
+    </div>
+  )
+}
+
+/*
   Visit photos for SW Admin on one page (te_0082; the user, 28 Oct: "sw admin need option to enable and disable this
   feature", "let sw admin decide it block or send, so admin panel should be easy"): on or off, which purposes need a
   photo, how near it must be, how many Photo not possible a month and what happens past them, how long pictures stay.
@@ -176,6 +216,7 @@ function VisitPhotoSettings({ policy, purposes, call }: { policy: Record<string,
           <PolicyField label="Photo within, metres" value={policy.photo_near_m} onSave={v => void call('te_set_policy', { p_key: 'photo_near_m', p_value: v })} />
           <PolicyField label="Keep photos after paid, days" value={policy.photo_keep_days} onSave={v => void call('te_set_policy', { p_key: 'photo_keep_days', p_value: v })} />
         </div>
+        <TravelTime policy={policy} call={call} />
       </div>
     </div>
   )

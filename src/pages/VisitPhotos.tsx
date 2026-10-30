@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Camera, CloudUpload, MapPin, Trash2, X } from 'lucide-react'
+import { Camera, CloudUpload, LayoutGrid, MapPin, Trash2, X } from 'lucide-react'
 import VisitCamera from '@/components/VisitCamera'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader } from '@/components/ui'
@@ -16,6 +16,14 @@ import { clock, deletePhoto, flushQueue, lateBy, queued, useMyPhotos, usePhotoUr
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const now = new Date(), today = ymd(now)
 const thisMonth = { from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), to: today }
+/*
+  Photos per row, 2 to 5, kept on this phone (the user, 30 Oct: "add photo grid size option also ie 2 per row, 3,4,5").
+  From 4 a row the photo carries only its time; a press opens it with the place.
+*/
+const COLS = { 2: 'grid-cols-2 gap-2', 3: 'grid-cols-3 gap-2', 4: 'grid-cols-4 gap-1.5', 5: 'grid-cols-5 gap-1' } as const
+type Cols = keyof typeof COLS
+const COLS_KEY = 'te.photoCols'
+const keptCols = (): Cols => { try { const n = Number(localStorage.getItem(COLS_KEY)); return n in COLS ? (n as Cols) : 2 } catch { return 2 } }
 
 export default function VisitPhotos() {
   const { employee } = useAuth()
@@ -31,6 +39,8 @@ export default function VisitPhotos() {
   const [note, setNote] = useState<{ kind: 'success' | 'info' | 'error'; text: string } | null>(null)
   const [waiting, setWaiting] = useState(0)
   const [open, setOpen] = useState<VisitPhoto | null>(null)
+  const [cols, setCols] = useState<Cols>(keptCols)
+  const pickCols = (n: Cols) => { setCols(n); try { localStorage.setItem(COLS_KEY, String(n)) } catch { /* kept for this visit only */ } }
 
   const refresh = useCallback(() => qc.invalidateQueries({ queryKey: ['te_my_photos'] }), [qc])
   // What waited for a signal goes when the page opens and whenever the phone comes back online.
@@ -71,11 +81,20 @@ export default function VisitPhotos() {
         </div>
       )}
 
-      <div className="inline-flex rounded-xl bg-ink-100 p-1" role="tablist">
-        {([[false, 'This month'], [true, 'Custom']] as const).map(([k, l]) => (
-          <button key={l} type="button" role="tab" aria-selected={custom === k} onClick={() => setCustom(k)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${custom === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>{l}</button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-xl bg-ink-100 p-1" role="tablist">
+          {([[false, 'This month'], [true, 'Custom']] as const).map(([k, l]) => (
+            <button key={l} type="button" role="tab" aria-selected={custom === k} onClick={() => setCustom(k)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${custom === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>{l}</button>
+          ))}
+        </div>
+        <div className="inline-flex items-center rounded-xl bg-ink-100 p-1" role="group" aria-label="Photos per row">
+          <LayoutGrid className="mx-1.5 h-4 w-4 text-ink-500" aria-hidden />
+          {([2, 3, 4, 5] as const).map(n => (
+            <button key={n} type="button" aria-pressed={cols === n} aria-label={`${n} photos per row`} onClick={() => pickCols(n)}
+              className={`h-8 w-8 rounded-lg text-sm font-semibold ${cols === n ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>{n}</button>
+          ))}
+        </div>
       </div>
       {custom && (
         <div className="grid max-w-md grid-cols-2 gap-2">
@@ -96,22 +115,23 @@ export default function VisitPhotos() {
               {new Date(day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
               <span className="ml-2 text-xs font-normal text-ink-500">{list.length} {list.length === 1 ? 'photo' : 'photos'}</span>
             </h2>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            <div className={`grid ${COLS[cols]}`}>
               {list.map(p => {
                 const late = lateBy(p)
                 return (
-                  <button key={p.id} type="button" className="card overflow-hidden text-left" onClick={() => setOpen(p)}>
-                    <div className="aspect-[4/3] bg-ink-100">
-                      {p.path && urls[p.path] ? <img src={urls[p.path]} alt={p.place ?? 'Visit photo'} className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full place-items-center text-xs text-ink-400">{p.path ? '' : 'Removed after payment'}</div>}
+                  <button key={p.id} type="button" className={`card overflow-hidden text-left ${cols >= 4 ? '!rounded-lg' : ''}`} onClick={() => setOpen(p)}>
+                    <div className={`relative bg-ink-100 ${cols >= 4 ? 'aspect-square' : 'aspect-[4/3]'}`}>
+                      {p.path && urls[p.path] ? <img src={urls[p.path]} alt={p.place ?? 'Visit photo'} className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full place-items-center p-1 text-center text-xs text-ink-400">{p.path ? '' : cols >= 4 ? '' : 'Removed after payment'}</div>}
+                      {cols >= 4 && <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] font-medium leading-4 text-white">{clock(p.shot_at)}</span>}
                     </div>
-                    <div className="space-y-0.5 px-2.5 py-2">
+                    {cols < 4 && <div className={`space-y-0.5 ${cols === 3 ? 'px-2 py-1.5' : 'px-2.5 py-2'}`}>
                       <p className="truncate text-sm font-semibold text-ink-900">{p.place ?? 'Place not named'}</p>
                       <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-ink-500">
                         {clock(p.shot_at)}
                         {p.on && <span className={`rounded px-1.5 py-px font-semibold ${p.on === 'draft' ? 'bg-ink-100 text-ink-700' : 'bg-sky-100 text-sky-800'}`}>{p.on === 'draft' ? 'On a draft' : `On ${p.on}`}</span>}
                         {late && <span className="font-semibold text-amber-700">{late}</span>}
                       </p>
-                    </div>
+                    </div>}
                   </button>
                 )
               })}

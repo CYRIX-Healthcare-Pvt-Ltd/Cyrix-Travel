@@ -3,12 +3,12 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
-import { clock, lateBy, metres, needsPhoto, photoFor } from '@/lib/visits'
+import { clock, lateBy, metres, needsPhoto, photoFor, photoRush, type VisitPhoto } from '@/lib/visits'
 import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -18,7 +18,7 @@ import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
   DA_KINDS, DA_RANK, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
-  useClaim, useClaimAction, type ClaimData, type Day,
+  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode,
 } from '@/lib/claims'
 
 /*
@@ -666,37 +666,50 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
 /*
   Each observation is a kind with a short title, its detail and its day, shown as a list rather than
   coloured blocks (the user, 19 Oct: "make this more professional and beautiful"): what needs approval
-  first, then what to check, then what is for information.
+  first, then what to check, then what is for information. Sorted under its topic (the user, 30 Oct: "segregate
+  it beautifully that manager and travel desk can understand it easily"): visit photos, bills, km and fares,
+  policy and allowance, tickets and bookings, home, and the approvers' changes.
 */
 type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string; sub?: string }
 export const OBS = {
-  policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert },
-  nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip },
-  twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy },
-  km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge },
-  kmfixed:  { title: 'Km changed from the map · corrected', level: 'info', icon: Gauge },
-  nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff },
-  photoyet: { title: 'No visit photo', level: 'check', icon: CameraOff },
-  photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera },
-  photophone: { title: 'Visit photo from another phone', level: 'approve', icon: Smartphone },
-  billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
-  unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText },
-  hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
-  away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff },
-  home:     { title: 'Home moved',               level: 'check',   icon: House },
-  homemap:  { title: 'Home set on the map',      level: 'check',   icon: House },
-  company:  { title: 'Booked by company',        level: 'info',    icon: Building2 },
-  cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange },
-  cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2 },
-  autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront },
-  tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange },
-  retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon },
-  da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
-  depoff:   { title: 'Outside the deputation state', level: 'approve', icon: MapPinOff },
-  depout:   { title: 'Deputation DA outside its dates', level: 'approve', icon: BriefcaseBusiness },
-  month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
-  changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
-  visit:    { title: 'Ticket visited before',    level: 'info',    icon: TicketIcon },
+  policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert, group: 'policy' },
+  nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip, group: 'bills' },
+  twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy, group: 'bills' },
+  km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge, group: 'km' },
+  kmfixed:  { title: 'Km changed from the map · corrected', level: 'info', icon: Gauge, group: 'km' },
+  nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff, group: 'photos' },
+  photoyet: { title: 'No visit photo', level: 'check', icon: CameraOff, group: 'photos' },
+  photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera, group: 'photos' },
+  photophone: { title: 'Visit photo from another phone', level: 'approve', icon: Smartphone, group: 'photos' },
+  photospeed: { title: 'Too fast between visit photos', level: 'approve', icon: Timer, group: 'photos' },
+  billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
+  unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
+  hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble, group: 'policy' },
+  away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff, group: 'tickets' },
+  home:     { title: 'Home moved',               level: 'check',   icon: House, group: 'home' },
+  homemap:  { title: 'Home set on the map',      level: 'check',   icon: House, group: 'home' },
+  company:  { title: 'Booked by company',        level: 'info',    icon: Building2, group: 'tickets' },
+  cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange, group: 'tickets' },
+  cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2, group: 'tickets' },
+  autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront, group: 'km' },
+  tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange, group: 'tickets' },
+  retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon, group: 'tickets' },
+  da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins, group: 'policy' },
+  depoff:   { title: 'Outside the deputation state', level: 'approve', icon: MapPinOff, group: 'policy' },
+  depout:   { title: 'Deputation DA outside its dates', level: 'approve', icon: BriefcaseBusiness, group: 'policy' },
+  month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange, group: 'km' },
+  changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine, group: 'changes' },
+  visit:    { title: 'Ticket visited before',    level: 'info',    icon: TicketIcon, group: 'tickets' },
+} as const
+/** The topics observations sit under, in this order when they weigh alike. */
+const GROUPS = {
+  photos:  { title: 'Visit photos', icon: Camera },
+  bills:   { title: 'Bills', icon: ReceiptText },
+  km:      { title: 'Km and fares', icon: Gauge },
+  policy:  { title: 'Policy and allowance', icon: ShieldAlert },
+  tickets: { title: 'Tickets and bookings', icon: TicketIcon },
+  home:    { title: 'Home', icon: House },
+  changes: { title: 'Changed by approvers', icon: PencilLine },
 } as const
 export const LEVEL = {
   approve: { label: 'need approval', chip: 'bg-cyrixRed-100 text-cyrixRed-700', dot: 'bg-cyrixRed-600' },
@@ -805,6 +818,13 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Hotel · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
       if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Hotel · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
     }
+    // Visit photos too far apart for the time between them (te_0089), said to the person too; the day still saves.
+    for (const x of photoRush(d.rides, d.day, data.visit_photos, setup)) {
+      const at = (p: VisitPhoto, i: number) => `${i >= 0 ? short(d.rides[i].to_name) : short(p.place)} ${clock(p.shot_at)}`
+      const by = x.modes.map(m => MODES[m as ModeCode]?.short ?? MODES[m as ModeCode]?.label ?? m).join(' + ')
+      items.push({ kind: 'photospeed', day, to: x.toRide >= 0 ? d.rides[x.toRide].id : undefined,
+        detail: `${at(x.from, x.fromRide)} → ${at(x.to, x.toRide)} · ${km(x.km)} in ${span(x.min)} = ${Math.round(x.kmh)} km/h${by ? ` by ${by}` : ''}, the limit is ${x.limit} km/h` })
+    }
     // Deputation (te_0075): a place in another state is red (the user, 26 Oct: "in observation it should show as
     // critical if claming from other states"), and so is its DA on a day no approved deputation covers.
     const dep = depOn(data.deputations, d.day)
@@ -869,7 +889,11 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
 
   const order = ['approve', 'check', 'info'] as const
   const sorted = [...items].sort((x, y) => order.indexOf(OBS[x.kind].level) - order.indexOf(OBS[y.kind].level))
-  const count = (l: typeof order[number]) => items.filter(i => OBS[i.kind].level === l).length
+  const count = (l: typeof order[number], list = items) => list.filter(i => OBS[i.kind].level === l).length
+  // Each topic once, the one holding the most serious observation first.
+  const worst = (list: Obs[]) => Math.min(...list.map(i => order.indexOf(OBS[i.kind].level)))
+  const topics = (Object.keys(GROUPS) as Array<keyof typeof GROUPS>).map(g => ({ g, list: sorted.filter(i => OBS[i.kind].group === g) }))
+    .filter(x => x.list.length).sort((x, y) => worst(x.list) - worst(y.list))
   return (
     <div className="card overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-ink-100 bg-ink-50 px-4 py-2.5">
@@ -882,28 +906,46 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
           ))}
         </span>
       </div>
-      <ul className="divide-y divide-ink-100">
-        {sorted.map((it, i) => {
-          const o = OBS[it.kind], I = o.icon
-          return (
-            <li key={i} role={it.to ? 'button' : undefined} tabIndex={it.to ? 0 : undefined} onClick={it.to ? () => onGo(it.to!) : undefined}
-              onKeyDown={it.to ? e => { if (e.key === 'Enter') onGo(it.to!) } : undefined}
-              className={`flex items-start gap-3 px-4 py-2.5 ${it.to ? 'cursor-pointer transition-colors hover:bg-ink-100/60' : ''}`}>
-              <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${LEVEL[o.level].chip}`}><I className="h-4 w-4" /></span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-ink-900">{o.title}</span>
-                <span className="block text-sm text-ink-600">{it.detail}</span>
-                {it.sub && (
-                  <span className="mt-1.5 flex items-start gap-1.5 border-l-2 border-ink-200 pl-2.5 text-[13px] text-ink-500">
-                    <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span><b className="font-semibold text-ink-700">Km changed from the map</b> · {it.sub}</span>
+      {topics.map(({ g, list }) => {
+        const G = GROUPS[g]
+        return (
+          <section key={g} className="border-t border-ink-100 first-of-type:border-t-0">
+            <div className="flex items-center gap-2 bg-ink-50/60 px-4 py-2">
+              <G.icon className="h-4 w-4 shrink-0 text-ink-500" />
+              <h3 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-ink-600">{G.title}</h3>
+              <span className="flex shrink-0 gap-1">
+                {order.filter(l => count(l, list)).map(l => (
+                  <span key={l} title={LEVEL[l].label} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[l].chip}`}>
+                    <i className={`h-1.5 w-1.5 rounded-full ${LEVEL[l].dot}`} />{count(l, list)}
                   </span>
-                )}
+                ))}
               </span>
-              {it.day && <span className="shrink-0 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-600">{it.day}</span>}
-            </li>
-          )
-        })}
-      </ul>
+            </div>
+            <ul className="divide-y divide-ink-100">
+              {list.map((it, i) => {
+                const o = OBS[it.kind], I = o.icon
+                return (
+                  <li key={i} role={it.to ? 'button' : undefined} tabIndex={it.to ? 0 : undefined} onClick={it.to ? () => onGo(it.to!) : undefined}
+                    onKeyDown={it.to ? e => { if (e.key === 'Enter') onGo(it.to!) } : undefined}
+                    className={`flex items-start gap-3 px-4 py-2.5 ${it.to ? 'cursor-pointer transition-colors hover:bg-ink-100/60' : ''}`}>
+                    <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${LEVEL[o.level].chip}`}><I className="h-4 w-4" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-ink-900">{o.title}</span>
+                      <span className="block text-sm text-ink-600">{it.detail}</span>
+                      {it.sub && (
+                        <span className="mt-1.5 flex items-start gap-1.5 border-l-2 border-ink-200 pl-2.5 text-[13px] text-ink-500">
+                          <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span><b className="font-semibold text-ink-700">Km changed from the map</b> · {it.sub}</span>
+                        </span>
+                      )}
+                    </span>
+                    {it.day && <span className="shrink-0 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-600">{it.day}</span>}
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -927,4 +969,5 @@ function missingBills(data: ClaimData, over: number): Array<{ id: string; label:
 }
 
 const short = (s: string | null) => (s ? s.split(',')[0] : '—')
+const span = (min: number) => { const m = Math.round(min); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` }
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`
