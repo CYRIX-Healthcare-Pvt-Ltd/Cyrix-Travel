@@ -118,65 +118,59 @@ export default function ApprovalPerson() {
               <CheckCheck className="h-4 w-4" /> Approve all {managerOnes.length} · {money(managerOnes.reduce((t, c) => t + Number(c.total), 0))}
             </button>
           )}
-        </div>
-
-        {/* Very brief: what it is spent on, and how many claims are out of policy (the user: "need good summary very brief"). */}
-        {list.length > 0 && (
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            {tiles.map(t => {
-              const I = t.icon, c = TONE[t.tone]
-              return (
-                <div key={t.label} className={`flex items-center gap-2.5 rounded-xl p-3 ring-1 ${c.tile} ${t.wide ? 'col-span-2 lg:col-span-1' : ''}`}>
-                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${c.dot}`}><I className="h-4 w-4" /></span>
-                  <div className="min-w-0">
-                    <p className={`truncate text-xs font-medium ${c.ink}`}>{t.label}</p>
-                    <p className="truncate text-base font-semibold tabular-nums text-ink-900">{t.value}</p>
-                    {t.sub && <p className="truncate text-[11px] text-ink-600">{t.sub}</p>}
-                    {t.label === 'Claim' && parts.length > 0 && (
-                      <p className="mt-0.5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] text-ink-600">
-                        {parts.map(p => <span key={p.label} className="inline-flex items-center gap-1 whitespace-nowrap"><span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} />{p.label} {money(p.v)}</span>)}
-                      </p>
-                    )}
+          {/* The summary in the same card, small, so the claims start high on the page (the user, 30 Oct: "compact this and move summary up"). */}
+          {list.length > 0 && (
+            <div className="grid w-full gap-x-6 gap-y-3 border-t border-ink-100 pt-3 lg:grid-cols-[1.2fr_1fr_1fr]">
+              <div className="grid grid-cols-2 gap-1.5">
+                {tiles.map(t => {
+                  const I = t.icon, c = TONE[t.tone]
+                  return (
+                    <div key={t.label} className={`min-w-0 rounded-lg px-2.5 py-1.5 ring-1 ${c.tile}`}>
+                      <div className="min-w-0">
+                        <p className={`flex items-center gap-1 truncate text-[11px] font-medium ${c.ink}`}><I className="h-3.5 w-3.5 shrink-0" />{t.label}</p>
+                        <p className="truncate text-sm font-semibold tabular-nums text-ink-900">{t.value}{t.sub && <span className="ml-1 text-[11px] font-normal text-ink-500">{t.sub}</span>}</p>
+                        {t.label === 'Claim' && parts.length > 0 && (
+                          <p className="flex flex-wrap gap-x-2 text-[11px] text-ink-600">
+                            {parts.map(p => <span key={p.label} className="inline-flex items-center gap-1 whitespace-nowrap"><span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} />{p.label} {money(p.v)}</span>)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {/* Each purpose and place a small chip, its figures beside its name (the user, 30 Oct: "why day 1 far away?"; the grid "looks bad"). */}
+              {purposes.length > 0 && (
+                <div className="min-w-0">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500"><Target className="h-3.5 w-3.5 text-violet-600" /> By purpose</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {purposes.slice(0, 4).map(([name, v]) => (
+                      <span key={name} className="inline-flex max-w-full items-baseline gap-1.5 rounded-lg bg-violet-50 px-2.5 py-1 text-sm ring-1 ring-violet-200/70">
+                        <span className="truncate font-medium text-ink-900">{name}</span>
+                        <span className="shrink-0 text-xs text-ink-500">{v.days} {v.days === 1 ? 'day' : 'days'}</span>
+                        <span className="shrink-0 font-semibold tabular-nums text-violet-800">{money(v.amount)}</span>
+                      </span>
+                    ))}
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* What it was for and where he went most, in two short lists (the user, 29 Oct: the director, "which purpose wise summary, most visited location top 3"). */}
-        {(purposes.length > 0 || topPlaces.length > 0) && (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {purposes.length > 0 && (
-              <div className="card px-4 py-3">
-                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500"><Target className="h-3.5 w-3.5 text-violet-600" /> By purpose</p>
-                <ul className="space-y-1 text-sm">
-                  {purposes.slice(0, 4).map(([name, v]) => (
-                    <li key={name} className="flex items-baseline gap-2">
-                      <span className="min-w-0 flex-1 truncate text-ink-800">{name}</span>
-                      <span className="shrink-0 text-xs text-ink-500">{v.days} {v.days === 1 ? 'day' : 'days'}</span>
-                      <span className="w-20 shrink-0 text-right font-semibold tabular-nums text-ink-900">{money(v.amount)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {topPlaces.length > 0 && (
-              <div className="card px-4 py-3">
-                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500"><MapPin className="h-3.5 w-3.5 text-cyrixRed-600" /> Most visited</p>
-                <ol className="space-y-1 text-sm">
-                  {topPlaces.map(([name, n], i) => (
-                    <li key={name} className="flex items-baseline gap-2">
-                      <span className="w-4 shrink-0 text-xs font-semibold text-ink-400">{i + 1}</span>
-                      <span className="min-w-0 flex-1 truncate text-ink-800">{name}</span>
-                      <span className="shrink-0 text-xs text-ink-500">{n} {n === 1 ? 'visit' : 'visits'}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+              {topPlaces.length > 0 && (
+                <div className="min-w-0">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500"><MapPin className="h-3.5 w-3.5 text-cyrixRed-600" /> Most visited</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {topPlaces.map(([name, n], i) => (
+                      <span key={name} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-rose-50 py-1 pl-1 pr-2.5 text-sm ring-1 ring-rose-200/70">
+                        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-rose-100 text-[11px] font-bold text-rose-700">{i + 1}</span>
+                        <span className="truncate font-medium text-ink-900">{name}</span>
+                        <span className="shrink-0 text-xs text-ink-500">{n} {n === 1 ? 'visit' : 'visits'}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* One line a claim, as in the Excel, with its own Approve at the end (the user, 29 Oct). */}
         {list.length === 0 ? <div className="card p-6 text-center text-sm text-ink-500">Nothing {tabName.toLowerCase()} for {who.name.split(' ')[0]}.</div> : (

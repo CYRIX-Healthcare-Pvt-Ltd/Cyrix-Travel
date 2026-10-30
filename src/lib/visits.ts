@@ -13,6 +13,8 @@ export interface VisitSetup { on: boolean; near_m: number; skips: number; after:
 export interface VisitPhoto {
   id: string; day: string; shot_at: string; taken_at: string; lat: number; lng: number; accuracy: number | null
   place: string | null; path: string | null
+  /** The phone it was taken on: the app's own id for that phone and its model (te_0086). */
+  device_id?: string | null; device?: string | null
   /** The claim it stands on: its number, 'draft', or none (te_my_photos only). */
   on?: string | null
 }
@@ -109,6 +111,36 @@ export function stamp(cv: HTMLCanvasElement, at: Date, fix: Fix, place: string |
   return new Promise<Blob>((ok, no) => cv.toBlob(b => (b ? ok(b) : no(new Error('The photo could not be made'))), 'image/jpeg', 0.82))
 }
 
+/*
+  Which phone (te_0086; the user, 30 Oct: a friend signed in as someone takes the photo at another hospital). A website
+  cannot read a phone's IMEI, so the app gives each phone an id of its own on first use, kept on the phone, and names
+  its model where the browser tells it.
+*/
+const DEVICE_KEY = 'te.device'
+export function deviceId() {
+  try {
+    const had = localStorage.getItem(DEVICE_KEY)
+    if (had) return had
+    const id = newId()
+    localStorage.setItem(DEVICE_KEY, id)
+    return id
+  } catch { return null }
+}
+export async function deviceName() {
+  const ua = navigator.userAgent
+  type Hints = { getHighEntropyValues?: (h: string[]) => Promise<{ model?: string; platform?: string; platformVersion?: string }> }
+  try {
+    const hints = await (navigator as Navigator & { userAgentData?: Hints }).userAgentData?.getHighEntropyValues?.(['model', 'platform', 'platformVersion'])
+    if (hints?.model) return `${hints.model} (${hints.platform ?? 'Android'}${hints.platform === 'Android' && hints.platformVersion ? ' ' + hints.platformVersion.split('.')[0] : ''})`
+    if (hints?.platform) return hints.platform
+  } catch { /* only a name */ }
+  const ios = ua.match(/(iPhone|iPad).*?OS (\d+)/)
+  if (ios) return `${ios[1]} (iOS ${ios[2]})`
+  const android = ua.match(/Android (\d+)(?:; ([^;)]+))?/)
+  if (android) return android[2] && android[2] !== 'K' ? `${android[2].trim()} (Android ${android[1]})` : `Android ${android[1]}`
+  return /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : null
+}
+
 export interface Pending { id: string; blob: Blob; employee: string; fix: Fix; shot_at: string; place: string | null }
 
 /** Into the bucket, then recorded; a refusal from the database takes the picture back out. */
@@ -119,6 +151,7 @@ export async function sendPhoto(p: Pending) {
   if (up && !/exists|duplicate/i.test(up.message)) throw new Error(friendlyError(up))
   const { error } = await supabase.rpc('te_photo_add', {
     p_path: path, p_lat: p.fix.lat, p_lng: p.fix.lng, p_acc: Math.round(p.fix.accuracy), p_shot_at: p.shot_at, p_place: p.place, p_sha256: hash,
+    p_device_id: deviceId(), p_device: await deviceName(),
   })
   if (error) {
     await supabase.storage.from('te-visits').remove([path])

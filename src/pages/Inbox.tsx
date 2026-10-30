@@ -138,7 +138,9 @@ export default function Inbox() {
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
-      <div className="inline-flex rounded-xl bg-ink-100 p-1" role="tablist">
+      {/* The search and the days on the same line as Claims / Advances / Deputation (the user, 30 Oct). */}
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+      <div className="inline-flex shrink-0 self-start rounded-xl bg-ink-100 p-1 lg:self-auto" role="tablist">
         {([['claims', 'Claims', (data ?? []).filter(c => c.waiting).length], ['advances', 'Advances', (advances ?? []).filter(a => a.waiting).length],
            ...((deputations ?? []).length ? [['deputation', 'Deputation', deputations!.filter(x => x.waiting).length] as const] : [])] as const).map(([k, l, n]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setParams(k === 'claims' ? {} : { view: k }, { replace: true })}
@@ -147,10 +149,11 @@ export default function Inbox() {
           </button>
         ))}
       </div>
+      {view === 'claims' && (data?.length ?? 0) > 0 && <div className="min-w-0 lg:flex-1">{find.bar}</div>}
+      </div>
       {view === 'advances' ? <AdvanceApprovals /> : view === 'deputation' ? <DeputationApprovals /> : <>
       {done && <Alert kind="success">{done}</Alert>}
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
-      {(data?.length ?? 0) > 0 && find.bar}
       <div className="flex border-b border-ink-200" role="tablist">
         {TABS.map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}

@@ -184,6 +184,8 @@ export interface ClaimData {
   office_purposes: string[]
   /** Visit photos (te_0082): the setup, the person's photos of the month, and "Photo not possible" on their other claims that month. */
   photo_setup?: VisitSetup; visit_photos?: VisitPhoto[]; photo_skips_other?: number
+  /** The phone most of the person's visit photos came from (te_0086). */
+  usual_device?: { device_id: string; device: string | null } | null
   history: HistoryStep[]
   /** Figures an approver changed (te_0027), oldest first. */
   adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
@@ -549,7 +549,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
                       <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? short(r.to_name)} · ${clock(hit.photo.shot_at)}`} className="h-9 w-9" />
-                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)} · {metres(hit.m)} from {short(r.to_name)}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}</span>
+                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)} · {metres(hit.m)} from {short(r.to_name)}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{data.usual_device && hit.photo.device_id && hit.photo.device_id !== data.usual_device.device_id && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
                     </span>
                   )
                   return r.photo_skip
@@ -678,6 +678,7 @@ export const OBS = {
   nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff },
   photoyet: { title: 'No visit photo', level: 'check', icon: CameraOff },
   photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera },
+  photophone: { title: 'Visit photo from another phone', level: 'approve', icon: Smartphone },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText },
   hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
@@ -741,6 +742,10 @@ export function claimObservations(data: ClaimData): Obs[] {
         // Saved today without one yet: Send asks for the photo or Photo not possible (te_submit).
         else if (!hit) items.push({ kind: 'photoyet', day, to: r.id, detail: leg })
         if (late) items.push({ kind: 'photolate', day, to: r.id, detail: `${leg} · ${late}` })
+        // Taken on a phone other than the one most of the person's photos come from (te_0086; the user, 30 Oct: observation first).
+        const usual = data.usual_device
+        if (hit && usual && hit.photo.device_id && hit.photo.device_id !== usual.device_id)
+          items.push({ kind: 'photophone', day, to: r.id, detail: `${leg} · taken on ${hit.photo.device ?? 'another phone'}${usual.device ? `, usually ${usual.device}` : ''}` })
       }
       if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
