@@ -82,7 +82,7 @@ function Row({ d }: { d: InboxDeputation }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-medium text-ink-900">{d.name} <span className="text-xs text-ink-500">{d.ecode}</span></p>
-          <p className="flex items-center gap-1.5 text-sm text-ink-800"><BriefcaseBusiness className="h-4 w-4 shrink-0 text-violet-600" /><span className="min-w-0 truncate"><b>{d.state}</b> · {depRange(d.from_day, d.to_day)} · {depDays(d.from_day, d.to_day)} days</span></p>
+          <p className="flex items-center gap-1.5 text-sm text-ink-800"><BriefcaseBusiness className="h-4 w-4 shrink-0 text-violet-600" /><span className="min-w-0 truncate"><b>{d.state}</b> · {depRange(d.from_day, d.to_day)} · {depDays(d.from_day, d.to_day)} days{d.number && <span className="ml-1.5 font-mono text-xs text-ink-500">{d.number}</span>}</span></p>
         </div>
         <button type="button" className="btn-secondary shrink-0 !py-1.5 text-sm" onClick={() => void openLetter()}><FileText className="h-4 w-4" /> Letter</button>
       </div>

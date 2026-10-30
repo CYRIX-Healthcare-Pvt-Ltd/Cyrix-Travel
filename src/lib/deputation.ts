@@ -14,6 +14,8 @@ export interface Deputation {
   replaces: string | null; root: string | null; was: { state: string; from_day: string; to_day: string } | null
   decided_by: string | null; decided_name: string | null; decided_ecode: string | null; decided_at: string | null; note: string | null
   created_at: string; name: string; ecode: string
+  /** DP-01: one number for the deputation and every request of it (te_0090). */
+  number: string | null
 }
 export interface MyDeputations { items: Deputation[]; manager: string | null; da: number }
 export type InboxDeputation = Deputation & { waiting: boolean }

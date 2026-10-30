@@ -6,7 +6,6 @@ import LearnedPlacesTable from '@/components/LearnedPlacesTable'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
 import { rpc, type Rule } from '@/lib/claims'
-import { ADVANCE_STATUS, type Advance } from '@/lib/advances'
 import { useAsk } from '@/components/Ask'
 
 /*
@@ -353,6 +352,8 @@ const STATUS_WORD: Record<string, string> = {
   draft: 'Draft', with_manager: 'With manager', with_coordinator: 'With coordinator', with_desk: 'With Travel Desk',
   approved: 'Approved', paid: 'Paid', returned: 'Sent back', recalled: 'Recalled',
 }
+const ADVANCE_WORD: Record<string, string> = { with_manager: 'With manager', with_desk: 'With Travel Desk', given: 'Approved', declined: 'Declined', cancelled: 'Withdrawn' }
+const DEP_WORD: Record<string, string> = { with_manager: 'With manager', approved: 'Approved', returned: 'Sent back', withdrawn: 'Withdrawn', replaced: 'Changed', edited: 'Edited' }
 /*
   Delete a claim (Travel te_0028; the user, 18 Oct: "for sw_admin like in revive lab also need option to
   delete claim" — "only for swadmin"), as Revive Lab deletes a ticket: type its number, see whose it
@@ -360,13 +361,17 @@ const STATUS_WORD: Record<string, string> = {
   it was. The tab shows only for SW Admin, and the database refuses anybody else.
   An advance is deleted the same way by its EA number (te_0066; the user, 24 Oct: "for deletion also need
   ea tickets"); what claims took of it goes with it, so those claims no longer have it taken off.
+  A deputation by its DP number (te_0090; the user, 30 Oct: "give deputation no so can sw admin can remove"): every
+  request of it, then its letters; a claim day that took its DA is then outside any deputation, said in Observations.
+  The same box in KPI's SW Admin and Travel's admin page.
 */
 type FoundClaim = { kind: 'claim'; id: string; number: string; name: string; ecode: string; month: string; status: string; total: number; days: number; paths: string[] }
-type FoundAdvance = { kind: 'advance'; id: string; number: string; name: string; ecode: string; month: string; status: Advance['status']; amount: number; dest: string; used: number; claims: string[] }
+type FoundAdvance = { kind: 'advance'; id: string; number: string; name: string; ecode: string; month: string; status: string; amount: number; dest: string; used: number; claims: string[] }
+type FoundDeputation = { kind: 'deputation'; id: string; number: string; name: string; ecode: string; state: string; from_day: string; to_day: string; status: string; requests: number; claims: string[] }
 function DeleteClaim() {
   const qc = useQueryClient()
   const [typed, setTyped] = useState('')
-  const [found, setFound] = useState<FoundClaim | FoundAdvance | null>(null)
+  const [found, setFound] = useState<FoundClaim | FoundAdvance | FoundDeputation | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ at: 'find' | 'delete'; text: string } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -375,7 +380,9 @@ function DeleteClaim() {
     try {
       setFound(/^\s*ea/i.test(typed)
         ? { kind: 'advance', ...(await rpc<Omit<FoundAdvance, 'kind'>>('te_find_advance', { p_number: typed })) }
-        : { kind: 'claim', ...(await rpc<Omit<FoundClaim, 'kind'>>('te_find_claim', { p_number: typed })) })
+        : /^\s*dp/i.test(typed)
+          ? { kind: 'deputation', ...(await rpc<Omit<FoundDeputation, 'kind'>>('te_find_deputation', { p_number: typed })) }
+          : { kind: 'claim', ...(await rpc<Omit<FoundClaim, 'kind'>>('te_find_claim', { p_number: typed })) })
     } catch (e) { setError({ at: 'find', text: (e as Error).message }) } finally { setBusy(false) }
   }
   const remove = async () => {
@@ -383,7 +390,11 @@ function DeleteClaim() {
     setBusy(true); setError(null)
     try {
       if (found.kind === 'advance') await rpc('te_delete_advance', { p_advance: found.id })
-      else {
+      else if (found.kind === 'deputation') {
+        const letters = await rpc<string[]>('te_delete_deputation', { p_root: found.id })
+        // The letters go after: one left behind names no deputation and harms nothing.
+        if (letters?.length) await supabase.storage.from('te-letters').remove(letters)
+      } else {
         if (found.paths.length) {
           const { error: rm } = await supabase.storage.from('te-bills').remove(found.paths)
           if (rm) throw new Error(rm.message)
@@ -395,18 +406,19 @@ function DeleteClaim() {
     } catch (e) { setError({ at: 'delete', text: (e as Error).message }) } finally { setBusy(false) }
   }
   const mon = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${d.toLocaleDateString('en-GB', { month: 'short' })}-${String(d.getFullYear()).slice(2)}` }
+  const date = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   const rupees = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center gap-2 border-b border-ink-200 bg-ink-50 px-4 py-2.5">
         <Trash2 className="h-4 w-4 text-cyrixRed-600" />
-        <h3 className="text-sm font-semibold text-ink-800">Delete a claim or advance</h3>
+        <h3 className="text-sm font-semibold text-ink-800">Delete a claim, advance or deputation</h3>
       </div>
       <div className="space-y-3 p-4">
         {notice && <Alert kind="success">{notice}</Alert>}
         <form className="flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); void lookUp() }}>
           <label className="block w-44"><span className="label">Number</span>
-            <input className="input mt-1 h-11 font-mono" value={typed} onChange={e => { setTyped(e.target.value); setFound(null); setError(null) }} placeholder="TE-02 or EA-01" /></label>
+            <input className="input mt-1 h-11 font-mono" value={typed} onChange={e => { setTyped(e.target.value); setFound(null); setError(null) }} placeholder="TE-02, EA-01, DP-01" /></label>
           <button type="submit" className="btn-secondary h-11 !text-cyrixRed-700" disabled={busy || !typed.trim()}>
             {busy && !found ? <Spinner className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />} Delete
           </button>
@@ -417,13 +429,22 @@ function DeleteClaim() {
             {found.kind === 'claim' ? <>
               <p className="text-sm font-medium text-cyrixRed-900">Delete {found.number} · {found.name} ({found.ecode}) · {mon(found.month)} · {rupees(found.total)} for good?</p>
               <p className="mt-0.5 text-xs text-cyrixRed-800">{STATUS_WORD[found.status] ?? found.status} · {found.days} day{found.days === 1 ? '' : 's'}. Its days, bills and history go with it. This cannot be undone.</p>
-            </> : <>
+            </> : found.kind === 'advance' ? <>
               <p className="text-sm font-medium text-cyrixRed-900">Delete advance {found.number} · {found.name} ({found.ecode}) · {mon(found.month)} · {rupees(found.amount)} for good?</p>
               <p className="mt-0.5 text-xs text-cyrixRed-800">
-                {ADVANCE_STATUS[found.status]?.label ?? found.status} · to {found.dest}.{' '}
+                {ADVANCE_WORD[found.status] ?? found.status} · to {found.dest}.{' '}
                 {found.used > 0
                   ? `${rupees(found.used)} of it is taken off ${found.claims.join(', ')}; ${found.claims.length === 1 ? 'that claim' : 'those claims'} will no longer have it taken off.`
                   : 'Its approvals go with it.'}{' '}
+                This cannot be undone.
+              </p>
+            </> : <>
+              <p className="text-sm font-medium text-cyrixRed-900">Delete deputation {found.number} · {found.name} ({found.ecode}) · {found.state} · {date(found.from_day)} – {date(found.to_day)} for good?</p>
+              <p className="mt-0.5 text-xs text-cyrixRed-800">
+                {DEP_WORD[found.status] ?? found.status}{found.requests > 1 ? ` · ${found.requests} requests` : ''}.{' '}
+                {found.claims.length > 0
+                  ? `Deputation DA is claimed on ${found.claims.join(', ')}; those days will show as outside any deputation.`
+                  : 'Its letter and history go with it.'}{' '}
                 This cannot be undone.
               </p>
             </>}

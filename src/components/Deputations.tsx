@@ -98,7 +98,7 @@ export default function Deputations() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${tag ? 'bg-violet-100 text-violet-700' : 'bg-ink-100 text-ink-500'}`}><BriefcaseBusiness className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-medium text-ink-900">{tag && <span className="mr-1.5 text-xs font-semibold text-violet-700">{tag}</span>}{d.state}</p>
+            <p className="truncate font-medium text-ink-900">{tag && <span className="mr-1.5 text-xs font-semibold text-violet-700">{tag}</span>}{d.state}{d.number && <span className="ml-1.5 font-mono text-xs font-normal text-ink-500">{d.number}</span>}</p>
             <p className="truncate text-xs text-ink-500">{depRange(d.from_day, d.to_day)} · {days} {days === 1 ? 'day' : 'days'}{d.status === 'approved' && !over ? ` · DA ${money(data?.da ?? 800)} a day` : ''}</p>
           </div>
           {over
