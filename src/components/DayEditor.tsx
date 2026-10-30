@@ -88,6 +88,22 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const start: Day = kept ? { ...kept.day, ...(chosen && !saved ? { day: initial.day } : {}) } : initial
   const [d, setD] = useState<Day>(start)
   const [picking, setPicking] = useState<{ ride: string; end: 'from' | 'to' } | null>(null)
+  /*
+    A ride is finished before the next is added (the user, 30 Oct: "without entering purpose dont let add another ride … on
+    click it should say enter purpose and that field should be highlighted"): its To, then its purpose, named under the
+    button and the box itself ringed, shaken and brought into view.
+  */
+  const [nudge, setNudge] = useState<{ ride: string; what: 'to' | 'purpose' } | null>(null)
+  const nudged = (id: string, what: 'to' | 'purpose') => {
+    const r = nudge?.ride === id && nudge.what === what ? d.rides.find(x => x.id === id) : undefined
+    return !!r && (what === 'to' ? r.to_lat == null : !r.purpose)
+  }
+  const nudgeLine = (id: string, what: 'to' | 'purpose', n: number, pad = '') => nudged(id, what) && (
+    <p className={`mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-cyrixRed-700 ${pad}`}>
+      <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>
+      {what === 'to' ? `Choose where ride ${n} went` : `Choose the purpose of ride ${n}`}
+    </p>
+  )
   // One ride on the map, from its own card (the user, 21 Oct: "option to view in map in each mode").
   const [mapRide, setMapRide] = useState<Ride | null>(null)
   // The claim's details, kept in the form with everything else (the user, 17 Oct).
@@ -671,8 +687,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 const notAllowed = outOfPolicy(r.mode, rule)
                 const read = m.perKm ? null : billRead(data.bills, r.id)
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
-                  <button type="button" onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
-                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'text-ink-700'}`}>
+                  <button type="button" id={`${end}-${r.id}`} onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
+                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'text-ink-700'} ${end === 'to' && nudged(r.id, 'to') ? 'ring-2 ring-cyrixRed-500' : ''}`}>
                     <span className="grid w-4 shrink-0 place-items-center">{end === 'from' ? <span className="h-2.5 w-2.5 rounded-full bg-teal-500" /> : <MapPin className="h-4 w-4 text-cyrixRed-600" />}</span>
                     <span className="w-9 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{end === 'from' ? 'From' : 'To'}</span>
                     <span className="truncate">{name ?? (end === 'from' ? 'Choose where you started' : 'Choose where you went')}</span>
@@ -683,7 +699,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   <div key={r.id} id={'ride-' + r.id} className="scroll-mt-24 rounded-xl border p-3 transition-shadow" style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
                     <div className="flex items-start gap-2">
                       <span className="mt-3 w-4 text-xs font-semibold text-ink-400">{i + 1}</span>
-                      <div className="min-w-0 flex-1 space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}</div>
+                      <div className="min-w-0 flex-1 space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}</div>
                       <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-4 w-4" /></button>
                     </div>
                     <div className="mt-2.5 flex items-center gap-2 pl-6">
@@ -720,7 +736,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     </div>
                     {/* Why, and for which call centre — each ride its own (te_0060). */}
                     <div className="mt-2.5 grid grid-cols-2 gap-2 pl-6">
-                      <select className={`input h-10 text-sm ${r.purpose ? '' : '!border-amber-400'}`} aria-label="Purpose" value={r.purpose ?? ''} onChange={e => setRide(r.id, { purpose: e.target.value || null })}>
+                      <select id={'purpose-' + r.id} className={`input h-10 text-sm ${r.purpose ? '' : '!border-amber-400'} ${nudged(r.id, 'purpose') ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-500' : ''}`} aria-label="Purpose" value={r.purpose ?? ''} onChange={e => setRide(r.id, { purpose: e.target.value || null })}>
                         <option value="">Purpose…</option>
                         {data.purposes.map(p => <option key={p}>{p}</option>)}
                       </select>
@@ -729,6 +745,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         {[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => <option key={x}>{x}</option>)}
                       </select>
                     </div>
+                    {nudgeLine(r.id, 'purpose', i + 1, 'pl-6')}
                     {isBreakdown(r.purpose) && (
                       <div className="mt-2 flex items-center gap-2 pl-6">
                         <span className="relative min-w-0 flex-1">
@@ -817,9 +834,20 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
               })}
               <button type="button" className="ride-add btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
+                const miss = !last ? null : last.to_lat == null ? 'to' : !last.purpose ? 'purpose' : null
+                if (last && miss) {
+                  setNudge({ ride: last.id, what: miss })
+                  const el = document.getElementById(`${miss}-${last.id}`)
+                  el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+                  el?.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(0)' }], { duration: 420, easing: 'ease-out' })
+                  if (miss === 'purpose') el?.focus({ preventScroll: true })
+                  return
+                }
+                setNudge(null)
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
                 set({ rides: [...d.rides, blankRide(from, carry())] })
               }}><span className="grid h-6 w-6 place-items-center rounded-full bg-teal-600 text-white"><Plus className="h-4 w-4" /></span> {d.rides.length ? 'Add another ride' : 'Add a ride'}</button>
+
             </div>
           </section>
 
