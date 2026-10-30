@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Check, Hospital, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Hospital, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
 
 /*
@@ -8,8 +8,9 @@ import { Alert, PageLoader } from '@/components/ui'
   (src/components) and in KPI's SW Admin (src/components); change both.
 
   A ticket's hospital is learned when its day is saved (te_0038), and so is any spot the map does not have that an
-  engineer named by hand (te_0071). Each is new until an admin has checked it: put its name or pin right on the map,
-  or ticked it as right (the user, 26 Oct: "we should give it their official name isnt?").
+  engineer named by hand (te_0071). An admin puts a wrong name or pin right with Edit; there is no tick to check each
+  one (the user, 30 Oct: "remove the tick, keep edit so checked column no needed, and keep added so we can see who
+  added it"): with engineers in nearly every state the new ones would pile up unchecked.
 
   Search, sort and filter, as every admin table has (the user, 26 Oct: "whenever created table for admin always
   remember admins need to sort filter and search"); the date added in its own column to sort by ("date in diff
@@ -22,25 +23,22 @@ export interface LearnedPlace {
   id: string; name: string; full_name: string; district: string | null; visits: number; first_by: string | null; created_at: string
   lat: number; lng: number; source: string; checked_at: string | null; checked_by: string | null
 }
-type Col = 'name' | 'by' | 'date' | 'visits' | 'status'
+type Col = 'name' | 'by' | 'date' | 'visits'
 type Order = { col: Col; up: boolean }
 // The way a column first sorts when its heading is pressed: dates and visits newest and most first.
-const FIRST_UP: Record<Col, boolean> = { name: true, by: true, date: false, visits: false, status: true }
+const FIRST_UP: Record<Col, boolean> = { name: true, by: true, date: false, visits: false }
 const PHONE_SORTS: Array<[string, string, Order]> = [
   ['new', 'Newest first', { col: 'date', up: false }], ['old', 'Oldest first', { col: 'date', up: true }],
   ['name', 'Name A–Z', { col: 'name', up: true }], ['by', 'Added by A–Z', { col: 'by', up: true }],
-  ['visits', 'Most visits', { col: 'visits', up: false }], ['status', 'New to check first', { col: 'status', up: true }],
+  ['visits', 'Most visits', { col: 'visits', up: false }],
 ]
-type Show = 'all' | 'new' | 'checked' | 'named' | 'ticket' | 'admin'
-const SHOWS: Array<[Show, string]> = [['all', 'All places'], ['new', 'New to check'], ['checked', 'Checked'], ['named', 'Named on the map'], ['ticket', 'From a ticket'], ['admin', 'Added by admin']]
-const shown = (p: LearnedPlace, s: Show) =>
-  s === 'all' || (s === 'new' && !p.checked_at) || (s === 'checked' && !!p.checked_at) || (s === 'named' && p.source === 'named')
-  || (s === 'ticket' && p.source === 'ticket') || (s === 'admin' && p.source === 'admin')
+type Show = 'all' | 'named' | 'ticket' | 'admin'
+const SHOWS: Array<[Show, string]> = [['all', 'All places'], ['named', 'Named on the map'], ['ticket', 'From a ticket'], ['admin', 'Added by admin']]
+const shown = (p: LearnedPlace, s: Show) => s === 'all' || p.source === s
 const by = (a: LearnedPlace, b: LearnedPlace, col: Col) =>
   col === 'name' ? a.name.localeCompare(b.name)
     : col === 'by' ? (a.first_by ?? '').localeCompare(b.first_by ?? '')
     : col === 'visits' ? a.visits - b.visits
-    : col === 'status' ? Number(!!a.checked_at) - Number(!!b.checked_at)
     : a.created_at.localeCompare(b.created_at)
 // Every word typed found in its name, address, district or who added it.
 const matches = (p: LearnedPlace, q: string) => {
@@ -70,20 +68,15 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
     if (!(await confirmRemove(p.name))) return
     try { setFail(null); await call('te_hide_place', { p_id: p.id }); await refresh() } catch (e) { setFail({ id: p.id, text: (e as Error).message }) }
   }
-  const check = async (p: LearnedPlace) => {
-    try { setFail(null); await call('te_check_place', { p_id: p.id, p_checked: true }); await refresh() } catch (e) { setFail({ id: p.id, text: (e as Error).message }) }
-  }
   if (isLoading) return <PageLoader />
   const all = data ?? []
   const list = all.filter(p => shown(p, show) && matches(p, q))
     .sort((a, b) => (order.up ? 1 : -1) * by(a, b, order.col) || b.created_at.localeCompare(a.created_at))
-  const fresh = all.filter(p => !p.checked_at).length
   const sortBy = (col: Col) => setOrder(o => (o.col === col ? { col, up: !o.up } : { col, up: FIRST_UP[col] }))
   const phoneSort = PHONE_SORTS.find(([, , o]) => o.col === order.col && o.up === order.up)?.[0] ?? ''
 
   const actions = (p: LearnedPlace) => (
     <div className="flex shrink-0 items-center justify-end gap-1">
-      {!p.checked_at && <button type="button" className="btn-icon text-green-600" aria-label={`${p.name} is right`} title="Name and pin are right" onClick={() => void check(p)}><Check className="h-4 w-4" /></button>}
       <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" aria-label={`Edit ${p.name}`} title="Edit the name or pin" onClick={() => setOnMap(p)}><Pencil className="h-3.5 w-3.5" /> Edit</button>
       <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => void remove(p)}><Trash2 className="h-4 w-4" /></button>
     </div>
@@ -101,7 +94,6 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
     <div className="card overflow-hidden">
       <div className="space-y-2 border-b border-ink-200 bg-ink-50 px-4 py-2.5">
         <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink-800"><Hospital className="h-4 w-4 text-cyrixRed-600" /> Learned places <span className="font-normal text-ink-500">· {all.length}</span>
-          {fresh > 0 && <button type="button" className="badge bg-amber-100 text-amber-900 hover:bg-amber-200" onClick={() => setShow('new')}>{fresh} new</button>}
           <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1.5 text-xs" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" /> Add place</button></h3>
         <div className="flex flex-wrap gap-2">
           <div className="relative min-w-0 flex-1 basis-56">
@@ -126,7 +118,7 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
             <table className="w-full text-sm">
               <thead className="border-b border-ink-200 text-left text-xs text-ink-500">
                 <tr>
-                  <Th col="name">Place</Th><Th col="by">Added by</Th><Th col="date">Added on</Th><Th col="visits" right>Visits</Th><Th col="status">Checked</Th>
+                  <Th col="name">Place</Th><Th col="by">Added by</Th><Th col="date">Added on</Th><Th col="visits" right>Visits</Th>
                   <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
@@ -137,9 +129,6 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
                     <td className="px-3 py-2.5 text-ink-800">{p.first_by ?? '—'}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-ink-800">{longDate(p.created_at)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-ink-800">{p.visits}</td>
-                    <td className="px-3 py-2.5">{p.checked_at
-                      ? <><p className="text-xs text-green-700">{p.checked_by ?? '—'}</p><p className="whitespace-nowrap text-xs text-ink-500">{longDate(p.checked_at)}</p></>
-                      : <span className="badge bg-amber-100 text-amber-900">New</span>}</td>
                     <td className="px-2 py-1.5">{actions(p)}</td>
                   </tr>
                 ))}
@@ -152,11 +141,9 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
               <div key={p.id} className="px-4 py-2.5 text-sm">
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="flex min-w-0 items-center gap-2"><span className="truncate font-medium text-ink-900">{p.name}</span>
-                      {!p.checked_at && <span className="badge shrink-0 bg-amber-100 text-amber-900">New</span>}</p>
+                    <p className="truncate font-medium text-ink-900">{p.name}</p>
                     <p className="text-xs text-ink-700">Added by <span className="font-medium">{p.first_by ?? '—'}</span> · <span className="whitespace-nowrap">{longDate(p.created_at)}</span></p>
                     <p className="text-xs text-ink-500">{[p.district, how(p), `${p.visits} visit${p.visits === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</p>
-                    {p.checked_at && <p className="text-xs text-green-700">Checked by {p.checked_by ?? '—'} · {longDate(p.checked_at)}</p>}
                   </div>
                   {actions(p)}
                 </div>

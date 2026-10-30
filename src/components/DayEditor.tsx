@@ -189,16 +189,17 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const dep = depOn(data.deputations, d.day), depDa = Number(data.policy.deputation_da ?? 800)
   const da = daFor(rule, d.da_kind, dayPurpose, data.office_purposes, depDa)
   /*
-    Where a new ride's purpose and call centre come from: the last ride of this day, else of the latest earlier day.
-    A day's first ride starts on the person's own cost centre (te_0063; the user, 24 Oct: "on add claim, we need
-    defaulty show his cost centre only"), else the earlier day's, else the claim's project.
+    Where a new ride's call centre comes from: the last ride of this day, else of the latest earlier day. A day's first
+    ride starts on the person's own cost centre (te_0063; the user, 24 Oct: "on add claim, we need defaulty show his
+    cost centre only"), else the earlier day's, else the claim's project. Its purpose starts blank (the user, 30 Oct:
+    "dont make default purpose as previous"), unless its To is home or work.
   */
   const carry = (): Pick<Ride, 'purpose' | 'project'> => {
     const last = latest.current.rides[latest.current.rides.length - 1]
-    if (last) return { purpose: last.purpose ?? null, project: last.project ?? null }
+    if (last) return { purpose: null, project: last.project ?? null }
     const before = [...data.days].filter(x => x.id !== initial.id && x.day < latest.current.day && x.rides.length).sort((a, b) => a.day.localeCompare(b.day)).pop()
     const r = before?.rides[before.rides.length - 1]
-    return { purpose: r?.purpose ?? null, project: c.cost_centre || r?.project || c.project || null }
+    return { purpose: null, project: c.cost_centre || r?.project || c.project || null }
   }
   /*
     The km box takes the map's km as soon as the map has the road (te_0060; the user, 23 Oct). Typed otherwise, it is
@@ -840,7 +841,6 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   const el = document.getElementById(`${miss}-${last.id}`)
                   el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
                   el?.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(0)' }], { duration: 420, easing: 'ease-out' })
-                  if (miss === 'purpose') el?.focus({ preventScroll: true })
                   return
                 }
                 setNudge(null)

@@ -514,7 +514,7 @@ function DeleteClaim() {
   )
 }
 
-// Places our engineers taught the search, checked here (te_0038, te_0071): the list shared with KPI's SW Admin.
+// Places our engineers taught the search, put right here (te_0038, te_0071): the list shared with KPI's SW Admin.
 function LearnedPlaces() {
   const ask = useAsk()
   return <LearnedPlacesTable call={rpc} confirmRemove={name => ask.confirm({ title: `Remove ${name}?`, body: 'It is no longer offered when engineers search. Claims that used it keep it.', yes: 'Remove', danger: true })} />
