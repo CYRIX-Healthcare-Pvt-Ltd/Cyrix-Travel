@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { supabase, friendlyError } from './supabase'
 import { lineKm, placeName, type Fix } from './geo'
-import { newId, sha256 } from './claims'
+import { hospitalAt, newId, sha256 } from './claims'
 
 /*
   Visit photos (te_0082; the user, 28 Oct: "when he reaches a hospital … he can take a photo of the facility, so no
@@ -90,11 +90,16 @@ export function usePhotoUrls(paths: Array<string | null | undefined>) {
   })
 }
 
-/** The place for the stamp: a hospital we have learned within 500 m, else what the map calls the spot. */
+/**
+ * The place for the stamp: a hospital we have learned within 500 m, else a hospital or health centre on the map within
+ * 150 m with the spot's area, else what the map calls the spot (a canteen or a helipad inside the hospital, at times).
+ */
 export async function stampPlace(fix: Fix) {
   const { data } = await supabase.rpc('te_visit_place', { p_lat: fix.lat, p_lng: fix.lng })
   if (typeof data === 'string' && data.trim()) return data.trim()
-  const n = await placeName(fix)
+  const [hospital, n] = await Promise.all([hospitalAt(fix), placeName(fix)])
+  const area = n?.split(', ')[1]
+  if (hospital) return area && !hospital.toLowerCase().includes(area.toLowerCase()) ? `${hospital}, ${area}` : hospital
   return n ? n.split(', ').slice(0, 2).join(', ') : null
 }
 

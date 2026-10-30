@@ -530,6 +530,23 @@ async function photonNear(near: { lat: number; lng: number }, tag: string): Prom
     return { name: [p.name, p.city ?? p.district ?? p.county, p.state].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
   }).filter(x => x.name)
 }
+/*
+  The hospital or health centre at a spot, for a visit photo's stamp (the user, 30 Oct: "yes, prefer the hospital on the
+  stamp" — GH Ernakulam's photo read "GH Canteen", Lakeshore's "Lakeshore hospital Helipad"): within 150 m, a hospital
+  before a clinic or health centre, the nearest of each.
+*/
+export async function hospitalAt(at: { lat: number; lng: number }, m = 150): Promise<string | null> {
+  try {
+    const tags = ['amenity:hospital', 'amenity:clinic', 'healthcare:hospital', 'healthcare:centre', 'healthcare:clinic'].map(x => `&osm_tag=${x}`).join('')
+    const r = await timed(`https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lng}&radius=${m / 1000}&limit=8&lang=en${tags}`)
+    const j = await r.json() as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+    const found = (j.features ?? []).filter(f => (f.properties.countrycode ?? '').toUpperCase() === 'IN').map(f => ({
+      name: (f.properties.name ?? '').trim(), hospital: f.properties.osm_value === 'hospital',
+      km: distanceKm(at, { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }),
+    })).filter(f => f.name && f.km * 1000 <= m)
+    return found.sort((a, b) => Number(b.hospital) - Number(a.hospital) || a.km - b.km)[0]?.name ?? null
+  } catch { return null }
+}
 const KIND_TAGS: Array<[RegExp, string]> = [
   [/\bair\s*port\b/i, 'aeroway:aerodrome'],
   [/\b(?:railway|train)?\s*station\b|\brailway\b/i, 'railway:station'],
