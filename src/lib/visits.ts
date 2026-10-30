@@ -87,14 +87,15 @@ export function grab(video: HTMLVideoElement) {
   return cv
 }
 
-/** The date, time, place, point and who, printed along the frame's foot. */
-export function stamp(cv: HTMLCanvasElement, at: Date, fix: Fix, place: string | null, who: string) {
+/** The date, time, place, point, who and on which phone, printed along the frame's foot. */
+export function stamp(cv: HTMLCanvasElement, at: Date, fix: Fix, place: string | null, who: string, phone?: string | null) {
   const w = cv.width, h = cv.height, g = cv.getContext('2d')!
   const lines = [
     `${at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · ${at.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })}`,
     place ?? 'Place not named',
     `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)} · ±${Math.round(fix.accuracy)} m`,
     who,
+    ...(phone ? [phone] : []),
   ]
   const fs = Math.max(14, Math.round(Math.min(w, h) * 0.034)), pad = Math.round(fs * 0.6), lh = Math.round(fs * 1.3)
   const band = pad * 2 + lh * lines.length

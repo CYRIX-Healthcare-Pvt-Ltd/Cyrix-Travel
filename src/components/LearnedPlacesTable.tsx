@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Check, Hospital, Map as MapIcon, Search, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Hospital, Map as MapIcon, Plus, Search, Trash2 } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
 
 /*
@@ -31,10 +31,11 @@ const PHONE_SORTS: Array<[string, string, Order]> = [
   ['name', 'Name A–Z', { col: 'name', up: true }], ['by', 'Added by A–Z', { col: 'by', up: true }],
   ['visits', 'Most visits', { col: 'visits', up: false }], ['status', 'New to check first', { col: 'status', up: true }],
 ]
-type Show = 'all' | 'new' | 'checked' | 'named' | 'ticket'
-const SHOWS: Array<[Show, string]> = [['all', 'All places'], ['new', 'New to check'], ['checked', 'Checked'], ['named', 'Named on the map'], ['ticket', 'From a ticket']]
+type Show = 'all' | 'new' | 'checked' | 'named' | 'ticket' | 'admin'
+const SHOWS: Array<[Show, string]> = [['all', 'All places'], ['new', 'New to check'], ['checked', 'Checked'], ['named', 'Named on the map'], ['ticket', 'From a ticket'], ['admin', 'Added by admin']]
 const shown = (p: LearnedPlace, s: Show) =>
-  s === 'all' || (s === 'new' && !p.checked_at) || (s === 'checked' && !!p.checked_at) || (s === 'named' && p.source === 'named') || (s === 'ticket' && p.source !== 'named')
+  s === 'all' || (s === 'new' && !p.checked_at) || (s === 'checked' && !!p.checked_at) || (s === 'named' && p.source === 'named')
+  || (s === 'ticket' && p.source === 'ticket') || (s === 'admin' && p.source === 'admin')
 const by = (a: LearnedPlace, b: LearnedPlace, col: Col) =>
   col === 'name' ? a.name.localeCompare(b.name)
     : col === 'by' ? (a.first_by ?? '').localeCompare(b.first_by ?? '')
@@ -47,7 +48,9 @@ const matches = (p: LearnedPlace, q: string) => {
   return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w))
 }
 const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-const how = (p: LearnedPlace) => (p.source === 'named' ? 'Named on the map' : 'From a ticket')
+const how = (p: LearnedPlace) => (p.source === 'named' ? 'Named on the map' : p.source === 'admin' ? 'Added by admin' : 'From a ticket')
+// Where the map opens for a new place: the Kochi office. A search or a pasted link takes it anywhere.
+const START = { id: '', name: '', lat: 9.94752, lng: 76.33331 }
 
 export default function LearnedPlacesTable({ call, confirmRemove }: {
   call: <T>(fn: string, args?: Record<string, unknown>) => Promise<T>
@@ -56,6 +59,8 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
   const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['te_admin_places'], queryFn: () => call<LearnedPlace[]>('te_admin_places') })
   const [onMap, setOnMap] = useState<LearnedPlace | null>(null)
+  // An admin adds a place themselves (te_0087; the user, 30 Oct: "why there is no option for sw admin to add place?").
+  const [adding, setAdding] = useState(false)
   const [q, setQ] = useState('')
   const [show, setShow] = useState<Show>('all')
   const [order, setOrder] = useState<Order>({ col: 'date', up: false })
@@ -96,7 +101,8 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
     <div className="card overflow-hidden">
       <div className="space-y-2 border-b border-ink-200 bg-ink-50 px-4 py-2.5">
         <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink-800"><Hospital className="h-4 w-4 text-cyrixRed-600" /> Learned places <span className="font-normal text-ink-500">· {all.length}</span>
-          {fresh > 0 && <button type="button" className="badge bg-amber-100 text-amber-900 hover:bg-amber-200" onClick={() => setShow('new')}>{fresh} new</button>}</h3>
+          {fresh > 0 && <button type="button" className="badge bg-amber-100 text-amber-900 hover:bg-amber-200" onClick={() => setShow('new')}>{fresh} new</button>}
+          <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1.5 text-xs" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" /> Add place</button></h3>
         <div className="flex flex-wrap gap-2">
           <div className="relative min-w-0 flex-1 basis-56">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
@@ -164,6 +170,12 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
         <Suspense fallback={null}>
           <PlaceMapDialog place={onMap} onClose={() => setOnMap(null)}
             onSave={async p => { await call('te_edit_place', { p_id: onMap.id, p_name: p.name, p_lat: p.lat, p_lng: p.lng }); setOnMap(null); await refresh() }} />
+        </Suspense>
+      )}
+      {adding && (
+        <Suspense fallback={null}>
+          <PlaceMapDialog place={START} title="Add a place" onClose={() => setAdding(false)}
+            onSave={async p => { await call('te_admin_add_place', { p_name: p.name, p_lat: p.lat, p_lng: p.lng }); setAdding(false); setShow('all'); await refresh() }} />
         </Suspense>
       )}
     </div>

@@ -3,7 +3,7 @@ import { Check, LocateFixed, RotateCcw, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Spinner } from '@/components/ui'
 import type { Fix } from '@/lib/geo'
-import { grab, newPending, queuePhoto, sendPhoto, stamp, stampPlace } from '@/lib/visits'
+import { deviceId, deviceName, grab, newPending, queuePhoto, sendPhoto, stamp, stampPlace } from '@/lib/visits'
 
 /*
   The app's own camera (the user, 28 Oct: "no upload option only camera"): a live view and a shutter, no file picker,
@@ -38,13 +38,22 @@ export default function VisitCamera({ onClose, onDone }: { onClose: () => void; 
   }, [])
   useEffect(() => () => { if (shot) URL.revokeObjectURL(shot.url) }, [shot])
 
+  // The phone's model where the browser tells it, and its own id's first four, so two phones alike still differ on the photo.
+  const [phone, setPhone] = useState<string | null>(null)
+  useEffect(() => {
+    void deviceName().then(n => {
+      const id = deviceId()
+      setPhone([n ?? 'Phone', id ? id.replace(/-/g, '').slice(0, 4).toUpperCase() : null].filter(Boolean).join(' · '))
+    })
+  }, [])
+
   const take = async () => {
     if (!video.current || !fix || !employee) return
     setBusy('taking'); setErr(null)
     const at = new Date(), here = fix, frame = grab(video.current)
     try {
       const place = await stampPlace(here)
-      const blob = await stamp(frame, at, here, place, `${employee.full_name} · ${employee.ecode}`)
+      const blob = await stamp(frame, at, here, place, `${employee.full_name} · ${employee.ecode}`, phone)
       setShot({ blob, url: URL.createObjectURL(blob), at, fix: here, place })
     } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
   }

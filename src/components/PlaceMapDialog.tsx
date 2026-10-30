@@ -18,8 +18,10 @@ import { findOnMap, readPasted, spotFrom } from '@/lib/pasted'
 export interface MapPlace { id: string; name: string; full_name?: string; lat: number; lng: number }
 type Hit = { name: string; where: string; lat: number; lng: number }
 
-export default function PlaceMapDialog({ place, onSave, onClose }: {
+export default function PlaceMapDialog({ place, title, onSave, onClose }: {
   place: MapPlace
+  /** A new place has no name to head the box (te_0087). */
+  title?: string
   onSave: (p: { name: string; lat: number; lng: number }) => Promise<void>
   onClose: () => void
 }) {
@@ -119,7 +121,7 @@ export default function PlaceMapDialog({ place, onSave, onClose }: {
     try { await onSave({ name: name.trim(), lat: at.lat, lng: at.lng }) } catch (e) { setErr((e as Error).message); setBusy(false) }
   }
   return (
-    <Dialog title={place.name} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} huge>
+    <Dialog title={title ?? place.name} icon={<MapPin className="h-5 w-5 text-cyrixRed-600" />} onClose={onClose} huge>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {place.full_name && <p className="truncate text-sm text-ink-500">{place.full_name}</p>}
         <div ref={searchBox} className="relative shrink-0">
@@ -150,7 +152,7 @@ export default function PlaceMapDialog({ place, onSave, onClose }: {
         {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" disabled={busy || name.trim().length < 2 || (!moved && name.trim() === place.name)} onClick={() => void save()}>
+          <button type="button" className="btn-primary" disabled={busy || name.trim().length < 2 || (!moved && (!place.id || name.trim() === place.name))} onClick={() => void save()}>
             {busy && <Spinner className="h-4 w-4" />} Save
           </button>
         </div>
