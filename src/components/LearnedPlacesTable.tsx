@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Check, Hospital, Map as MapIcon, Plus, Search, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Hospital, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { Alert, PageLoader } from '@/components/ui'
 
 /*
@@ -82,9 +82,9 @@ export default function LearnedPlacesTable({ call, confirmRemove }: {
   const phoneSort = PHONE_SORTS.find(([, , o]) => o.col === order.col && o.up === order.up)?.[0] ?? ''
 
   const actions = (p: LearnedPlace) => (
-    <div className="flex shrink-0 items-center justify-end">
+    <div className="flex shrink-0 items-center justify-end gap-1">
       {!p.checked_at && <button type="button" className="btn-icon text-green-600" aria-label={`${p.name} is right`} title="Name and pin are right" onClick={() => void check(p)}><Check className="h-4 w-4" /></button>}
-      <button type="button" className="btn-icon text-teal-600" aria-label={`${p.name} on the map`} title="Put the name or pin right" onClick={() => setOnMap(p)}><MapIcon className="h-4 w-4" /></button>
+      <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" aria-label={`Edit ${p.name}`} title="Edit the name or pin" onClick={() => setOnMap(p)}><Pencil className="h-3.5 w-3.5" /> Edit</button>
       <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => void remove(p)}><Trash2 className="h-4 w-4" /></button>
     </div>
   )
