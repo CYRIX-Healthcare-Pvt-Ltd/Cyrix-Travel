@@ -211,7 +211,7 @@ function VisitPhotoSettings({ policy, purposes, call }: { policy: Record<string,
             <button type="button" className={seg(after === 'send')} onClick={() => void call('te_set_policy', { p_key: 'photo_after', p_value: 'send' })}>Send, manager decides</button>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <PolicyField label="Photo not possible a month" value={policy.photo_skips} onSave={v => void call('te_set_policy', { p_key: 'photo_skips', p_value: v })} />
           <PolicyField label="Photo within, metres" value={policy.photo_near_m} onSave={v => void call('te_set_policy', { p_key: 'photo_near_m', p_value: v })} />
           <PolicyField label="Keep photos after paid, days" value={policy.photo_keep_days} onSave={v => void call('te_set_policy', { p_key: 'photo_keep_days', p_value: v })} />

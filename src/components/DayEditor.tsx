@@ -634,7 +634,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
               </div>
             )
           })()}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* The date chosen on the calendar shown, not asked again; a press changes it (the user, 21 Oct). */}
             <div id="day-date"><span className="label">Date</span>
               <button type="button" onClick={() => setDating(true)}

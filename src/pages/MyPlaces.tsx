@@ -128,8 +128,9 @@ export default function MyPlaces() {
       {home === null && <Alert kind="warning">{need ?? 'Home location is not yet set'}</Alert>}
       {/* Home and cost centre side by side from a tablet (the user, 26 Oct: "in desktop can we make home, cost center
           and deputation in same row?"). */}
-      <div className="grid gap-4 sm:grid-cols-2">
-      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3">
+      {/* One column on a phone that cannot grow past the screen: Safari widened it to the whole address and the cards ran off the right (the user, 30 Oct, iPhone). */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="card flex min-w-0 flex-wrap content-start items-center gap-3 px-4 py-3">
         <span className={`${TILE} bg-emerald-100 text-emerald-700`}><House className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Home</p>
@@ -142,7 +143,7 @@ export default function MyPlaces() {
           <button type="button" className="btn-secondary flex-1" onClick={() => setHomeOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
         </div>
       </div>
-      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3">
+      <div className="card flex min-w-0 flex-wrap content-start items-center gap-3 px-4 py-3">
         <span className={`${TILE} bg-indigo-100 text-indigo-700`}><Briefcase className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Work</p>
@@ -155,7 +156,7 @@ export default function MyPlaces() {
           <button type="button" className="btn-secondary flex-1" onClick={() => setWorkOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
         </div>
       </div>
-      <div className="card flex items-start gap-3 px-4 py-3">
+      <div className="card flex min-w-0 items-start gap-3 px-4 py-3">
         <span className={`${TILE} bg-sky-100 text-sky-700`}><Building2 className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-ink-900">Cost centre</p>
