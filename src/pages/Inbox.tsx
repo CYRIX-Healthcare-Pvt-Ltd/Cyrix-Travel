@@ -108,7 +108,7 @@ export default function Inbox() {
       days: cs.reduce((t, c) => t + Number(c.days ?? 0), 0),
       places: new Set(cs.flatMap(c => c.places ?? [])).size,
       parts: [['bg-sky-500', 'Travel', cs.reduce((t, c) => t + Number(c.travel ?? 0), 0)], ['bg-emerald-500', 'DA', cs.reduce((t, c) => t + Number(c.da ?? 0), 0)],
-        ['bg-amber-500', 'Other', cs.reduce((t, c) => t + Number(c.other ?? 0), 0)], ['bg-violet-500', 'Hotel', cs.reduce((t, c) => t + Number(c.hotel ?? 0), 0)]] as Array<[string, string, number]>,
+        ['bg-amber-500', 'Other', cs.reduce((t, c) => t + Number(c.other ?? 0), 0)], ['bg-violet-500', 'Room stay', cs.reduce((t, c) => t + Number(c.hotel ?? 0), 0)]] as Array<[string, string, number]>,
     }))
   // Everyone's claims waiting on this person, as on each person's page (the user, 29 Oct: "here also keep approve all").
   const approvable = tab === 'waiting' ? shown.filter(c => ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)) : []

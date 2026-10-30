@@ -1889,3 +1889,28 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .btn-go:hover:not(:disabled), :root:not([data-theme='light']) .btn-go:focus-visible:not(:disabled) { color: #15803d; }
 }
+
+/*
+ * Add a ride: a light running round its border (the user, 30 Oct: "add animation for this add a ride, and neon border";
+ * "use 1", "dont change the button color"). The button keeps its own colours; the light is a ring drawn over its border,
+ * and the plus turns a quarter when pressed.
+ */
+@property --ride-add-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.ride-add { position: relative; box-shadow: 0 0 12px rgb(45 212 191 / 0.35); }
+.ride-add::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(from var(--ride-add-a), transparent 0deg 250deg, #2dd4bf 310deg, #0d9488 345deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: ride-add-spin 2.8s linear infinite;
+  pointer-events: none;
+}
+@keyframes ride-add-spin { to { --ride-add-a: 360deg; } }
+.ride-add > span:first-child { transition: transform 0.3s ease; }
+.ride-add:active > span:first-child { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .ride-add::before { animation: none; } }

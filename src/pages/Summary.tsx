@@ -24,7 +24,7 @@ import { useMyAdvances } from '@/lib/advances'
 const KIND_LOOK = {
   Travel: { icon: Navigation, color: '#0284C7', onDark: '#38BDF8' },
   DA: { icon: HandCoins, color: '#059669', onDark: '#34D399' },
-  Hotel: { icon: BedDouble, color: '#7C3AED', onDark: '#A78BFA' },
+  'Room stay': { icon: BedDouble, color: '#7C3AED', onDark: '#A78BFA' },
   Other: { icon: ReceiptText, color: '#D97706', onDark: '#FBBF24' },
 }
 // Where the claimed stands, each in its status's colour as the claims' badges wear it (the user, 26 Oct: "make this
@@ -62,7 +62,7 @@ export default function Summary() {
   const pick = (p: Period) => { setPeriod(p); keep('te.summary.period2', p) }
   const setRange = (next: [string, string]) => { setCustom(next); keep('te.summary.dates', next) }
   const m = data?.mine
-  const kinds = m ? [['Travel', m.travel], ['DA', m.da], ['Hotel', m.hotel], ['Other', m.other]] as const : []
+  const kinds = m ? [['Travel', m.travel], ['DA', m.da], ['Room stay', m.hotel], ['Other', m.other]] as const : []
   // The advances given and what sent claims have taken of them (the user, 26 Oct: "those who have having advance it
   // should show in summary also").
   const { data: adv } = useMyAdvances()

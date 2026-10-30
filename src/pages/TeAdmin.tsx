@@ -17,6 +17,7 @@ type AdminData = {
   rules: Rule[]
   policy: Record<string, unknown>
   purposes: Array<{ id: number; label: string; gives_da: boolean; is_active: boolean; photo_needed: boolean }>
+  expense_kinds: Array<{ id: number; label: string; role: string | null; bill_always: boolean; is_active: boolean }>
   /** The functions people are mapped to, and any added by hand (te_0063); a function not yet kept has no id. */
   projects: Array<{ id: number | null; label: string; is_active: boolean }>
   /** A coordinator per cost centre (te_0063), and the cost centres to choose from with how many are mapped. */
@@ -29,12 +30,12 @@ type AdminData = {
 const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk'], ['places', 'Places']] as const
 const RULE_COLS: Array<[keyof Rule, string]> = [
   ['da_in_district', 'DA in district'], ['da_out_district', 'DA out of district'], ['da_out_state', 'DA out of district, staying'], ['da_out_state_stay', 'DA out of state, staying'],
-  ['hotel_in_single', 'Hotel in state S'], ['hotel_in_double', 'Hotel in state D'], ['hotel_out_single', 'Hotel out of state S'], ['hotel_out_double', 'Hotel out of state D'],
+  ['hotel_in_single', 'Room in state S'], ['hotel_in_double', 'Room in state D'], ['hotel_out_single', 'Room out of state S'], ['hotel_out_double', 'Room out of state D'],
   ['bike_rate', 'Bike ₹/km'], ['bike_km_month', 'Bike km/month'], ['car_rate', 'Car ₹/km'], ['car_km_month', 'Car km/month'],
 ]
 const POLICY: Array<[string, string]> = [
   ['km_tolerance_pct', 'Km over the map allowed, %'], ['bill_over', 'Bill needed above ₹'], ['auto_month', 'Auto allowance a month ₹'],
-  ['phone_month', 'Phone allowance a month ₹'], ['tool_max', 'Tools above ₹ go to petty cash'], ['metro_extra_pct', 'Metro city hotel extra %'], ['deputation_da', 'Deputation DA a day ₹'],
+  ['phone_month', 'Phone allowance a month ₹'], ['tool_max', 'Tools above ₹ go to petty cash'], ['metro_extra_pct', 'Metro city room extra %'], ['deputation_da', 'Deputation DA a day ₹'],
   ['bike_two_way_km', 'Bike two-way limit km'], ['car_two_way_km', 'Car two-way limit km'], ['submit_by_day', 'Submit by day of next month'],
   ['late_pct', 'Late deduction % (1, 2, 3 months)'], ['auto_per_km', 'Auto fare ₹ a km'], ['auto_min_fare', 'Auto minimum fare ₹'],
 ]
@@ -69,7 +70,7 @@ export default function TeAdmin() {
           {POLICY.map(([k, l]) => <PolicyField key={k} label={l} value={data.policy[k]} onSave={v => void call('te_set_policy', { p_key: k, p_value: v })} />)}
         </div>
       )}
-      {tab === 'purposes' && <Purposes list={data.purposes} call={call} sw={!!data.sw} />}
+      {tab === 'purposes' && <div className="space-y-4"><Purposes list={data.purposes} call={call} sw={!!data.sw} /><ExpenseKinds list={data.expense_kinds ?? []} call={call} sw={!!data.sw} /></div>}
       {tab === 'photos' && data.sw && <VisitPhotoSettings policy={data.policy} purposes={data.purposes} call={async (fn, args, done, here) => { const e = await call(fn, args, done, here); await qc.invalidateQueries({ queryKey: ['te_visit_setup'] }); return e }} />}
       {tab === 'projects' && <Projects list={data.projects} call={call} />}
       {tab === 'coord' && <Coordinators list={data.coordinators} centres={data.cost_centres} call={call} />}
@@ -220,6 +221,58 @@ function VisitPhotoSettings({ policy, purposes, call }: { policy: Record<string,
     </div>
   )
 }
+/* Expense types, kept with the purposes (te_0091; the user, 30 Oct: "sw admin can add / delete or edit, add in purpose itself bcz many subtabs making it confusing"). */
+function ExpenseKinds({ list, call, sw }: { list: AdminData['expense_kinds']; call: Call; sw: boolean }) {
+  const [label, setLabel] = useState('')
+  const [editing, setEditing] = useState<{ id: number; label: string } | null>(null)
+  const [err, setErr] = useState<{ id: number; text: string; n: number } | null>(null)
+  const ask = useAsk()
+  type K = AdminData['expense_kinds'][number]
+  const put = (k: K, p: { label?: string; bill?: boolean; active?: boolean }, done?: string, here = false) =>
+    call('te_set_expense_kind', { p_id: k.id, p_label: p.label ?? k.label, p_bill_always: p.bill ?? k.bill_always, p_active: p.active ?? k.is_active }, done, here)
+  const rename = async (k: K) => {
+    const e = await put(k, { label: editing!.label }, 'Renamed.', true)
+    if (e) setErr(x => ({ id: k.id, text: e, n: (x?.n ?? 0) + 1 })); else { setEditing(null); setErr(null) }
+  }
+  const remove = async (k: K) => {
+    if (!(await ask.confirm({ title: `Delete ${k.label}?`, body: 'It goes from the list of expense types.', yes: 'Delete', danger: true }))) return
+    const e = await call('te_delete_expense_kind', { p_id: k.id }, 'Expense type deleted.', true)
+    setErr(e ? x => ({ id: k.id, text: e, n: (x?.n ?? 0) + 1 }) : null)
+  }
+  return (
+    <div className="card space-y-2 p-4">
+      <h3 className="text-sm font-semibold text-ink-800">Expense types</h3>
+      {list.map(k => (
+        <div key={k.id} className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            {editing?.id === k.id ? (
+              <span className="flex min-w-[12rem] items-center gap-1.5">
+                <input className="input !py-1 max-w-[14rem]" value={editing.label} autoFocus onChange={e => setEditing({ id: k.id, label: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Enter') void rename(k); if (e.key === 'Escape') setEditing(null) }} />
+                <button type="button" className="btn-icon text-green-700" aria-label="Save" title="Save" disabled={!editing.label.trim()} onClick={() => void rename(k)}><Check className="h-4 w-4" /></button>
+                <button type="button" className="btn-icon" aria-label="Cancel" title="Cancel" onClick={() => { setEditing(null); setErr(null) }}><X className="h-4 w-4" /></button>
+              </span>
+            ) : (
+              <span className="flex min-w-[12rem] items-center gap-1">
+                <span className={clsx('font-medium', k.is_active ? 'text-ink-900' : 'text-ink-400 line-through')}>{k.label}</span>
+                <button type="button" className="btn-icon" aria-label={`Rename ${k.label}`} title="Rename" onClick={() => { setEditing({ id: k.id, label: k.label }); setErr(null) }}><Pencil className="h-3.5 w-3.5" /></button>
+              </span>
+            )}
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={k.bill_always} onChange={e => void put(k, { bill: e.target.checked })} /> Bill always</label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={k.is_active} onChange={e => void put(k, { active: e.target.checked })} /> In use</label>
+            {sw && <button type="button" className="btn-icon text-cyrixRed-600" aria-label={`Delete ${k.label}`} title="Delete" onClick={() => void remove(k)}><Trash2 className="h-3.5 w-3.5" /></button>}
+          </div>
+          {err?.id === k.id && <Alert key={err.n} kind="error">{err.text}</Alert>}
+        </div>
+      ))}
+      <div className="flex gap-2 pt-2">
+        <input className="input max-w-xs" placeholder="New expense type" value={label} onChange={e => setLabel(e.target.value)} />
+        <button type="button" className="btn-secondary" disabled={!label.trim()} onClick={() => { void call('te_set_expense_kind', { p_id: null, p_label: label, p_bill_always: false, p_active: true }, 'Expense type added.'); setLabel('') }}>Add</button>
+      </div>
+    </div>
+  )
+}
+
 /* Purposes, renamed in place too (te_0063; the user, 24 Oct: "need edit option"). */
 function Purposes({ list, call, sw }: { list: AdminData['purposes']; call: Call; sw: boolean }) {
   const [label, setLabel] = useState('')
@@ -237,6 +290,7 @@ function Purposes({ list, call, sw }: { list: AdminData['purposes']; call: Call;
   }
   return (
     <div className="card space-y-2 p-4">
+      <h3 className="text-sm font-semibold text-ink-800">Purposes</h3>
       {list.map(p => (
         <div key={p.id} className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-3 text-sm">

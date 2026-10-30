@@ -41,7 +41,7 @@ export async function exportApprovals({ file, heading, rows, full }: {
     ws.columns = head.map((h, i) => ({ width: Math.min(70, Math.max(widths[i] ?? 8, h.length + 3, ...body.map(r => String(r[i] ?? '').length + 2), String(total.getCell(i + 1).value ?? '').length + 3)) }))
   }
 
-  const money = ['Km', 'Travel', 'DA', 'Other', 'Hotel', 'Total']
+  const money = ['Km', 'Travel', 'DA', 'Other', 'Room stay', 'Total']
   const moneyOf = (c: Row) => [Math.round(Number(c.km) * 10) / 10, n(c.travel), n(c.da), n(c.other), n(c.hotel), n(c.total)]
 
   if (!full) {

@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { CircleAlert, HandCoins, Smartphone, TriangleAlert, type LucideIcon } from 'lucide-react'
-import { MODES, money, type Day, type Rule } from '@/lib/claims'
+import { MODES, expenseRole, money, type Day, type Rule } from '@/lib/claims'
 
 /*
   The month's budget, as meters (the user, 18 Oct: "this is the budget isn't it? so in each claim
@@ -43,7 +43,7 @@ export function dayUse(d: Day | undefined): Used {
     if (r.mode === 'car') u.car += r.claimed_km ?? 0
     if (r.mode === 'auto') u.auto += r.fare ?? 0
   }
-  for (const x of d.expenses) if (x.category === 'Phone') u.phone += x.amount || 0
+  for (const x of d.expenses) if (expenseRole(x.category) === 'phone') u.phone += x.amount || 0
   return u
 }
 

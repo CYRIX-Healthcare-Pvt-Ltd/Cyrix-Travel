@@ -70,7 +70,7 @@ export default function ApprovalPerson() {
   // Km, then the claim with what it is made of, small inside it (the user, 27 Oct: "add km then claim ie travel + da inside as small").
   const parts = [
     { label: 'Travel', v: sum('travel'), dot: 'bg-sky-500' }, { label: 'DA', v: sum('da'), dot: 'bg-emerald-500' },
-    { label: 'Other', v: sum('other'), dot: 'bg-amber-500' }, { label: 'Hotel', v: sum('hotel'), dot: 'bg-violet-500' },
+    { label: 'Other', v: sum('other'), dot: 'bg-amber-500' }, { label: 'Room stay', v: sum('hotel'), dot: 'bg-violet-500' },
   ].filter(p => p.v > 0)
   // This person's claims before these, as far as Approvals has them: the last three.
   const firstMonth = list.reduce((m, c) => (c.month < m ? c.month : m), list[0]?.month ?? '')

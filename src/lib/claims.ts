@@ -54,13 +54,25 @@ export const DA_KINDS = [
 ] as const
 export type DaKind = typeof DA_KINDS[number]['code']
 
-export const EXPENSE_CATEGORIES = ['Courier', 'Printing & stationery', 'Tools', 'Toll', 'Client meal', 'Team meal', 'Phone', 'Spare purchase', 'Other']
+/*
+  The expense types SW Admin keeps (te_0091), as the claim brings them; these until it has. Three carry a rule by their role,
+  so a renamed one keeps it: phone (the month's allowance), tools (petty cash above the limit), spare (its own Excel column).
+*/
+export interface ExpenseKind { label: string; role: 'phone' | 'tools' | 'spare' | null; bill_always: boolean; active: boolean }
+let kinds: ExpenseKind[] = [
+  ['Courier', null, true], ['Printing & stationery', null, false], ['Tools', 'tools', true], ['Toll', null, false], ['Client meal', null, false],
+  ['Team meal', null, false], ['Phone', 'phone', false], ['Spare purchase', 'spare', false], ['Other', null, false],
+].map(([label, role, bill]) => ({ label, role, bill_always: bill, active: true }) as ExpenseKind)
+export const setExpenseKinds = (k?: ExpenseKind[] | null) => { if (k?.length) kinds = k }
+export const expenseKinds = () => kinds
+export const expenseRole = (category: string) => kinds.find(k => k.label === category)?.role ?? null
 // Each kind of expense its own picture (the user, 21 Oct: "courier and phone having same icon?").
 const EXPENSE_ICONS: Record<string, LucideIcon> = {
   Courier: Package, 'Printing & stationery': Printer, Tools: Wrench, Toll: Construction,
   'Client meal': Utensils, 'Team meal': Users, Phone: Smartphone, 'Spare purchase': Cog,
 }
-export const expenseIcon = (category: string): LucideIcon => EXPENSE_ICONS[category] ?? ReceiptIndianRupee
+const ROLE_ICONS: Record<string, LucideIcon> = { phone: Smartphone, tools: Wrench, spare: Cog }
+export const expenseIcon = (category: string): LucideIcon => EXPENSE_ICONS[category] ?? ROLE_ICONS[expenseRole(category) ?? ''] ?? ReceiptIndianRupee
 
 /** Each status as one strong hue: the claim header's stripe, and a claim row's edge. */
 export const STATUS_HUE: Record<string, string> = {
@@ -182,6 +194,7 @@ export interface ClaimData {
   policy: Record<string, number | number[]>
   purposes: string[]
   office_purposes: string[]
+  expense_kinds?: ExpenseKind[]
   /** Visit photos (te_0082): the setup, the person's photos of the month, and "Photo not possible" on their other claims that month. */
   photo_setup?: VisitSetup; visit_photos?: VisitPhoto[]; photo_skips_other?: number
   /** The phone most of the person's visit photos came from (te_0086). */
@@ -274,12 +287,10 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
     // A bike taxi's bill (the Uber or Rapido invoice) whatever the amount (te_0074).
     return r.mode === 'taxi_bike' || rideAmount(r, rule) > over
   }
-  // A courier or a tool always brings its bill, whatever it cost (the user, 23 Oct).
+  // A courier or a tool always brings its bill, whatever it cost (the user, 23 Oct) — the types SW Admin ticks (te_0091).
   const x = item as Expense
-  return x.amount > over || BILL_ALWAYS.includes(x.category)
+  return x.amount > over || kinds.some(k => k.label === x.category && k.bill_always)
 }
-/** The expenses whose bill is needed even under ₹300. */
-export const BILL_ALWAYS = ['Courier', 'Tools']
 /** A breakdown call: its ride names the ticket (te_0060). */
 export const isBreakdown = (purpose: string | null | undefined) => /breakdown/i.test(purpose ?? '')
 /** The km typed is not the map's (te_0060: "if any changes in km it should be added in observation"). */
@@ -988,7 +999,7 @@ export const useMyClaims = () => useQuery({
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
-  queryFn: () => rpc<ClaimData>('te_claim', { p_claim: id }),
+  queryFn: () => rpc<ClaimData>('te_claim', { p_claim: id }).then(d => { setExpenseKinds(d.expense_kinds); return d }),
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,

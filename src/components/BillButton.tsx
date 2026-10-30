@@ -86,7 +86,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       // A hotel's bill on a ride is the wrong line (the user, 22 Oct): said, and not attached.
       // Only a hotel's own signs: its night-stay line or an NH booking id; a 'Booking Voucher' heading alone is on bus and train vouchers too.
       if (kind === 'ride' && (read.stay?.name || read.refs.some(x => x.toUpperCase().startsWith('NH')))) {
-        throw new Error('This is a hotel bill. Attach it under Hotel night, not on a ride.')
+        throw new Error('This is a room bill. Attach it under Room stay, not on a ride.')
       }
       /*
         The ticket already on an earlier flight of this claim, whose return this ride is: linked, not refused as the

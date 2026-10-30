@@ -19,7 +19,7 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
+  DA_KINDS, expenseKinds, expenseRole, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
   areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
@@ -512,8 +512,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   }
   if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {
     const to = 'hotel-' + d.hotel.id
-    if (!d.hotel.note?.trim()) blockers.push({ text: 'Write the remarks of the hotel night', to })
-    if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) blockers.push({ text: `Attach the hotel bill · ${money(d.hotel.amount)}`, to })
+    if (!d.hotel.note?.trim()) blockers.push({ text: 'Write the remarks of the room stay', to })
+    if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) blockers.push({ text: `Attach the room bill · ${money(d.hotel.amount)}`, to })
   }
   for (const x of d.expenses) {
     const to = 'exp-' + x.id
@@ -813,7 +813,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   </div>
                 )
               })}
-              <button type="button" className="btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
+              <button type="button" className="ride-add btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
                 set({ rides: [...d.rides, blankRide(from, carry())] })
@@ -858,7 +858,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
                       <div className="grid grid-cols-[1fr_7.5rem_2.25rem] items-center gap-2 sm:grid-cols-[11rem_8rem_1fr_auto_2.5rem]">
                         <select className="input h-10" aria-label="Category" value={x.category} onChange={e => put({ category: e.target.value })}>
-                          {EXPENSE_CATEGORIES.map(k => <option key={k}>{k}</option>)}
+                          {expenseKinds().filter(k => k.active || k.label === x.category).map(k => <option key={k.label}>{k.label}</option>)}
                         </select>
                         <span className="relative">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
@@ -872,31 +872,31 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                             onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
                         </span>
                       </div>
-                      {x.category === 'Tools' && x.amount > Number(data.policy.tool_max ?? 500) && <p className="mt-1 text-xs text-amber-800">Tools above {money(Number(data.policy.tool_max ?? 500))} go through petty cash</p>}
+                      {expenseRole(x.category) === 'tools' && x.amount > Number(data.policy.tool_max ?? 500) && <p className="mt-1 text-xs text-amber-800">Tools above {money(Number(data.policy.tool_max ?? 500))} go through petty cash</p>}
                     </div>
                   )
                 })}
               </div>
             )}
-            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ expenses: [...d.expenses, { id: newId(), category: 'Courier', description: '', amount: 0 }] })}><Plus className="h-4 w-4" /> Expense</button>
+            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ expenses: [...d.expenses, { id: newId(), category: expenseKinds().find(k => k.active)?.label ?? 'Other', description: '', amount: 0 }] })}><Plus className="h-4 w-4" /> Expense</button>
           </section>
 
           {/* ---- hotel, after the other expenses (the user, 27 Oct) ---- */}
           <section>
-            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><BedDouble className="h-4 w-4 text-violet-600" /> Hotel</h3>
+            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><BedDouble className="h-4 w-4 text-violet-600" /> Room stay</h3>
             {d.room_by ? (
               <p className="rounded-lg bg-green-100 px-3 py-2 text-sm text-green-900">Room already claimed by {d.room_by.name} ({d.room_by.ecode}) · {money(d.room_by.amount)} — you keep the day's DA.</p>
             ) : !d.hotel ? (
-              <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ hotel: { id: newId(), name: '', amount: 0, occupancy: 'single', metro: false } })}><Plus className="h-4 w-4" /> Hotel night</button>
+              <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ hotel: { id: newId(), name: '', amount: 0, occupancy: 'single', metro: false } })}><Plus className="h-4 w-4" /> Room for the night</button>
             ) : (() => {
               const h = d.hotel!, limit = hotelLimit(rule, h, outOfState, metroPct)
               const setH = (p: Partial<typeof h>) => set({ hotel: { ...h, ...p } })
               return (
                 <div id={'hotel-' + h.id} className="space-y-3 rounded-xl border border-ink-200 p-3">
                   <div className="flex items-end gap-2">
-                    <label className="block min-w-0 flex-1"><span className="label">Hotel</span>
-                      <input className="input mt-1 h-11" value={h.name ?? ''} onChange={e => setH({ name: e.target.value })} placeholder="Hotel name, city" /></label>
-                    <button type="button" className="btn-icon mb-1.5 text-ink-400" aria-label="Remove hotel" onClick={() => set({ hotel: null })}><Trash2 className="h-4 w-4" /></button>
+                    <label className="block min-w-0 flex-1"><span className="label">Stayed at</span>
+                      <input className="input mt-1 h-11" value={h.name ?? ''} onChange={e => setH({ name: e.target.value })} placeholder="Lodge name, city" /></label>
+                    <button type="button" className="btn-icon mb-1.5 text-ink-400" aria-label="Remove room stay" onClick={() => set({ hotel: null })}><Trash2 className="h-4 w-4" /></button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block"><span className="label">Amount</span>

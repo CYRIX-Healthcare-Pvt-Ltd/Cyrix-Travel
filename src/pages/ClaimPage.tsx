@@ -483,7 +483,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         const parts = ([
           ['Travel', d.rides.reduce((t, r) => t + rideAmount(r, rule), 0)],
           ['DA', d.da_amount],
-          ['Hotel', d.room_by ? 0 : d.hotel?.amount ?? 0],
+          ['Room', d.room_by ? 0 : d.hotel?.amount ?? 0],
           ['Other', d.expenses.reduce((t, x) => t + (x.amount || 0), 0)],
         ] as const).filter(([, v]) => v > 0)
         return parts.length > 0 && (
@@ -597,12 +597,12 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             const limit = hotelLimit(rule, d.hotel, outOfState, Number(data.policy.metro_extra_pct ?? 20))
             return (
               <div id={'bill-' + d.hotel.id} className={row + mark(d.hotel.id)} style={lit(d.hotel.id, '#7C3AED')}>
-                <span className={name}>{(() => { const t = `${d.hotel.name || 'Hotel'} · ${d.hotel.occupancy}${d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}`; return lead(BedDouble, 'text-violet-600', 'Hotel', 'bg-violet-100 text-violet-900', t, t) })()}</span>
+                <span className={name}>{(() => { const t = `${d.hotel.name || 'Room stay'} · ${d.hotel.occupancy}${d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}`; return lead(BedDouble, 'text-violet-600', 'Room', 'bg-violet-100 text-violet-900', t, t) })()}</span>
                 <span className={billCell}>
                   <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed claimed={d.hotel.amount} onChange={onBills} />
                 </span>
                 {amt(d.hotel.id, d.hotel.amount, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900', amtAt)}
-                {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, penAt())}
+                {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Room stay', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, penAt())}
                 {d.hotel.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{d.hotel.note}</span>}
                 {(() => { const co = companyOf(data.bills, d.hotel!); return co && <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-sky-800"><Building2 className="h-3.5 w-3.5" />Booked by company · {money(co.net)} · {co.booking_id}</span> })()}
               </div>
@@ -610,7 +610,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           })()}
           {d.room_by && (
             <div className={row + tile + ' border-ink-200 bg-surface'}>
-              <span className={name}>{(() => { const t = `Room shared · claimed by ${d.room_by.name} (${d.room_by.ecode})${d.room_by.number ? ` on ${d.room_by.number}` : ''}`; return lead(BedDouble, 'text-green-600', 'Hotel', 'bg-green-100 text-green-900', t, t) })()}</span>
+              <span className={name}>{(() => { const t = `Room shared · claimed by ${d.room_by.name} (${d.room_by.ecode})${d.room_by.number ? ` on ${d.room_by.number}` : ''}`; return lead(BedDouble, 'text-green-600', 'Room', 'bg-green-100 text-green-900', t, t) })()}</span>
               <span className={`${amtAt} text-right font-medium text-ink-500`}>{money(d.room_by.amount)}</span>
             </div>
           )}
@@ -685,7 +685,7 @@ export const OBS = {
   photospeed: { title: 'Too fast between visit photos', level: 'approve', icon: Timer, group: 'photos' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
-  hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble, group: 'policy' },
+  hotel:    { title: 'Over the room limit',      level: 'check',   icon: BedDouble, group: 'policy' },
   away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff, group: 'tickets' },
   home:     { title: 'Home moved',               level: 'check',   icon: House, group: 'home' },
   homemap:  { title: 'Home set on the map',      level: 'check',   icon: House, group: 'home' },
@@ -738,7 +738,7 @@ export function claimObservations(data: ClaimData): Obs[] {
   if (data.home?.how === 'map' && !(data.home_moves ?? []).some(m => m.how === 'map')) items.push({ kind: 'homemap', day: dn(data.home.set_at.slice(0, 10)), detail: 'Not marked standing at home' })
   // The company's bookings for this person in the month that are on no claim (te_0042).
   for (const b of data.company_unlinked ?? []) items.push({ kind: 'cmiss', day: b.travel_date ? dn(b.travel_date) : undefined,
-    detail: `${b.mode === 'hotel' ? `Hotel ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
+    detail: `${b.mode === 'hotel' ? `Room stay ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
   const billed = new Set(data.bills.map(b => b.owner_id))
   // Bills on a line, none of whose amounts could be read.
   const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null) }
@@ -811,13 +811,13 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) items.push({ kind: 'nobill', day, to: d.hotel.id, detail: 'Hotel night' })
       const hc = companyOf(data.bills, d.hotel)
       if (hc) {
-        items.push({ kind: 'company', day, to: d.hotel.id, detail: `Hotel night · ${hc.booking_id} · ${money(hc.net)} not claimed` })
+        items.push({ kind: 'company', day, to: d.hotel.id, detail: `Room stay · ${hc.booking_id} · ${money(hc.net)} not claimed` })
         const from = hc.card?.travel_date, to = hc.card?.end_date
-        if (from && (d.day < from || (to ? d.day >= to : d.day !== from))) items.push({ kind: 'cdate', day, to: d.hotel.id, detail: `Hotel night · booked ${dn(from)}${to ? ' – ' + dn(to) : ''}, claimed on ${day}` })
+        if (from && (d.day < from || (to ? d.day >= to : d.day !== from))) items.push({ kind: 'cdate', day, to: d.hotel.id, detail: `Room stay · booked ${dn(from)}${to ? ' – ' + dn(to) : ''}, claimed on ${day}` })
       }
       const hr = billRead(data.bills, d.hotel.id)
-      if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Hotel · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
-      if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Hotel · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
+      if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Room stay · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
+      if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Room stay · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
     }
     // Visit photos too far apart for the time between them (te_0089), said to the person too; the day still saves.
     for (const x of photoRush(d.rides, d.day, data.visit_photos, setup)) {
@@ -852,7 +852,7 @@ export function claimObservations(data: ClaimData): Obs[] {
     for (const d of data.days) {
       const r = d.rides.find(x => x.id === id)
       if (r) return { day: dn(d.day), text: `${MODES[r.mode].label} ${short(r.from_name)} → ${short(r.to_name)}` }
-      if (d.hotel && d.hotel.id === id) return { day: dn(d.day), text: `Hotel night${d.hotel.name ? ' · ' + d.hotel.name : ''}` }
+      if (d.hotel && d.hotel.id === id) return { day: dn(d.day), text: `Room stay${d.hotel.name ? ' · ' + d.hotel.name : ''}` }
       const x = d.expenses.find(e => e.id === id)
       if (x) return { day: dn(d.day), text: x.category }
     }
@@ -963,7 +963,7 @@ function missingBills(data: ClaimData, over: number): Array<{ id: string; label:
   for (const d of data.days) {
     const dn = new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
     for (const r of d.rides) if (needsBill('ride', r, over, rule) && !billed.has(r.id)) out.push({ id: r.id, label: `${dn} · ${MODES[r.mode].label} ride ${short(r.from_name)} → ${short(r.to_name)} · ${money(rideAmount(r, rule))}` })
-    if (d.hotel && !d.room_by && !billed.has(d.hotel.id)) out.push({ id: d.hotel.id, label: `${dn} · Hotel night ${d.hotel.name ?? ''} · ${money(d.hotel.amount)}` })
+    if (d.hotel && !d.room_by && !billed.has(d.hotel.id)) out.push({ id: d.hotel.id, label: `${dn} · Room stay ${d.hotel.name ?? ''} · ${money(d.hotel.amount)}` })
     for (const x of d.expenses) if (needsBill('expense', x, over) && !billed.has(x.id)) out.push({ id: x.id, label: `${dn} · ${x.category} · ${money(x.amount)}` })
   }
   return out
