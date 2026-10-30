@@ -37,7 +37,7 @@ export default function ApprovalPerson() {
   const sum = (k: 'total' | 'km' | 'travel' | 'da' | 'hotel' | 'other') => list.reduce((t, c) => t + Number(c[k] ?? 0), 0)
   const red = list.filter(c => issues[c.id]?.some(i => i.level === 'approve')).length
   // Every claim waiting on this person, at whichever step: manager, coordinator or Travel Desk (the user, 27 Oct: "whr is approval all?").
-  const managerOnes = list.filter(c => c.waiting && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status))
+  const managerOnes = list.filter(c => c.waiting && !c.asks && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status))
   const tabName = TABS.find(([k]) => k === tab)?.[1] ?? ''
   // Each claim on its own: asks first (claim · person · amount, and what is out of policy), then approves (the user, 26 Oct: decisions ask first).
   const approveOne = async (c: typeof list[number], why: string[]) => {
@@ -187,7 +187,7 @@ export default function ApprovalPerson() {
                 {list.map(c => {
                   const s = STATUS[c.status] ?? STATUS.draft
                   const found = issues[c.id] ?? [], bad = found.some(i => i.level === 'approve'), I = bad ? ShieldAlert : TriangleAlert
-                  const mine = c.waiting && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)
+                  const mine = c.waiting && !c.asks && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)
                   const other = Number(c.other ?? 0) + Number(c.hotel ?? 0)
                   return (
                     <tr key={c.id} role="link" tabIndex={0} className="cursor-pointer whitespace-nowrap transition-colors hover:bg-ink-50"
@@ -208,6 +208,7 @@ export default function ApprovalPerson() {
                         )}
                       </td>
                       <td className="px-3 py-2 text-right">
+                        {c.asks && <span className="badge bg-orange-100 text-orange-900">{c.asks === 'edit' ? 'Asks to edit' : 'Asks to delete'}</span>}
                         {mine && (
                           <button type="button" className="btn-primary btn-go !px-3 !py-1.5 text-xs" disabled={act.isPending} onClick={e => { e.stopPropagation(); void approveOne(c, found.map(i => i.title)) }}>
                             <Check className="h-3.5 w-3.5" /> Approve

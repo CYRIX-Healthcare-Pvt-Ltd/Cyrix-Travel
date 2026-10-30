@@ -36,6 +36,11 @@ function look(e: HistoryStep): { title: string; icon: LucideIcon; tone: keyof ty
     case 'delete_requested': return { title: 'Asked to delete it', icon: Trash2, tone: 'red', note: e.note }
     case 'delete_refused': return { title: 'Deletion refused · kept', icon: Check, tone: 'slate', note: null }
     case 'delete_withdrawn': return { title: 'Deletion request withdrawn', icon: Undo2, tone: 'slate', note: null }
+    // Asking the manager to edit it once the manager has approved (te_0094).
+    case 'recall_requested': return { title: 'Asked to edit it', icon: Undo2, tone: 'orange', note: e.note }
+    case 'recall_allowed': return { title: 'Manager let it be edited', icon: Undo2, tone: 'orange', note: null }
+    case 'recall_refused': return { title: 'Edit refused · kept', icon: Check, tone: 'slate', note: null }
+    case 'recall_withdrawn': return { title: 'Edit request withdrawn', icon: Undo2, tone: 'slate', note: null }
     case 'adjusted': return { title: 'Changed an amount', icon: PencilLine, tone: 'rose', note: null, change: changeOf(e.note) }
     case 'advance': return { title: `Advance set to ${money(Number(e.note ?? 0))}`, icon: Wallet, tone: 'teal', note: null }
     default: return { title: e.action, icon: Check, tone: 'slate', note: e.note }

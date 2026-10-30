@@ -111,7 +111,7 @@ export default function Inbox() {
         ['bg-amber-500', 'Other', cs.reduce((t, c) => t + Number(c.other ?? 0), 0)], ['bg-violet-500', 'Room stay', cs.reduce((t, c) => t + Number(c.hotel ?? 0), 0)]] as Array<[string, string, number]>,
     }))
   // Everyone's claims waiting on this person, as on each person's page (the user, 29 Oct: "here also keep approve all").
-  const approvable = tab === 'waiting' ? shown.filter(c => ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)) : []
+  const approvable = tab === 'waiting' ? shown.filter(c => !c.asks && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)) : []
   // Each figure in its own colour with its picture, as on a person's page (the user, 29 Oct: light mode "looks blank").
   const strip: Array<[string, string, LucideIcon, string, string]> = [
     ['Claims', String(shown.length), ReceiptText, 'bg-sky-50 ring-sky-200', 'bg-sky-100 text-sky-700'],

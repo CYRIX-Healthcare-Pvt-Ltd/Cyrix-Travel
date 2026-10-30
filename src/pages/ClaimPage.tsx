@@ -120,6 +120,17 @@ export default function ClaimPage() {
     if (need.length) { setMsg(null); setFail(null); showBill(need[0].id); return }
     if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send', icon: Send, go: true })) void run('te_submit', { p_claim: c.id }, 'Sent.')
   }
+  /*
+    Recall and deletion go by whether the manager has approved it (te_0094; the user, 31 Oct): not yet (waiting on the
+    manager, or sent back by the manager) — straight away; approved by the manager — the manager is asked; approved by
+    the Travel Desk — neither.
+  */
+  const lastBack = [...data.history].filter(h => h.action === 'returned').sort((a, b) => a.at.localeCompare(b.at)).pop()
+  const pastManager = c.status === 'with_coordinator' || c.status === 'with_desk' || (c.status === 'returned' && !!lastBack?.role)
+  const freeDelete = c.mine && (['draft', 'recalled', 'with_manager'].includes(c.status) || (c.status === 'returned' && !pastManager))
+  const askDelete = c.mine && pastManager && !c.delete_requested_at
+  const askEdit = c.mine && (c.status === 'with_coordinator' || c.status === 'with_desk') && !c.recall_requested_at
+  const first = c.name.split(' ')[0]
   // Delete / request deletion / Excel: one row with the person's buttons (the user, 17 Oct).
   const excel = data.days.length > 0 && (
     <button type="button" className="btn-lift inline-flex h-9 items-center gap-2 rounded-lg border border-green-600/40 px-3 text-sm font-semibold text-green-700 hover:bg-green-50"
@@ -127,7 +138,7 @@ export default function ClaimPage() {
   )
   const deletes = (
     <>
-          {((c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin) && (
+          {(freeDelete || isSwAdmin) && (
             <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline" onClick={async () => {
               if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
               try {
@@ -139,9 +150,9 @@ export default function ClaimPage() {
               } catch (e) { setFail((e as Error).message) }
             }}><Trash2 className="h-4 w-4" /> Delete claim</button>
           )}
-          {c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid' && (
+          {askDelete && !isSwAdmin && (
             <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline" onClick={async () => {
-              const reason = await ask.prompt({ title: 'Request deletion', body: 'This claim is already sent, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
+              const reason = await ask.prompt({ title: 'Request deletion', body: 'Your manager has approved it, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
               if (reason && reason.trim()) void run('te_request_delete', { p_claim: c.id, p_reason: reason }, 'Asked your manager to delete it.')
             }}><Trash2 className="h-4 w-4" /> Request deletion</button>
           )}
@@ -149,7 +160,7 @@ export default function ClaimPage() {
   )
   // Delete sits under the total in the header, not in a row of its own (the user, 24 Oct: "can we make delete
   // claim button more fit, bcz it is consuming full row"); Excel keeps a quiet row of its own once there are days.
-  const canDelete = (c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin || (c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid')
+  const canDelete = freeDelete || isSwAdmin || askDelete
   const tail = excel ? <div className="flex">{excel}</div> : null
 
   const run = async (fn: string, args: Record<string, unknown>, done: string) => {
@@ -158,6 +169,7 @@ export default function ClaimPage() {
       const r = await act.mutateAsync({ fn, args })
       const text = typeof r === 'string' && fn === 'te_submit' ? `Sent to your manager as ${r}.` : done
       setMsg(text); setNote('')
+      if (fn === 'te_submit') nav('/claims')
       void ask.alert(fn === 'te_submit' ? 'Claim sent' : 'Done', text, 'success')
     }
     catch (e) { setFail((e as Error).message) }
@@ -207,7 +219,7 @@ export default function ClaimPage() {
               return st && <span className="badge inline-flex items-center gap-1 bg-violet-100 text-violet-900"><BriefcaseBusiness className="h-3.5 w-3.5" /> Deputation · {st}</span>
             })()}
           </div>
-          <p className="mt-1 text-sm text-ink-700">{c.name} · {c.ecode} · Grade {c.grade ?? '—'}{c.designation ? ` · ${c.designation}` : ''}</p>
+          <p className="mt-1 text-sm text-ink-700">{c.name} · {c.ecode} · Grade {c.grade ?? '—'}</p>
           <Header data={data} onSaved={() => void refetch()} />
           <p className="mt-1 text-xs text-ink-500">Manager {c.manager ?? '—'}{c.coordinator ? ` · Coordinator ${c.coordinator}` : ''} · Travel Desk</p>
         </div>
@@ -222,6 +234,13 @@ export default function ClaimPage() {
                 const last = data.days[data.days.length - 1]
                 openDay(last ?? blankDay(c.picked_day ?? (todayIso().slice(0, 7) === c.month.slice(0, 7) ? todayIso() : c.month)))
               }}><Pencil className="h-4 w-4" /> {c.status === 'with_manager' ? 'Recall to edit' : 'Edit'}</button>
+          )}
+          {askEdit && (
+            <button type="button" className="btn-lift mb-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+              onClick={async () => {
+                const reason = await ask.prompt({ title: 'Request edit', body: 'Your manager has approved it, so your manager lets you edit it.', label: 'What do you need to change?', yes: 'Send request' })
+                if (reason && reason.trim()) void run('te_request_recall', { p_claim: c.id, p_reason: reason }, 'Asked your manager to let you edit it.')
+              }}><Pencil className="h-4 w-4" /> Request edit</button>
           )}
           <p className="text-xs text-ink-500">Total claimed</p>
           <p className="text-3xl font-bold text-ink-900">{money(total)}</p>
@@ -240,7 +259,27 @@ export default function ClaimPage() {
       {c.status === 'returned' && c.return_note && <Alert kind="warning" title="Sent back to you">{c.return_note}</Alert>}
       {c.mine && c.status === 'recalled' && <Alert kind="info" title="Recalled to edit">Change what you need, then press Send to manager again. It keeps its number.</Alert>}
       {!c.mine && c.recalls > 0 && <p className="text-sm text-orange-800">Recalled {c.recalls}× by {c.name.split(' ')[0]} after sending{c.last_recalled_at ? ` · last on ${new Date(c.last_recalled_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</p>}
-      {/* Deleting a sent claim needs the manager (te_0016; the user, 17 Oct). */}
+      {/* Editing a claim the manager has approved needs the manager (te_0094; the user, 31 Oct). */}
+      {c.recall_requested_at && (
+        <div className="card flex flex-wrap items-center gap-3 border-violet-300 p-4">
+          <Pencil className="h-5 w-5 text-violet-600" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-semibold text-ink-900">{c.mine ? 'You asked to edit this claim' : `${first} asked to edit this claim`}</p>
+            <p className="text-ink-600">“{c.recall_reason}”{c.mine ? ' · waiting for your manager' : ''}</p>
+          </div>
+          {c.is_manager && (
+            <>
+              <button type="button" className="btn-primary" onClick={async () => {
+                if (!(await ask.confirm({ title: `Let ${first} edit ${c.number ?? 'the claim'}?`, body: `${c.name} · ${money(total)}`, yes: 'Let edit', icon: Pencil }))) return
+                void run('te_answer_recall', { p_claim: c.id, p_allow: true }, `${c.number ?? 'The claim'} is back with ${first} to edit.`)
+              }}>Let {first} edit</button>
+              <button type="button" className="btn-secondary" onClick={() => void run('te_answer_recall', { p_claim: c.id, p_allow: false }, 'Kept. The claim carries on.')}>Keep the claim</button>
+            </>
+          )}
+          {c.mine && <button type="button" className="btn-secondary" onClick={() => void run('te_answer_recall', { p_claim: c.id, p_allow: false }, 'Request withdrawn.')}>Withdraw request</button>}
+        </div>
+      )}
+      {/* Deleting a claim the manager has approved needs the manager (te_0016, te_0094; the user, 17 and 31 Oct). */}
       {c.delete_requested_at && (
         <div className="card flex flex-wrap items-center gap-3 border-cyrixRed-300 p-4">
           <Trash2 className="h-5 w-5 text-cyrixRed-600" />

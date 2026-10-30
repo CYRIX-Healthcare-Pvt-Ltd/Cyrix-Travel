@@ -183,6 +183,8 @@ export interface ClaimData {
     name: string; ecode: string; manager: string | null; coordinator: string | null
     mine: boolean; can_edit: boolean; can_decide: boolean; is_desk: boolean; is_manager: boolean
     delete_requested_at: string | null; delete_reason: string | null
+    /** Asking the manager to edit a claim the manager has approved (te_0094). */
+    recall_requested_at?: string | null; recall_reason?: string | null
     recalls: number; last_recalled_at: string | null
     /** The date "Add a claim" started it on, while it has no saved day (te_0069). */
     picked_day?: string | null
@@ -1003,7 +1005,7 @@ export const useClaim = (id: string | undefined) => useQuery({
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string; deputation: string | null; employee_id: string; cost_centre: string | null; route_from: string | null; route_to: string | null; travel: number; da: number; hotel: number; other: number }>>('te_inbox'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string; deputation: string | null; employee_id: string; cost_centre: string | null; route_from: string | null; route_to: string | null; travel: number; da: number; hotel: number; other: number; asks?: 'edit' | 'delete' | null }>>('te_inbox'),
 })
 export interface Summary {
   mine: { claimed: number; sent_back: number; pending: number; approved: number; paid: number; claims: number
