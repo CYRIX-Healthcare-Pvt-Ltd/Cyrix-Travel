@@ -137,10 +137,10 @@ export default function Inbox() {
   )
   return (
     <div className="space-y-4">
+      {/* Claims / Advances / Deputation beside the title; the search and days go with To approve / To be paid / Paid, which they sift (the user, 30 Oct). */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
-      {/* The search and the days on the same line as Claims / Advances / Deputation (the user, 30 Oct). */}
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-      <div className="inline-flex shrink-0 self-start rounded-xl bg-ink-100 p-1 lg:self-auto" role="tablist">
+      <div className="inline-flex shrink-0 rounded-xl bg-ink-100 p-1" role="tablist">
         {([['claims', 'Claims', (data ?? []).filter(c => c.waiting).length], ['advances', 'Advances', (advances ?? []).filter(a => a.waiting).length],
            ...((deputations ?? []).length ? [['deputation', 'Deputation', deputations!.filter(x => x.waiting).length] as const] : [])] as const).map(([k, l, n]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setParams(k === 'claims' ? {} : { view: k }, { replace: true })}
@@ -149,19 +149,21 @@ export default function Inbox() {
           </button>
         ))}
       </div>
-      {view === 'claims' && (data?.length ?? 0) > 0 && <div className="min-w-0 lg:flex-1">{find.bar}</div>}
       </div>
       {view === 'advances' ? <AdvanceApprovals /> : view === 'deputation' ? <DeputationApprovals /> : <>
       {done && <Alert kind="success">{done}</Alert>}
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
-      <div className="flex border-b border-ink-200" role="tablist">
-        {TABS.map(([k, l]) => (
-          <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
-            className={`-mb-px flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2 pb-2.5 pt-1 text-sm font-semibold sm:flex-none sm:px-4 ${tab === k ? 'border-ink-900 text-ink-900' : 'border-transparent text-ink-500 hover:text-ink-800'}`}>
-            {l}
-            <span className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-xs font-bold ${lists[k].length > 0 ? COUNT[k] : 'bg-ink-100 text-ink-700'}`}>{lists[k].length}</span>
-          </button>
-        ))}
+      <div className="card flex flex-col gap-2 p-2 lg:flex-row lg:items-center">
+        <div className="grid shrink-0 grid-cols-3 gap-1 rounded-lg bg-ink-100 p-1" role="tablist">
+          {TABS.map(([k, l]) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+              className={`flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-semibold transition-colors ${tab === k ? 'bg-surface text-ink-900 shadow-sm ring-1 ring-ink-200' : 'text-ink-500 hover:text-ink-800'}`}>
+              {l}
+              <span className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold leading-none ${lists[k].length > 0 ? COUNT[k] : 'bg-ink-200 text-ink-700'}`}>{lists[k].length}</span>
+            </button>
+          ))}
+        </div>
+        {(data?.length ?? 0) > 0 && <div className="min-w-0 lg:flex-1">{find.bar}</div>}
       </div>
       {shown.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">
