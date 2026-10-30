@@ -47,6 +47,26 @@ export function photoFor(r: { to_lat: number | null; to_lng: number | null }, da
   return best
 }
 
+/*
+  The rides in the order their visit photos were taken (the user, 30 Oct: DH Aluva's photo at 1 PM and GH Ernakulam's
+  at 3 PM, but the rides claimed GH Ernakulam first): the first ride whose photo is older than the ride's before it.
+  Only a place the day goes to once is weighed — a hospital gone to twice has a photo that fits either visit.
+*/
+export function photoOrder<R extends { id: string; to_lat: number | null; to_lng: number | null }>(rides: R[], day: string, photos: VisitPhoto[] | undefined, nearM: number) {
+  const today = (photos ?? []).filter(p => p.day === day)
+  const near = (r: R, p: VisitPhoto) => r.to_lat != null && r.to_lng != null && lineKm({ lat: p.lat, lng: p.lng }, { lat: r.to_lat, lng: r.to_lng }) * 1000 <= nearM
+  const seen: Array<{ n: number; ride: R; photo: VisitPhoto }> = []
+  rides.forEach((r, i) => {
+    const mine = today.filter(p => near(r, p))
+    if (!mine.length || rides.some((o, j) => j !== i && mine.some(p => near(o, p)))) return
+    seen.push({ n: i + 1, ride: r, photo: mine.reduce((a, b) => (Date.parse(a.shot_at) <= Date.parse(b.shot_at) ? a : b)) })
+  })
+  for (let k = 1; k < seen.length; k++) {
+    if (Date.parse(seen[k].photo.shot_at) < Date.parse(seen[k - 1].photo.shot_at)) return { late: seen[k], early: seen[k - 1] }
+  }
+  return null
+}
+
 /** Uploaded this long after it was taken, said beside it (a phone with no signal at the hospital sends it later). */
 export const lateBy = (p: VisitPhoto) => {
   const h = (new Date(p.taken_at).getTime() - new Date(p.shot_at).getTime()) / 3_600_000

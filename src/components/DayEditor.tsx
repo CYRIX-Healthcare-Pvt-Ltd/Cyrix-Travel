@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
-import { clock, lateBy, metres, needsPhoto, photoFor } from '@/lib/visits'
+import { clock, lateBy, metres, needsPhoto, photoFor, photoOrder } from '@/lib/visits'
 import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -157,6 +157,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const setup = data.photo_setup
   const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
   const photoNeeded = (r: Ride) => needsPhoto(r, setup) && !!d.day && !photoFor(r, d.day, data.visit_photos, setup!.near_m)
+  // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
+  const dayPhotos = useMemo(() => (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
+  // Rides claimed in another order than their photos were taken: said on the ride, and Save waits (the user, 30 Oct).
+  const order = setup?.on && d.day ? photoOrder(d.rides, d.day, data.visit_photos, setup.near_m) : null
+  const orderText = order && {
+    late: (order.late.ride.to_name ?? '').split(',')[0], lateAt: clock(order.late.photo.shot_at),
+    early: (order.early.ride.to_name ?? '').split(',')[0], earlyAt: clock(order.early.photo.shot_at),
+  }
   const over = Number(data.policy.bill_over ?? 300), metroPct = Number(data.policy.metro_extra_pct ?? 20), tol = Number(data.policy.km_tolerance_pct ?? 10)
   const outOfState = d.da_kind === 'out_state_stay'
   // The day's purpose for its DA: a ride that gives DA, else the first (an office day has none).
@@ -474,6 +482,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : d.day === today ? `Take the visit photo of ${n}, or write why not` : `Write why there is no visit photo for ${n}`, to })
     }
     if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(paid(r))}`, to })
+    if (order && orderText && order.late.ride.id === r.id) blockers.push({ text: `Rides out of order: the ${orderText.late} photo is ${orderText.lateAt}, before ${orderText.early} at ${orderText.earlyAt}`, to })
   }
   if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {
     const to = 'hotel-' + d.hotel.id
@@ -754,6 +763,11 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         </div>
                       )
                     })()}
+                    {order && orderText && order.late.ride.id === r.id && (
+                      <p className="mt-2 ml-6 rounded-lg bg-cyrixRed-50 px-2.5 py-1.5 text-xs font-medium text-cyrixRed-800 ring-1 ring-cyrixRed-200">
+                        The {orderText.late} photo is {orderText.lateAt}, before {orderText.early} at {orderText.earlyAt}. Put the rides in the order you went.
+                      </p>
+                    )}
                     {/* The bill and what it reads, on a line of its own (the user, 18 Oct). */}
                     {data.bills.some(b => b.owner_id === r.id) && (
                       <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
@@ -939,6 +953,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           start={picking.end === 'from' ? (ride.from_lat != null ? { name: ride.from_name!, lat: ride.from_lat, lng: ride.from_lng! } : null) : (ride.to_lat != null ? { name: ride.to_name!, lat: ride.to_lat, lng: ride.to_lng! } : null)}
           near={picking.end === 'to' && ride.from_lat != null ? { name: ride.from_name ?? '', lat: ride.from_lat, lng: ride.from_lng! } : null}
           quick={quick}
+          photos={dayPhotos}
           onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
           onClose={() => setPicking(null)}
         />

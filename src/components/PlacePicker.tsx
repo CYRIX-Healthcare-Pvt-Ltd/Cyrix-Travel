@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useBackCloses } from '@/lib/useBackCloses'
-import { BedDouble, Crosshair, Home, Hospital, MapPin, Search, Star, X } from 'lucide-react'
+import { BedDouble, Camera, Crosshair, Home, Hospital, MapPin, Search, Star, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMyPlaces } from '@/pages/MyPlaces'
 import 'leaflet/dist/leaflet.css'
@@ -9,18 +9,21 @@ import Dialog from '@/components/Dialog'
 import { Spinner } from '@/components/ui'
 import { distanceKm, findLearned, nameOf, namesNear, rpc, searchPlaces, type Learned, type Place } from '@/lib/claims'
 import { readPasted, spotFrom } from '@/lib/pasted'
+import { clock, usePhotoUrls, type VisitPhoto } from '@/lib/visits'
 
 /*
   Choosing a place is required, and is done on the map (the user, 17 Oct: "there mandatory option
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, near, quick, onPick, onClose, askName = false, plain = false, yes }: {
+export default function PlacePicker({ title, start, near, quick, photos, onPick, onClose, askName = false, plain = false, yes }: {
   title: string
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
   near?: Place | null
   quick: Array<Place & { label?: string; home?: boolean; hospital?: boolean; stay?: boolean }>
+  /** The day's visit photos, earliest first: one pressed is the place (the user, 30 Oct). */
+  photos?: VisitPhoto[]
   /** `named`: a spot the map does not have, given its name by hand — learned for everyone once its day is saved (te_0071). */
   onPick: (p: Place, name?: string, named?: boolean) => void
   onClose: () => void
@@ -81,6 +84,21 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
   const linkName = useRef<string | undefined>(undefined)
   const handPlaced = fromMap && !askName && !plain
   useBackCloses(onClose)
+  const photoUrls = usePhotoUrls((photos ?? []).map(p => p.path)).data ?? {}
+  const [fromPhoto, setFromPhoto] = useState<string | null>(null)
+  /*
+    A visit photo of the day is the place where it was taken (the user, 30 Oct: "if i select dh aluva's image then it
+    should automatically fetch location"): its own point, and the name of the place we know there — as the map's list
+    has it — in one press. A spot we do not know yet is named, as a pressed one is, and learned when the day is saved.
+  */
+  const pickPhoto = async (ph: VisitPhoto) => {
+    setErr(null); setFromPhoto(ph.id)
+    const known = await rpc<string | null>('te_place_at', { p_lat: ph.lat, p_lng: ph.lng }).catch(() => null)
+    setFromPhoto(null)
+    if (known) { void finish({ name: known, lat: ph.lat, lng: ph.lng }, false); return }
+    await put(ph.lat, ph.lng, (ph.place ?? '').split(',')[0] || 'Visit photo')
+    setNaming('')
+  }
 
   const put = async (lat: number, lng: number, name?: string, move = true, fromLink?: string) => {
     linkName.current = fromLink
@@ -183,6 +201,25 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
           there why downward?"); each kind its own colour — saved amber star, home teal, hotel violet, hospital red,
           a place used before a grey pin.
         */}
+        {/* The day's visit photos first, earliest first: the photo is the place. */}
+        {(photos ?? []).length > 0 && (
+          <div className="shrink-0">
+            <p className="label">Visit photos</p>
+            <div className="mt-1 flex gap-2 overflow-x-auto pb-1">
+              {photos!.map(ph => (
+                <button key={ph.id} type="button" onClick={() => void pickPhoto(ph)} disabled={!!fromPhoto}
+                  className="w-24 shrink-0 overflow-hidden rounded-xl border border-ink-200 text-left transition-colors hover:border-ink-400">
+                  <span className="relative grid h-14 w-full place-items-center overflow-hidden bg-ink-100">
+                    {ph.path && photoUrls[ph.path] ? <img src={photoUrls[ph.path]} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <Camera className="h-5 w-5 text-ink-400" />}
+                    {fromPhoto === ph.id && <span className="absolute inset-0 grid place-items-center bg-black/40"><Spinner className="h-5 w-5 text-white" /></span>}
+                  </span>
+                  <span className="block truncate px-1.5 pt-1 text-xs font-medium text-ink-900">{(ph.place ?? '').split(',')[0] || 'Visit photo'}</span>
+                  <span className="block px-1.5 pb-1 text-[11px] text-ink-500">{clock(ph.shot_at)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {/* A place used before that is already saved shows once, as the saved star (the user, 26 Oct: "what is this 2 work?"). */}
         {((saved ?? []).length > 0 || quick.length > 0) && (
           <div className="flex flex-wrap gap-1.5">
@@ -275,11 +312,12 @@ export default function PlacePicker({ title, start, near, quick, onPick, onClose
 /*
   "Name this place": the official name of a spot the map does not have, with names offered as it is typed (the user,
   26 Oct: "on name type can we show suggestion? like in chrome") — places our engineers named first, then what the
-  map calls the places within 2 km. A name offered only fills the box; the pin stays where it was put.
+  map calls the places within 2 km, a short form written out ("dh aluva": District Hospital Aluva). A name offered
+  only fills the box; the pin stays where it was put.
 */
 function NameThisPlace({ at, start, onCancel, onDone }: { at: Place; start: string; onCancel: () => void; onDone: (name: string) => void }) {
   const [text, setText] = useState(start)
-  const [offers, setOffers] = useState<Array<{ name: string; ours: boolean; km: number }>>([])
+  const [offers, setOffers] = useState<Array<{ name: string; ours: boolean; km: number | null }>>([])
   useEffect(() => {
     let alive = true
     const t = window.setTimeout(async () => {
@@ -313,9 +351,9 @@ function NameThisPlace({ at, start, onCancel, onDone }: { at: Place; start: stri
             {offers.map(o => (
               <button key={`${o.ours}-${o.name}`} type="button" className="flex w-full items-center gap-2 border-b border-ink-100 px-3 py-2 text-left text-sm last:border-0 hover:bg-ink-100"
                 onClick={() => setText(o.name)}>
-                {o.ours ? <Hospital className="h-4 w-4 shrink-0 text-cyrixRed-600" /> : <MapPin className="h-4 w-4 shrink-0 text-ink-400" />}
+                {o.ours ? <Hospital className="h-4 w-4 shrink-0 text-cyrixRed-600" /> : o.km == null ? <Search className="h-4 w-4 shrink-0 text-ink-400" /> : <MapPin className="h-4 w-4 shrink-0 text-ink-400" />}
                 <span className="min-w-0 flex-1 truncate text-ink-900">{o.name}</span>
-                <span className="shrink-0 text-xs text-ink-500">{far(o.km)}</span>
+                {o.km != null && <span className="shrink-0 text-xs text-ink-500">{far(o.km)}</span>}
               </button>
             ))}
           </div>

@@ -589,26 +589,44 @@ export async function findLearned(q: string, near?: { lat: number; lng: number }
 }
 /*
   Names for a spot being named (te_0071; the user, 26 Oct: "on name type can we show suggestion? like in chrome"):
-  what the map calls the places within 2 km of it, nearest first — with nothing typed, those within 300 m. One
-  Photon call a pause in typing; roads and towns left out.
+  what the map calls the places within 2 km of it — with nothing typed, those within 300 m, nearest first. A short
+  form typed is written out for the map, which knows only the long name, and the written-out name is offered too
+  (the user, 30 Oct: "im typing dh aluva, so automatically it should suggest district hospital aluva"): km null.
+  The map's places of the kind typed come first ("gh ekm": General Hospital Ernakulam), then the name written out,
+  then the rest; in each, the names carrying most of the words typed, then the one with fewest words besides
+  ("District Hospital Aluva" before "OP Block District Hospital Aluva"), then the nearest. Roads and towns left out.
 */
-export async function namesNear(q: string, at: { lat: number; lng: number }): Promise<Array<{ name: string; km: number }>> {
-  try {
-    const r = await timed(q.trim().length >= 2
-      ? `https://photon.komoot.io/api/?q=${encodeURIComponent(q.trim())}&lat=${at.lat}&lon=${at.lng}&limit=10&lang=en`
-      : `https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lng}&limit=8&radius=0.3&lang=en`)
-    const j = await r.json() as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
-    const out: Array<{ name: string; km: number }> = []
-    for (const f of j.features ?? []) {
-      const p = f.properties
-      if (!p.name || p.osm_key === 'highway' || p.osm_key === 'place' || (p.countrycode ?? '').toUpperCase() !== 'IN') continue
-      const km = distanceKm(at, { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] })
-      if (km > 2 || out.some(o => o.name.toLowerCase() === p.name.toLowerCase())) continue
-      out.push({ name: p.name, km })
-    }
-    return out.sort((a, b) => a.km - b.km).slice(0, 6)
-  } catch { return [] }
+export async function namesNear(q: string, at: { lat: number; lng: number }): Promise<Array<{ name: string; km: number | null }>> {
+  const typed = q.trim()
+  const full = typed.length >= 2 ? expandShort(typed).map(capitalised) : []
+  const asks = typed.length >= 2 ? [...new Set([...full, typed])] : ['']
+  const lists = await Promise.all(asks.map(async x => {
+    try {
+      const r = await timed(x
+        ? `https://photon.komoot.io/api/?q=${encodeURIComponent(x)}&lat=${at.lat}&lon=${at.lng}&limit=10&lang=en`
+        : `https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lng}&limit=8&radius=0.3&lang=en`)
+      return ((await r.json()) as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }).features ?? []
+    } catch { return [] }
+  }))
+  const out: Array<{ name: string; km: number | null }> = []
+  for (const f of lists.flat()) {
+    const p = f.properties
+    if (!p.name || p.osm_key === 'highway' || p.osm_key === 'place' || (p.countrycode ?? '').toUpperCase() !== 'IN') continue
+    const km = distanceKm(at, { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] })
+    if (km > 2 || out.some(o => o.name.toLowerCase() === p.name.toLowerCase())) continue
+    out.push({ name: p.name, km })
+  }
+  for (const n of full) if (!out.some(o => o.name.toLowerCase() === n.toLowerCase())) out.push({ name: n, km: null })
+  const want = [...new Set(asks.flatMap(words).map(w => w.toLowerCase()))].filter(w => w.length >= 3 && !SHORT[w.toUpperCase()] && !NOISE.has(w.toUpperCase()))
+  const hits = (n: string) => want.filter(w => n.toLowerCase().includes(w)).length
+  const kinds = words(typed).map(w => SHORT[w.toUpperCase()]).filter(Boolean)
+  const ofKind = (n: string) => kinds.every(k => k.some(e => n.toLowerCase().includes(e.toLowerCase())))
+  return out.map(o => ({ o, t: o.km == null ? 1 : ofKind(o.name) ? 0 : 2, h: hits(o.name), x: typed ? words(o.name).length - hits(o.name) : 0 }))
+    .sort((a, b) => a.t - b.t || b.h - a.h || a.x - b.x || (a.o.km ?? 0) - (b.o.km ?? 0))
+    .slice(0, 6).map(({ o }) => o)
 }
+// "District Hospital aluva" → "District Hospital Aluva": a word typed in small letters, capitalised.
+const capitalised = (s: string) => s.split(' ').map(w => (/^[a-z]/.test(w) && !['and', 'of', 'the'].includes(w) ? w[0].toUpperCase() + w.slice(1) : w)).join(' ')
 export async function nameOf(lat: number, lng: number): Promise<string> {
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
