@@ -105,6 +105,8 @@ export interface Ride {
   photo_skip?: string | null
   /** A breakdown call's ticket ID, kept in te_tickets under the ride's id (te_0060). */
   ticket_no?: string
+  /** Home to work or work to home: the daily commute, claiming nothing (te_0085). */
+  commute?: boolean
   /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */
   auto_norm?: { per_km: number; n: number; from: 'nearby' | 'policy' } | null
 }
@@ -225,7 +227,9 @@ export const dayName = (iso: string) =>
 export const newId = () => crypto.randomUUID()
 
 /** What a ride is paid: km x the grade's rate on a bike or a car, else its fare. As the database works it out. */
-export function rideAmount(r: Pick<Ride, 'mode' | 'claimed_km' | 'fare'> & { company_booking?: string | null }, rule: Rule | undefined) {
+export function rideAmount(r: Pick<Ride, 'mode' | 'claimed_km' | 'fare'> & { company_booking?: string | null; commute?: boolean }, rule: Rule | undefined) {
+  // Home to work and back claims nothing (te_0085).
+  if (r.commute) return 0
   // What the company booked is not claimed (te_0042).
   if (r.company_booking) return 0
   if (r.mode === 'bike') return (r.claimed_km ?? 0) * (rule?.bike_rate ?? 5)

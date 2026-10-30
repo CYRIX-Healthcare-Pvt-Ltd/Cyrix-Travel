@@ -1,13 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, CheckCheck, FileSpreadsheet, History, ReceiptText, Route, ShieldAlert, TriangleAlert, Wallet } from 'lucide-react'
+import { ArrowLeft, Check, CheckCheck, MapPin, Target, FileSpreadsheet, History, ReceiptText, Route, ShieldAlert, TriangleAlert, Wallet } from 'lucide-react'
 import ApproveAll from '@/components/ApproveAll'
-import ClaimBrief from '@/components/ClaimBrief'
 import { exportApprovals } from '@/lib/exportApprovals'
 import { initialsOf } from '@/components/Avatar'
 import { useAsk } from '@/components/Ask'
 import { PageLoader } from '@/components/ui'
-import { STATUS, claimName, dayRange, km, money, useInbox } from '@/lib/claims'
+import { STATUS, claimName, dayRange, km, money, rideAmount, useClaimAction, useInbox } from '@/lib/claims'
 import { TABS, useClaimsData } from '@/pages/Inbox'
 import { claimIssues } from '@/pages/ClaimPage'
 
@@ -25,6 +24,9 @@ export default function ApprovalPerson() {
   const asked = useSearchParams()[0].get('tab')
   const tab = TABS.find(([k]) => k === asked)?.[0] ?? 'waiting'
   const [approving, setApproving] = useState(false)
+  const act = useClaimAction()
+  const [fail, setFail] = useState<string | null>(null)
+  const failRef = useRef<HTMLParagraphElement>(null)
   const all = (data ?? []).filter(c => c.employee_id === id)
   const list = all.filter(c => (tab === 'waiting' ? c.waiting : tab === 'pending' ? !c.waiting && c.status !== 'paid' : !c.waiting && c.status === 'paid'))
   // Each claim whole, opened out under its row (the user, 29 Oct: the director found it "very blank").
@@ -37,6 +39,30 @@ export default function ApprovalPerson() {
   // Every claim waiting on this person, at whichever step: manager, coordinator or Travel Desk (the user, 27 Oct: "whr is approval all?").
   const managerOnes = list.filter(c => c.waiting && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status))
   const tabName = TABS.find(([k]) => k === tab)?.[1] ?? ''
+  // Each claim on its own: asks first (claim · person · amount, and what is out of policy), then approves (the user, 26 Oct: decisions ask first).
+  const approveOne = async (c: typeof list[number], why: string[]) => {
+    setFail(null)
+    const what = c.number ?? claimName(c.month, c.part)
+    if (!(await ask.confirm({ title: `Approve ${what}?`, body: [`${c.name} · ${money(c.total)}`, ...why].join('\n'), yes: 'Approve', icon: Check, go: true }))) return
+    try {
+      await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: true, p_note: '' } })
+      await ask.alert('Claim approved', `${what} · ${c.name} approved.`, 'success')
+    } catch (e) { setFail((e as Error).message); window.setTimeout(() => failRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50) }
+  }
+  // By purpose: days and rupees, from each day's purpose; and the places most gone to, home and office aside.
+  const short = (x: string | null) => (x ? x.split(',')[0].trim() : '')
+  const byPurpose = new Map<string, { days: number; amount: number }>(), visits = new Map<string, number>()
+  for (const c of list) {
+    const d = full[c.id]; if (!d) continue
+    for (const x of d.days) {
+      const k = x.purpose || 'Not given'
+      const amt = x.rides.reduce((t, r) => t + rideAmount(r, d.rule), 0) + Number(x.da_amount) + x.expenses.reduce((t, e) => t + Number(e.amount), 0) + (x.hotel && !x.room_by ? Number(x.hotel.amount) : 0)
+      const v = byPurpose.get(k) ?? { days: 0, amount: 0 }; byPurpose.set(k, { days: v.days + 1, amount: v.amount + amt })
+      for (const r of x.rides) { const to = short(r.to_name); if (to && !/^home$/i.test(to) && !/^cyrix/i.test(to)) visits.set(to, (visits.get(to) ?? 0) + 1) }
+    }
+  }
+  const purposes = [...byPurpose].sort((a, b) => b[1].amount - a[1].amount)
+  const topPlaces = [...visits].sort((a, b) => b[1] - a[1]).slice(0, 3)
   /*
     The summary as coloured tiles, each with its picture (the user, 27 Oct: "show total km also beautifully", "looks
     very plain"); hotel after the other expenses, as in the day.
@@ -118,41 +144,90 @@ export default function ApprovalPerson() {
           </div>
         )}
 
-        {list.length === 0 ? <div className="card p-6 text-center text-sm text-ink-500">Nothing {tabName.toLowerCase()} for {who.name.split(' ')[0]}.</div> : (
-          <div className="space-y-3">
-            {list.map(c => {
-              const s = STATUS[c.status] ?? STATUS.draft
-              const found = issues[c.id] ?? [], bad = found.some(i => i.level === 'approve'), I = bad ? ShieldAlert : TriangleAlert
-              return (
-                // The whole claim opens it, as View does (the user, 29 Oct).
-                <div key={c.id} role="link" tabIndex={0} className="card cursor-pointer overflow-hidden transition-shadow hover:ring-2 hover:ring-sky-400/60"
-                  onClick={() => go(`/claim/${c.id}`)} onKeyDown={e => { if (e.key === 'Enter') go(`/claim/${c.id}`) }}>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[9rem_5rem_minmax(0,1fr)_6rem_auto]">
-                  <p className="min-w-0 text-sm"><b className="font-semibold text-ink-900">{c.number}</b> <span className="text-xs text-ink-500">{claimName(c.month, c.part)}</span>
-                    <span className="block truncate text-xs text-ink-500">{dayRange(c.first_day, c.last_day)} · {c.days} {c.days === 1 ? 'day' : 'days'}</span></p>
-                  <span className="text-right text-sm font-semibold text-ink-900 sm:order-4">{money(c.total)}</span>
-                  <span className="text-xs text-ink-600 sm:order-2 sm:text-sm">{c.km > 0 ? km(c.km) : '—'}</span>
-                  {/* Where it started and where it ended, the place before home when it ended there. */}
-                  <span className="col-span-2 flex min-w-0 items-center gap-1 text-xs text-ink-700 sm:order-3 sm:col-span-1 sm:text-sm">
-                    {c.route_from || c.route_to ? <><span className="truncate">{c.route_from ?? '—'}</span><ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-400" /><span className="truncate">{c.route_to ?? '—'}</span></> : <span className="text-ink-400">No rides</span>}
-                  </span>
-                  <span className="col-span-2 flex items-center justify-end gap-1.5 sm:order-5 sm:col-span-1">
-                    {tab !== 'waiting' && <span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span>}
-                    {c.waiting && found.length > 0 && (
-                      <button type="button" title={found.map(i => i.title).join(', ')} onClick={e => { e.stopPropagation(); void ask.alert(`${c.number ?? ''} · ${bad ? 'Out of policy' : 'To check'}`, found.map(i => i.title).join('\n'), bad ? 'warn' : 'info') }}
-                        className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${bad ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-ink-100 text-ink-700 ring-1 ring-ink-200'}`}>
-                        <I className={`h-3.5 w-3.5 ${bad ? '' : 'text-amber-600'}`} />{bad ? 'Out of policy' : 'To check'}
-                      </button>
-                    )}
-                    <Link to={`/claim/${c.id}`} onClick={e => e.stopPropagation()} className="btn-secondary !px-3 !py-1.5 text-xs">View</Link>
-                  </span>
-                </div>
-                {full[c.id] && <ClaimBrief data={full[c.id]!} />}
-                </div>
-              )
-            })}
+        {/* What it was for and where he went most, in two short lists (the user, 29 Oct: the director, "which purpose wise summary, most visited location top 3"). */}
+        {(purposes.length > 0 || topPlaces.length > 0) && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {purposes.length > 0 && (
+              <div className="card px-4 py-3">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500"><Target className="h-3.5 w-3.5 text-violet-600" /> By purpose</p>
+                <ul className="space-y-1 text-sm">
+                  {purposes.slice(0, 4).map(([name, v]) => (
+                    <li key={name} className="flex items-baseline gap-2">
+                      <span className="min-w-0 flex-1 truncate text-ink-800">{name}</span>
+                      <span className="shrink-0 text-xs text-ink-500">{v.days} {v.days === 1 ? 'day' : 'days'}</span>
+                      <span className="w-20 shrink-0 text-right font-semibold tabular-nums text-ink-900">{money(v.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {topPlaces.length > 0 && (
+              <div className="card px-4 py-3">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500"><MapPin className="h-3.5 w-3.5 text-cyrixRed-600" /> Most visited</p>
+                <ol className="space-y-1 text-sm">
+                  {topPlaces.map(([name, n], i) => (
+                    <li key={name} className="flex items-baseline gap-2">
+                      <span className="w-4 shrink-0 text-xs font-semibold text-ink-400">{i + 1}</span>
+                      <span className="min-w-0 flex-1 truncate text-ink-800">{name}</span>
+                      <span className="shrink-0 text-xs text-ink-500">{n} {n === 1 ? 'visit' : 'visits'}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         )}
+
+        {/* One line a claim, as in the Excel, with its own Approve at the end (the user, 29 Oct). */}
+        {list.length === 0 ? <div className="card p-6 text-center text-sm text-ink-500">Nothing {tabName.toLowerCase()} for {who.name.split(' ')[0]}.</div> : (
+          <div className="card overflow-x-auto">
+            <table className="w-full min-w-[46rem] text-sm">
+              <thead>
+                <tr className="whitespace-nowrap border-b border-ink-100 bg-ink-50 text-left text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+                  <th className="px-3 py-2">Claim</th><th className="px-3 py-2">Dates</th><th className="px-3 py-2 text-right">Km</th>
+                  <th className="px-3 py-2 text-right">Travel</th><th className="px-3 py-2 text-right">DA</th><th className="px-3 py-2 text-right">Other</th>
+                  <th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2" /><th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100">
+                {list.map(c => {
+                  const s = STATUS[c.status] ?? STATUS.draft
+                  const found = issues[c.id] ?? [], bad = found.some(i => i.level === 'approve'), I = bad ? ShieldAlert : TriangleAlert
+                  const mine = c.waiting && ['with_manager', 'with_coordinator', 'with_desk'].includes(c.status)
+                  const other = Number(c.other ?? 0) + Number(c.hotel ?? 0)
+                  return (
+                    <tr key={c.id} role="link" tabIndex={0} className="cursor-pointer whitespace-nowrap transition-colors hover:bg-ink-50"
+                      onClick={() => go(`/claim/${c.id}`)} onKeyDown={e => { if (e.key === 'Enter') go(`/claim/${c.id}`) }}>
+                      <td className="px-3 py-2.5"><b className="font-semibold text-ink-900">{c.number}</b> <span className="text-xs text-ink-500">{claimName(c.month, c.part)}</span></td>
+                      <td className="px-3 py-2.5 text-ink-700">{dayRange(c.first_day, c.last_day)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-700">{c.km > 0 ? km(c.km) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-700">{Number(c.travel) > 0 ? money(c.travel) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-700">{Number(c.da) > 0 ? money(c.da) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-700">{other > 0 ? money(other) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-ink-900">{money(c.total)}</td>
+                      <td className="px-3 py-2.5">
+                        {tab !== 'waiting' ? <span className={`badge ${s.tone}`}>{s.label}</span> : found.length > 0 && (
+                          <button type="button" title={found.map(i => i.title).join(', ')} onClick={e => { e.stopPropagation(); void ask.alert(`${c.number ?? ''} · ${bad ? 'Out of policy' : 'To check'}`, found.map(i => i.title).join('\n'), bad ? 'warn' : 'info') }}
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${bad ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-ink-100 text-ink-700 ring-1 ring-ink-200'}`}>
+                            <I className={`h-3.5 w-3.5 ${bad ? '' : 'text-amber-600'}`} />{found.length}
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {mine && (
+                          <button type="button" className="btn-primary btn-go !px-3 !py-1.5 text-xs" disabled={act.isPending} onClick={e => { e.stopPropagation(); void approveOne(c, found.map(i => i.title)) }}>
+                            <Check className="h-3.5 w-3.5" /> Approve
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {fail && <p ref={failRef} className="rounded-lg bg-cyrixRed-50 px-3 py-2 text-sm text-cyrixRed-700 ring-1 ring-cyrixRed-200">{fail}</p>}
 
         {approving && <ApproveAll list={managerOnes} onClose={() => setApproving(false)} />}
       </>}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useSearchParams } from 'react-router-dom'
-import { Building2, House, IdCard, LocateFixed, Map as MapIcon, MapPin, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Briefcase, Building2, House, IdCard, LocateFixed, Map as MapIcon, MapPin, Pencil, Plus, Trash2 } from 'lucide-react'
 import PlacePicker from '@/components/PlacePicker'
 import PlaceMapDialog from '@/components/PlaceMapDialog'
 import Deputations from '@/components/Deputations'
@@ -43,6 +43,25 @@ export default function MyPlaces() {
     queryKey: ['te_home', employee?.id], enabled: !!employee,
     queryFn: async () => (await supabase.from('travel_homes').select('lat, lng, set_at, how').eq('employee_id', employee!.id).maybeSingle()).data as { lat: number; lng: number; set_at: string; how: 'here' | 'map' } | null,
   })
+  // Work, a second home (te_0085; the user, 30 Oct): home to work and back claims nothing.
+  const { data: work } = useQuery({
+    queryKey: ['te_work', employee?.id], enabled: !!employee,
+    queryFn: async () => (await supabase.from('travel_works').select('lat, lng, set_at, how').eq('employee_id', employee!.id).maybeSingle()).data as { lat: number; lng: number; set_at: string; how: 'here' | 'map' } | null,
+  })
+  const { data: workName } = useQuery({ queryKey: ['place', work?.lat, work?.lng], enabled: !!work, staleTime: Infinity, queryFn: () => placeName(work!) })
+  const [markingWork, setMarkingWork] = useState(false)
+  const [workOnMap, setWorkOnMap] = useState(false)
+  const setWorkAt = async (at: { lat: number; lng: number }, how: 'here' | 'map', name: string) => {
+    if (!(await ask.confirm({ title: work ? 'Change your work?' : 'Set your work here?', body: name, yes: work ? 'Change work' : 'Set work' }))) return
+    const { error: e } = await supabase.rpc('travel_set_work', { p_lat: at.lat, p_lng: at.lng, p_how: how })
+    if (e) throw new Error(e.message)
+    await qc.invalidateQueries({ queryKey: ['te_work'] })
+  }
+  const markWork = async () => {
+    setMarkingWork(true); setFail(null)
+    try { const at = await whereAmI(); await setWorkAt(at, 'here', (await placeName(at)) ?? `${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`) }
+    catch (e) { setFail((e as Error).message) } finally { setMarkingWork(false) }
+  }
   const { data: homeName } = useQuery({ queryKey: ['place', home?.lat, home?.lng], enabled: !!home, staleTime: Infinity, queryFn: () => placeName(home!) })
   const { data: costCentre } = useQuery({
     queryKey: ['te_cost_centre', employee?.id], enabled: !!employee,
@@ -123,6 +142,19 @@ export default function MyPlaces() {
           <button type="button" className="btn-secondary flex-1" onClick={() => setHomeOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
         </div>
       </div>
+      <div className="card flex flex-wrap content-start items-center gap-3 px-4 py-3">
+        <span className={`${TILE} bg-indigo-100 text-indigo-700`}><Briefcase className="h-5 w-5" /></span>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-ink-900">Work</p>
+          {work && <p className="truncate text-xs text-ink-500">{workName ?? `${work.lat.toFixed(4)}, ${work.lng.toFixed(4)}`} · since {new Date(work.set_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{work.how === 'map' ? ' · set on the map' : ''}</p>}
+        </div>
+        <div className="flex w-full gap-2">
+          <button type="button" className={`${work ? 'btn-secondary' : 'btn-primary'} flex-1`} disabled={markingWork} onClick={() => void markWork()}>
+            {markingWork ? <Spinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />} I'm at work
+          </button>
+          <button type="button" className="btn-secondary flex-1" onClick={() => setWorkOnMap(true)}><MapIcon className="h-4 w-4" /> On the map</button>
+        </div>
+      </div>
       <div className="card flex items-start gap-3 px-4 py-3">
         <span className={`${TILE} bg-sky-100 text-sky-700`}><Building2 className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
@@ -160,6 +192,11 @@ export default function MyPlaces() {
             try { await rpc('te_save_place', { p_id: null, p_name: name || p.name.split(',')[0], p_lat: p.lat, p_lng: p.lng }); await refresh() } catch (e) { setFail((e as Error).message) }
           }}
           onClose={() => setAdding(false)} />
+      )}
+      {workOnMap && (
+        <PlacePicker title="Your work" start={work ? { name: workName ?? 'Work', lat: work.lat, lng: work.lng } : null} quick={[]} plain yes={work ? 'Move work here' : 'Set as work'}
+          onPick={p => { setWorkOnMap(false); setFail(null); void setWorkAt(p, 'map', p.name && p.name !== '…' ? p.name : `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`).catch(e => setFail((e as Error).message)) }}
+          onClose={() => setWorkOnMap(false)} />
       )}
       {homeOnMap && (
         <PlacePicker title="Your home" start={home ? { name: homeName ?? 'Home', lat: home.lat, lng: home.lng } : null} quick={[]} plain yes={home ? 'Move home here' : 'Set as home'}

@@ -125,6 +125,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const [dating, setDating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [home, setHome] = useState<Place | null>(null)
+  const [work, setWork] = useState<Place | null>(null)
   const [homeReady, setHomeReady] = useState(false)
   const [who, setWho] = useState<Array<{ ecode: string; full_name: string }>>([])
   const nav = useNavigate()
@@ -210,7 +211,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (!employee) return
     void supabase.from('travel_homes').select('lat, lng').eq('employee_id', employee.id).maybeSingle()
       .then(({ data: h }) => { if (h) setHome({ name: 'Home', lat: h.lat, lng: h.lng }); setHomeReady(true) })
+    void supabase.from('travel_works').select('lat, lng').eq('employee_id', employee.id).maybeSingle()
+      .then(({ data: w }) => { if (w) setWork({ name: 'Work', lat: w.lat, lng: w.lng }) })
   }, [employee])
+  // Home to work or back, each end within 300 m: the commute, claiming nothing — as the database works it out (te_0085).
+  const near = (a: Place | null, lat: number | null | undefined, lng: number | null | undefined) => !!a && lat != null && lng != null && distanceKm(a, { lat, lng }) <= 0.3
+  const commute = (r: Ride) => (near(home, r.from_lat, r.from_lng) && near(work, r.to_lat, r.to_lng)) || (near(work, r.from_lat, r.from_lng) && near(home, r.to_lat, r.to_lng))
+  const paid = (r: Ride) => rideAmount({ ...r, commute: commute(r) }, rule)
 
   // The hotel of the night, found from its voucher: one tap for the ride to it, or from it (the user, 21 Oct).
   const [stayAt, setStayAt] = useState<(Place & { label: string }) | null>(null)
@@ -218,13 +225,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const quick = useMemo(() => {
     const seen = new Map<string, Place & { home?: boolean; stay?: boolean; label?: string }>()
     if (home) seen.set('Home', { ...home, home: true })
+    if (work) seen.set('Work', { ...work })
     if (stayAt) seen.set('@stay', { ...stayAt, stay: true })
     for (const day of [...data.days, d]) for (const r of day.rides) {
       if (r.from_name && r.from_lat != null && !seen.has(r.from_name)) seen.set(r.from_name, { name: r.from_name, lat: r.from_lat, lng: r.from_lng! })
       if (r.to_name && r.to_lat != null && !seen.has(r.to_name)) seen.set(r.to_name, { name: r.to_name, lat: r.to_lat, lng: r.to_lng! })
     }
     return [...seen.values()].slice(0, 10).map(p => ({ ...p, label: p.label ?? p.name.split(',')[0] }))
-  }, [home, stayAt, data.days, d])
+  }, [home, work, stayAt, data.days, d])
 
   /*
     The DA follows the day's places (the user, 18 Oct): worked out again whenever a place or the hotel
@@ -460,14 +468,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
     if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
-    if (photoNeeded(r) && r.photo_skip != null && !r.photo_skip.trim()) blockers.push({ text: `Write why the visit photo of ${n} was not possible`, to })
-    // A day gone by can no longer have its photo taken: Photo not possible and why, before it is saved (the user, 28 Oct).
-    // Today the photo may still come, so the day saves and Send asks for it.
-    else if (photoNeeded(r) && r.photo_skip == null && d.day && d.day < today) {
-      const out = (setup!.skips - skipsUsed) <= 0 && setup!.after === 'block'
-      blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : `Choose Photo not possible for ${n} and say why`, to })
+    // No visit photo: the photo or why not, before the day saves — today too, so Send finds nothing left (the user, 30 Oct).
+    if (photoNeeded(r) && !r.photo_skip?.trim()) {
+      const out = r.photo_skip == null && (setup!.skips - skipsUsed) <= 0 && setup!.after === 'block'
+      blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : d.day === today ? `Take the visit photo of ${n}, or write why not` : `Write why there is no visit photo for ${n}`, to })
     }
-    if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(rideAmount(r, rule))}`, to })
+    if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(paid(r))}`, to })
   }
   if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {
     const to = 'hotel-' + d.hotel.id
@@ -673,7 +679,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         onSameTicket={refs => linkReturn(r.id, refs)}
                         onTicket={(rt, mode, refs) => void fillFromTicket(r.id, rt, mode, refs)} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
-                      {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
+                      {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{commute(r) && <span className="mr-1.5 text-xs font-medium text-ink-500">Home ↔ Work</span>}{money(paid(r))}</span>}
                     </div>
                     {/* Why, and for which call centre — each ride its own (te_0060). */}
                     <div className="mt-2.5 grid grid-cols-2 gap-2 pl-6">
@@ -736,23 +742,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       }
                       const month = new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long' })
                       const lim = setup!.skips, left = lim - skipsUsed, blocked = setup!.after === 'block', boss = c.manager?.split(' ')[0] ?? 'The manager'
-                      if (r.photo_skip != null) return (
-                        <div className="mt-2 ml-6 space-y-1.5 rounded-lg bg-cyrixRed-50 px-2.5 py-2 ring-1 ring-cyrixRed-200">
-                          <p className="flex items-center gap-1.5 text-xs font-semibold text-cyrixRed-800"><CameraOff className="h-3.5 w-3.5" /> Photo not possible
-                            <button type="button" className="ml-auto font-semibold text-ink-600 underline" onClick={() => setRide(r.id, { photo_skip: null })}>Undo</button>
-                          </p>
-                          <input className={`input h-10 w-full text-sm ${!r.photo_skip.trim() ? '!border-amber-400' : ''}`} aria-label="Why the photo was not possible" placeholder="Why (required)" value={r.photo_skip} onChange={e => setRide(r.id, { photo_skip: e.target.value })} />
-                          <p className="text-[11px] font-medium text-cyrixRed-700">{left >= 0 ? `${left} of ${lim} left in ${month}` : `Over the ${lim} a month · ${boss} decides`}</p>
-                        </div>
-                      )
+                      // The reason box shows by itself, no button first (the user, 30 Oct); typing it is the Photo not possible.
+                      const why = r.photo_skip ?? '', open = r.photo_skip != null || left > 0 || !blocked
                       return (
-                        <div className="mt-2 ml-6 rounded-lg bg-amber-50 px-2.5 py-2 ring-1 ring-amber-200">
-                          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900"><CameraOff className="h-3.5 w-3.5" /> No visit photo</p>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                            {d.day === today && <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => setCameraFor(r.id)}><Camera className="h-3.5 w-3.5" /> Take photo</button>}
-                            {(left > 0 || !blocked) && <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => setRide(r.id, { photo_skip: '' })}>Photo not possible</button>}
-                            <span className="text-[11px] font-medium text-amber-800">{left > 0 ? `${left} of ${lim} left in ${month}` : `${lim} of ${lim} used in ${month}${blocked ? '' : ` · ${boss} decides`}`}</span>
-                          </div>
+                        <div className="mt-2 ml-6 space-y-1.5 rounded-lg bg-amber-50 px-2.5 py-2 ring-1 ring-amber-200">
+                          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900"><CameraOff className="h-3.5 w-3.5" /> No visit photo
+                            {d.day === today && <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setCameraFor(r.id)}><Camera className="h-3.5 w-3.5" /> Take photo</button>}
+                          </p>
+                          {open && <input className={`input h-10 w-full text-sm ${!why.trim() ? '!border-amber-400' : ''}`} aria-label="Why there is no visit photo" placeholder="Why no photo (required)" value={why} onChange={e => setRide(r.id, { photo_skip: e.target.value === '' ? null : e.target.value })} />}
+                          <p className="text-[11px] font-medium text-amber-800">{left >= 0 ? (left > 0 || r.photo_skip != null ? `${left} of ${lim} left in ${month}` : `${lim} of ${lim} used in ${month}${blocked ? '' : ` · ${boss} decides`}`) : `Over the ${lim} a month · ${boss} decides`}</p>
                         </div>
                       )
                     })()}
@@ -911,7 +909,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         </div>
       </div>
         <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
-          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : rideAmount(r, rule)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
+          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : paid(r)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
             {/* The day's km beside its rupees (the user, 27 Oct: "show total km also beautifully"). */}
             {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}</span> })()}</span></span>
           {/* What stops it wraps; Save claim stays on one line (the user, 28 Oct: it broke into "Save / claim"). */}
