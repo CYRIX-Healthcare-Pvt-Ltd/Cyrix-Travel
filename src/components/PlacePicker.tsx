@@ -92,14 +92,17 @@ export default function PlacePicker({ title, start, near, quick, photos, used, o
     A visit photo of the day is the place where it was taken (the user, 30 Oct: "if i select dh aluva's image then it
     should automatically fetch location"): its own point, and the name of the place we know there — as the map's list
     has it — in one press. A spot we do not know yet is named, as a pressed one is, and learned when the day is saved;
-    the box starts with the photo's place (the user, 30 Oct: "let official name auto fill the image name").
+    the box starts with the photo's place (the user, 30 Oct: "let official name auto fill the image name"). A place we know
+    opens the box too, with its name in it and the places around offered, never set at once (the user, 30 Oct: "it is
+    directly saving … better should like earlier, share suggesions also but field name filled with image name").
   */
+  const knownAt = useRef<string | null>(null)
   const pickPhoto = async (ph: VisitPhoto) => {
     setErr(null); setFromPhoto(ph.id)
     const known = await rpc<string | null>('te_place_at', { p_lat: ph.lat, p_lng: ph.lng }).catch(() => null)
     setFromPhoto(null)
-    if (known) { void finish({ name: known, lat: ph.lat, lng: ph.lng }, false); return }
-    const named = (ph.place ?? '').split(',')[0].trim()
+    knownAt.current = known
+    const named = known ?? (ph.place ?? '').split(',')[0].trim()
     await put(ph.lat, ph.lng, named || 'Visit photo')
     setNaming(named)
   }
@@ -296,8 +299,13 @@ export default function PlacePicker({ title, start, near, quick, photos, used, o
         </div>
       </div>
       {naming !== null && picked && (
-        <NameThisPlace at={picked} start={naming} onCancel={() => setNaming(null)}
-          onDone={name => { setNaming(null); void finish({ ...picked, name }, true) }} />
+        <NameThisPlace at={picked} start={naming} onCancel={() => { setNaming(null); knownAt.current = null }}
+          onDone={name => {
+            // A known place kept as it is named is not learned again.
+            const same = !!knownAt.current && name.trim().toLowerCase() === knownAt.current.toLowerCase()
+            setNaming(null); knownAt.current = null
+            void finish({ ...picked, name }, !same)
+          }} />
       )}
     </Dialog>
   )
@@ -334,7 +342,8 @@ function NameThisPlace({ at, start, onCancel, onDone }: { at: Place; start: stri
       if (!alive) return
       const mine = ours.map(o => ({ name: o.short, ours: true, km: distanceKm(at, o) })).filter(o => o.km <= 2)
       const rest = map.filter(m => !mine.some(o => o.name.toLowerCase() === m.name.toLowerCase())).map(m => ({ ...m, ours: false }))
-      setOffers([...mine, ...rest].filter(o => o.name.toLowerCase() !== text.trim().toLowerCase()).slice(0, 6))
+      // The name in the box is offered too (the user, 30 Oct: "show maj hospital also in suggesion").
+      setOffers([...mine, ...rest].slice(0, 6))
     }, text === start ? 0 : 400)
     return () => { alive = false; window.clearTimeout(t) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
