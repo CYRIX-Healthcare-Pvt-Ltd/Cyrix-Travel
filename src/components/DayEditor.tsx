@@ -494,7 +494,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   for (const [i, r] of d.rides.entries()) {
     const n = `ride ${i + 1}`, to = 'ride-' + r.id, m = MODES[r.mode]
     if (r.from_lat == null || r.to_lat == null) blockers.push({ text: `Pick the from and to of ${n} on the map`, to })
-    if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
+    const stays = r.from_lat != null && r.to_lat != null && distanceKm({ lat: r.from_lat, lng: r.from_lng! }, { lat: r.to_lat, lng: r.to_lng! }) < 0.15
+    if (stays) blockers.push({ text: `${n[0].toUpperCase() + n.slice(1)} starts and ends at ${(r.to_name ?? '').split(',')[0]}: change its To`, to })
+    else if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
     // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
     else if (m.perKm && kmOutside(r, tol)) blockers.push({ text: `The km of ${n} does not match the map (${km(r.map_km)})`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
@@ -978,6 +980,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           title={picking.end === 'from' ? 'From' : 'To'}
           start={picking.end === 'from' ? (ride.from_lat != null ? { name: ride.from_name!, lat: ride.from_lat, lng: ride.from_lng! } : null) : (ride.to_lat != null ? { name: ride.to_name!, lat: ride.to_lat, lng: ride.to_lng! } : null)}
           near={picking.end === 'to' && ride.from_lat != null ? { name: ride.from_name ?? '', lat: ride.from_lat, lng: ride.from_lng! } : null}
+          other={picking.end === 'to'
+            ? (ride.from_lat != null ? { name: ride.from_name ?? '', lat: ride.from_lat, lng: ride.from_lng! } : null)
+            : (ride.to_lat != null ? { name: ride.to_name ?? '', lat: ride.to_lat, lng: ride.to_lng! } : null)}
           quick={quick}
           photos={dayPhotos}
           used={setup && d.day ? d.rides.map(r => photoFor(r, d.day, data.visit_photos, setup.near_m)?.photo.id).filter((x): x is string => !!x) : []}

@@ -16,11 +16,13 @@ import { clock, usePhotoUrls, type VisitPhoto } from '@/lib/visits'
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, near, quick, photos, used, onPick, onClose, askName = false, plain = false, yes }: {
+export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes }: {
   title: string
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
   near?: Place | null
+  /** The ride's other end: the same place is refused (the user, 30 Oct: "From same as to"). */
+  other?: Place | null
   quick: Array<Place & { label?: string; home?: boolean; hospital?: boolean; stay?: boolean }>
   /** The day's visit photos, earliest first: one pressed is the place (the user, 30 Oct). */
   photos?: VisitPhoto[]
@@ -98,6 +100,7 @@ export default function PlacePicker({ title, start, near, quick, photos, used, o
   */
   const knownAt = useRef<string | null>(null)
   const pickPhoto = async (ph: VisitPhoto) => {
+    if (same(ph)) return
     setErr(null); setFromPhoto(ph.id)
     const known = await rpc<string | null>('te_place_at', { p_lat: ph.lat, p_lng: ph.lng }).catch(() => null)
     setFromPhoto(null)
@@ -310,7 +313,13 @@ export default function PlacePicker({ title, start, near, quick, photos, used, o
     </Dialog>
   )
 
+  function same(p: { lat: number; lng: number }) {
+    if (!other || distanceKm(other, p) >= 0.15) return false
+    setErr(`From and To can't be the same place (${other.name.split(',')[0]}).`)
+    return true
+  }
   async function finish(p: Place, named: boolean) {
+    if (same(p)) return
     const name = (saveAs ?? '').trim()
     if (name && !askName) {
       setSaveErr(null)
