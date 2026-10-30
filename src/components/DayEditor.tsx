@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
-import { clock, lateBy, metres, needsPhoto, photoFor, photoOrder } from '@/lib/visits'
+import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
 import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -172,11 +172,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const [cameraFor, setCameraFor] = useState<string | null>(null)
   const setup = data.photo_setup
   const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
-  const photoNeeded = (r: Ride) => needsPhoto(r, setup) && !!d.day && !photoFor(r, d.day, data.visit_photos, setup!.near_m)
+  // Each ride its own photo (te_0092): a hospital gone to twice needs two.
+  const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
+  const photoNeeded = (r: Ride) => needsPhoto(r, setup) && !!d.day && !shots.has(r.id)
   // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
   const dayPhotos = useMemo(() => (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
   // Rides claimed in another order than their photos were taken: said on the ride, and Save waits (the user, 30 Oct).
-  const order = setup?.on && d.day ? photoOrder(d.rides, d.day, data.visit_photos, setup.near_m) : null
+  const order = setup?.on && d.day ? photoOrder(d.rides, d.day, data.visit_photos, setup) : null
   const orderText = order && {
     late: (order.late.ride.to_name ?? '').split(',')[0], lateAt: clock(order.late.photo.shot_at),
     early: (order.early.ride.to_name ?? '').split(',')[0], earlyAt: clock(order.early.photo.shot_at),
@@ -239,6 +241,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   // Never a future date (the user, 17 Oct).
   const today = new Date().toLocaleDateString('en-CA')
   const lastDay = monthEnd < today ? monthEnd : today
+  /*
+    A day is added within claim_within_days of it, today counted (te_0093; the user, 30 Oct: "on monday i can submit
+    claim from previous saturday"); a day saved in time keeps its date.
+  */
+  const within = Number(data.policy.claim_within_days ?? 3)
+  const earliest = within > 0 ? (() => { const t = new Date(); t.setDate(t.getDate() - (within - 1)); return t.toLocaleDateString('en-CA') })() : firstDay
+  const savedOn = data.days.find(x => x.id === initial.id)?.day
+  const fromDay = earliest > lastDay ? lastDay : earliest > firstDay ? earliest : firstDay
 
   useEffect(() => {
     if (!employee) return
@@ -508,6 +518,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const blockers: Array<{ text: string; to: string }> = []
   if (!d.day) blockers.push({ text: 'Choose the date', to: 'day-date' })
   else if (d.day > lastDay) blockers.push({ text: 'A future date cannot be claimed', to: 'day-date' })
+  else if (d.day < earliest && d.day !== savedOn) blockers.push({ text: `Only days from ${new Date(earliest + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} can be added`, to: 'day-date' })
   for (const [i, r] of d.rides.entries()) {
     const n = `ride ${i + 1}`, to = 'ride-' + r.id, m = MODES[r.mode]
     if (r.from_lat == null || r.to_lat == null) blockers.push({ text: `Pick the from and to of ${n} on the map`, to })
@@ -785,13 +796,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       near where the ride went; else Take photo (today only) or Photo not possible, with how many are left.
                     */}
                     {needsPhoto(r, setup) && d.day && (() => {
-                      const hit = photoFor(r, d.day, data.visit_photos, setup!.near_m), to = (r.to_name ?? '').split(',')[0]
+                      const hit = shots.get(r.id), to = (r.to_name ?? '').split(',')[0]
                       if (hit) {
                         const late = lateBy(hit.photo)
                         return (
                           <div className="mt-2 ml-6 flex items-center gap-2.5 rounded-lg bg-emerald-50 px-2 py-1.5 ring-1 ring-emerald-200">
                             <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? to} · ${clock(hit.photo.shot_at)}`} />
-                            <p className="min-w-0 text-xs text-emerald-900"><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)} · {metres(hit.m)} from {to}{late && <span className="font-semibold text-amber-700"> · {late}</span>}</p>
+                            <p className="min-w-0 text-xs text-emerald-900"><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${to}`}{late && <span className="font-semibold text-amber-700"> · {late}</span>}</p>
                           </div>
                         )
                       }
@@ -978,25 +989,28 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             <textarea rows={2} className="input mt-1" value={d.remarks ?? ''} onChange={e => set({ remarks: e.target.value })} placeholder="What was done" /></label>
         </div>
       </div>
-        <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
-          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : paid(r)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
+        <div className="sticky bottom-16 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
+          <span className="min-w-0 leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : paid(r)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
             {/* The day's km beside its rupees (the user, 27 Oct: "show total km also beautifully"). */}
-            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}</span> })()}</span></span>
-          {/* What stops it wraps; Save claim stays on one line (the user, 28 Oct: it broke into "Save / claim"). */}
-          <div className="flex min-w-0 items-center gap-2">
-            {err ? <span className="min-w-0 max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>
-              : blockers.length > 0 && (
-                <button type="button" onClick={() => goTo(blockers[0].to)} className="min-w-0 max-w-[13rem] text-right text-xs font-semibold leading-snug text-amber-800 underline-offset-2 hover:underline sm:max-w-[18rem] sm:text-sm">
-                  {blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}
-                </button>
-              )}
-            <button type="button" className={`btn-primary h-11 shrink-0 whitespace-nowrap px-5 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
-          </div>
+            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}</span> })()}</span></span>
+          {/*
+            What stops it: on a phone its own line under the total, full width (the user, 30 Oct: "is it looking good?" — it
+            was squeezed into four short lines beside Save); beside Save on a wider screen. Save claim stays on one line
+            (the user, 28 Oct: it broke into "Save / claim").
+          */}
+          {err ? <span className="order-last w-full text-sm font-medium text-cyrixRed-700 sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:text-right">{err}</span>
+            : blockers.length > 0 && (
+              <button type="button" onClick={() => goTo(blockers[0].to)} className="order-last flex w-full items-start gap-1.5 text-left text-sm font-semibold leading-snug text-amber-800 underline-offset-2 hover:underline sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:justify-end sm:text-right">
+                <span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white sm:hidden">!</span>
+                <span>{blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}</span>
+              </button>
+            )}
+          <button type="button" className={`btn-primary h-11 shrink-0 whitespace-nowrap px-5 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
         </div>
       {dating && (
         <Dialog title="Date" icon={<CalendarDays className="h-5 w-5 text-amber-600" />} onClose={() => setDating(false)}>
           <div className="mt-3">
-            <MonthCalendar value={d.day} min={firstDay} max={lastDay} marked={data.days.filter(x => x.id !== initial.id).map(x => x.day)}
+            <MonthCalendar value={d.day} min={fromDay} max={lastDay} marked={data.days.filter(x => x.id !== initial.id).map(x => x.day)}
               onChange={v => { set({ day: v }); setDating(false) }} />
           </div>
         </Dialog>
@@ -1013,7 +1027,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             : (ride.to_lat != null ? { name: ride.to_name ?? '', lat: ride.to_lat, lng: ride.to_lng! } : null)}
           quick={quick}
           photos={dayPhotos}
-          used={setup && d.day ? d.rides.map(r => photoFor(r, d.day, data.visit_photos, setup.near_m)?.photo.id).filter((x): x is string => !!x) : []}
+          used={setup && d.day ? d.rides.map(r => (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo.id).filter((x): x is string => !!x) : []}
           onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
           onClose={() => setPicking(null)}
         />

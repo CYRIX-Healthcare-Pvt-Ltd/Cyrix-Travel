@@ -28,8 +28,11 @@ export default function AddClaim() {
   const [taken, setTaken] = useState<Record<string, string>>({})
   const [approved, setApproved] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<Record<string, { claim: string; name: string }>>({})
+  // The first day that can be added (te_0093: within 3 days, today counted), by India's date on the server.
+  const [from, setFrom] = useState<string | null>(null)
   useEffect(() => {
     if (!picking) return
+    void rpc<string | null>('te_claim_from', {}).then(setFrom).catch(() => setFrom(null))
     void rpc<Array<{ day: string; name: string; claim: string; draft: boolean; status: string }>>('te_my_claimed_days', {}).then(list => {
       const done = (s: string) => s === 'approved' || s === 'paid'
       setTaken(Object.fromEntries((list ?? []).filter(x => !x.draft && !done(x.status)).map(x => [x.day, x.name])))
@@ -40,7 +43,7 @@ export default function AddClaim() {
   const claimedIn = taken[pickDay] ?? approved[pickDay]
   const openDraft = (d: string) => { setPicking(false); nav(`/claim/${drafts[d].claim}`) }
   const now = new Date()
-  const minDay = new Date(now.getFullYear(), now.getMonth() - 3, 1).toLocaleDateString('en-CA')
+  const minDay = from ?? new Date(now.getFullYear(), now.getMonth() - 3, 1).toLocaleDateString('en-CA')
   const iso = (d: Date) => d.toLocaleDateString('en-CA').slice(0, 7) + '-01'
   const earlier = [1, 2, 3, 4].map(k => {
     const m = new Date(now.getFullYear(), now.getMonth() - k, 1)

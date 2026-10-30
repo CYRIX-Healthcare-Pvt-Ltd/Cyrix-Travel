@@ -39,8 +39,8 @@ const firstPart = (s: string | null | undefined) => (s ?? '').split(',')[0].trim
 export const needsPhoto = (r: { purpose?: string | null; to_name: string | null; to_lat: number | null }, s?: VisitSetup | null) =>
   !!s?.on && !!r.purpose && s.needs.includes(r.purpose) && r.to_lat != null && firstPart(r.to_name).toLowerCase() !== 'home'
 
-/** The photo taken that day nearest where the ride went, within reach. */
-export function photoFor(r: { to_lat: number | null; to_lng: number | null }, day: string, photos: VisitPhoto[] | undefined, nearM: number) {
+/** The photo taken that day nearest where the ride went, within reach: which photos the place picker marks as used. */
+export function photoNear(r: { to_lat: number | null; to_lng: number | null }, day: string, photos: VisitPhoto[] | undefined, nearM: number) {
   if (r.to_lat == null || r.to_lng == null) return null
   let best: { photo: VisitPhoto; m: number } | null = null
   for (const p of photos ?? []) {
@@ -52,19 +52,37 @@ export function photoFor(r: { to_lat: number | null; to_lng: number | null }, da
 }
 
 /*
-  The rides in the order their visit photos were taken (the user, 30 Oct: DH Aluva's photo at 1 PM and GH Ernakulam's
-  at 3 PM, but the rides claimed GH Ernakulam first): the first ride whose photo is older than the ride's before it.
-  Only a place the day goes to once is weighed — a hospital gone to twice has a photo that fits either visit.
+  Each visit its own photo (te_0092; the user, 30 Oct: "yes, one photo per visit"): the day's rides needing a photo take
+  them in ride order, each one no ride before it took, at the nearest place (within 150 m of the nearest) — the earliest
+  taken after the ride before's photo, else the earliest (and photoOrder says the rides are out of order). A hospital
+  gone to twice needs two photos. te_rides_without_photo does the same on Send; change both.
 */
-export function photoOrder<R extends { id: string; to_lat: number | null; to_lng: number | null }>(rides: R[], day: string, photos: VisitPhoto[] | undefined, nearM: number) {
-  const today = (photos ?? []).filter(p => p.day === day)
-  const near = (r: R, p: VisitPhoto) => r.to_lat != null && r.to_lng != null && lineKm({ lat: p.lat, lng: p.lng }, { lat: r.to_lat, lng: r.to_lng }) * 1000 <= nearM
-  const seen: Array<{ n: number; ride: R; photo: VisitPhoto }> = []
-  rides.forEach((r, i) => {
-    const mine = today.filter(p => near(r, p))
-    if (!mine.length || rides.some((o, j) => j !== i && mine.some(p => near(o, p)))) return
-    seen.push({ n: i + 1, ride: r, photo: mine.reduce((a, b) => (Date.parse(a.shot_at) <= Date.parse(b.shot_at) ? a : b)) })
-  })
+type PhotoRide = { id: string; purpose?: string | null; to_name: string | null; to_lat: number | null; to_lng: number | null }
+export function matchPhotos(rides: PhotoRide[], day: string, photos: VisitPhoto[] | undefined, s: VisitSetup | null | undefined) {
+  const out = new Map<string, { photo: VisitPhoto; m: number }>()
+  const taken = new Set<string>()
+  let after = -Infinity
+  for (const r of rides) {
+    if (!needsPhoto(r, s) || r.to_lat == null || r.to_lng == null) continue
+    const at = { lat: r.to_lat, lng: r.to_lng }
+    const free = (photos ?? []).filter(p => p.day === day && !taken.has(p.id)).map(p => ({ photo: p, m: lineKm(p, at) * 1000 }))
+    const nearest = Math.min(...free.map(x => x.m))
+    const fits = free.filter(x => x.m <= s!.near_m && x.m <= nearest + 150).sort((a, b) => Date.parse(a.photo.shot_at) - Date.parse(b.photo.shot_at))
+    const hit = fits.find(x => Date.parse(x.photo.shot_at) >= after) ?? fits[0]
+    if (!hit) continue
+    out.set(r.id, hit); taken.add(hit.photo.id); after = Date.parse(hit.photo.shot_at)
+  }
+  return out
+}
+
+/*
+  The rides in the order their visit photos were taken (the user, 30 Oct: DH Aluva's photo at 1 PM and GH Ernakulam's
+  at 3 PM, but the rides claimed GH Ernakulam first; "can check previous visit image time with trip 3 image"): the
+  first ride whose own photo is older than the photo of the ride before it.
+*/
+export function photoOrder<R extends PhotoRide>(rides: R[], day: string, photos: VisitPhoto[] | undefined, s: VisitSetup | null | undefined) {
+  const shots = matchPhotos(rides, day, photos, s)
+  const seen = rides.flatMap((ride, i) => { const hit = shots.get(ride.id); return hit ? [{ n: i + 1, ride, photo: hit.photo }] : [] })
   for (let k = 1; k < seen.length; k++) {
     if (Date.parse(seen[k].photo.shot_at) < Date.parse(seen[k - 1].photo.shot_at)) return { late: seen[k], early: seen[k - 1] }
   }

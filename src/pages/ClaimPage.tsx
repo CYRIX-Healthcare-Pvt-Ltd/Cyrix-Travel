@@ -8,7 +8,7 @@ import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
-import { clock, lateBy, metres, needsPhoto, photoFor, photoRush, type VisitPhoto } from '@/lib/visits'
+import { clock, lateBy, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
 import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -402,6 +402,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const dep = depOn(data.deputations, d.day)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
+  const shots = matchPhotos(d.rides, d.day, data.visit_photos, data.photo_setup)
   // Each line its own raised card (the user, 30 Oct: "it looks very plain", "like each ride 3d? div?"); red while its bill is still needed.
   const tile = ' rounded-lg border px-3 shadow-[0_1px_2px_rgb(15_23_42/0.07),0_3px_8px_-2px_rgb(15_23_42/0.08)]'
   const mark = (id: string) => tile + (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' border-cyrixRed-300 bg-cyrixRed-50' : ' border-ink-200 bg-surface')
@@ -546,11 +547,11 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 {(r.purpose || r.project) && <span className="col-span-full pl-1 text-xs text-ink-500">{[r.purpose, r.project].filter(Boolean).join(' · ')}</span>}
                 {/* The visit photo, found by itself (te_0082), or why there is none. */}
                 {needsPhoto(r, data.photo_setup) && (() => {
-                  const hit = photoFor(r, d.day, data.visit_photos, data.photo_setup!.near_m)
+                  const hit = shots.get(r.id)
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
                       <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? short(r.to_name)} · ${clock(hit.photo.shot_at)}`} className="h-9 w-9" />
-                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)} · {metres(hit.m)} from {short(r.to_name)}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{data.usual_device && hit.photo.device_id && hit.photo.device_id !== data.usual_device.device_id && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
+                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{data.usual_device && hit.photo.device_id && hit.photo.device_id !== data.usual_device.device_id && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
                     </span>
                   )
                   return r.photo_skip
@@ -747,11 +748,12 @@ export function claimObservations(data: ClaimData): Obs[] {
   const skipped = (data.photo_skips_other ?? 0) + data.days.reduce((t, x) => t + x.rides.filter(r => r.photo_skip).length, 0)
   for (const d of data.days) {
     const day = dn(d.day)
+    const shots = matchPhotos(d.rides, d.day, data.visit_photos, setup)
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
       if (needsPhoto(r, setup)) {
-        const hit = photoFor(r, d.day, data.visit_photos, setup!.near_m), late = hit && lateBy(hit.photo)
+        const hit = shots.get(r.id), late = hit && lateBy(hit.photo)
         if (!hit && r.photo_skip) items.push({ kind: 'nophoto', day, to: r.id, detail: `${leg} · “${r.photo_skip}”${skipped > setup!.skips ? ` · ${skipped} this month, over the ${setup!.skips}` : ''}` })
         // Saved today without one yet: Send asks for the photo or Photo not possible (te_submit).
         else if (!hit) items.push({ kind: 'photoyet', day, to: r.id, detail: leg })
