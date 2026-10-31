@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { RefreshCw, AlertTriangle } from 'lucide-react'
+import { reportError } from '@/lib/reportErrors'
 
 /**
  * Whatever else goes wrong, not a blank page.
@@ -28,8 +29,8 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // The only record there is. Worth keeping until something like
-    // Sentry exists — see architecture.md, "No observability".
+    // To app.cyrix.in/ops (KPI 0230), and the console as before.
+    reportError(error, 'Crash')
     console.error('Unhandled error', error, info.componentStack)
   }
 
