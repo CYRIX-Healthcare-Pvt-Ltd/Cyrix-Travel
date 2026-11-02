@@ -161,7 +161,7 @@ function VehicleForm({ modes, manager, onClose, onSent }: { modes: VehicleMode[]
               const m = MODES[c], I = m.icon
               return (
                 <button key={c} type="button" aria-pressed={mode === c} onClick={() => setMode(c)}
-                  className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 text-sm font-semibold ${mode === c ? 'border-ink-900 bg-ink-900 text-white' : 'border-ink-200 text-ink-800 hover:border-ink-400'}`}>
+                  className={`flex h-12 items-center justify-center gap-2 rounded-xl border-2 text-sm font-semibold ${mode === c ? 'border-ink-900 bg-ink-900 text-surface' : 'border-ink-200 text-ink-800 hover:border-ink-400'}`}>
                   <I className="h-5 w-5" /> {m.label}
                 </button>
               )
