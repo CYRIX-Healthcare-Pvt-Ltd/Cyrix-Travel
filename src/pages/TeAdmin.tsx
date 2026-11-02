@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { Camera, Check, Pencil, Settings2, Timer, Trash2, X } from 'lucide-react'
 import LearnedPlacesTable from '@/components/LearnedPlacesTable'
+import TravelReport from '@/components/TravelReport'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
-import { rpc, type Rule } from '@/lib/claims'
+import { alphabetical, rpc, type Rule } from '@/lib/claims'
 import { useAsk } from '@/components/Ask'
 
 /*
@@ -42,8 +43,13 @@ const POLICY: Array<[string, string]> = [
 
 export default function TeAdmin() {
   const qc = useQueryClient()
-  const { data, isLoading, error } = useQuery({ queryKey: ['te_admin'], queryFn: () => rpc<AdminData>('te_admin_data') })
-  const [tab, setTab] = useState<typeof TABS[number][0] | 'photos' | 'delete'>('rules')
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['te_admin'],
+    queryFn: () => rpc<AdminData>('te_admin_data').then(d => ({
+      ...d, purposes: alphabetical(d.purposes, p => p.label), expense_kinds: d.expense_kinds && alphabetical(d.expense_kinds, k => k.label),
+    })),
+  })
+  const [tab, setTab] = useState<typeof TABS[number][0] | 'photos' | 'reports' | 'delete'>('rules')
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
   // A tab that shows its own refusal beside the button pressed passes here, and gets the message back.
@@ -59,7 +65,7 @@ export default function TeAdmin() {
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Settings2 className="h-5 w-5 text-violet-600" /> Travel policy</h1>
       <div className="flex flex-wrap gap-1.5">
         {/* Visit photos are SW Admin's alone, not ACC Admin's (te_0084; the user, 28 Oct: "i told only sw admin"). */}
-        {[...TABS.slice(0, 3), ...(data.sw ? [['photos', 'Visit photos'] as const] : []), ...TABS.slice(3), ...(data.sw ? [['delete', 'Delete'] as const] : [])].map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={clsx('rounded-full px-3 py-1.5 text-sm font-medium', tab === k ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-700 hover:bg-ink-200')}>{l}</button>)}
+        {[...TABS.slice(0, 3), ...(data.sw ? [['photos', 'Visit photos'] as const] : []), ...TABS.slice(3), ...(data.sw ? [['reports', 'Reports'] as const, ['delete', 'Delete'] as const] : [])].map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={clsx('rounded-full px-3 py-1.5 text-sm font-medium', tab === k ? 'bg-violet-600 text-white' : 'bg-ink-100 text-ink-700 hover:bg-ink-200')}>{l}</button>)}
       </div>
       {msg && <Alert kind="success">{msg}</Alert>}
       {fail && <Alert kind="error">{fail}</Alert>}
@@ -76,6 +82,8 @@ export default function TeAdmin() {
       {tab === 'coord' && <Coordinators list={data.coordinators} centres={data.cost_centres} call={call} />}
       {tab === 'desk' && <Desk list={data.desk} call={call} />}
       {tab === 'places' && <LearnedPlaces />}
+      {/* Km against the map and the signs worth a look, SW Admin's alone (te_0095; the user, 2 Nov). */}
+      {tab === 'reports' && data.sw && <TravelReport />}
       {tab === 'delete' && data.sw && <DeleteClaim />}
     </div>
   )

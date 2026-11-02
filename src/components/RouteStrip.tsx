@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAsk } from '@/components/Ask'
 import { MODES, inkVars, km, money, outOfPolicy, policyNote, rideAmount, type Day, type Rule } from '@/lib/claims'
+import type { VehicleSpan } from '@/lib/vehicles'
 
 /*
   A day's (or a trip's) route, drawn (the user, 17 Oct: "a graphical representation that show from
@@ -12,7 +13,7 @@ const MIN_STEP = 110
 const EDGE = 24
 const PIN = { home: '#1D9E75', change: '#888780', hospital: '#E24B4A', hotel: '#7F77DD', place: '#E24B4A' }
 
-export default function RouteStrip({ days, rule, grade }: { days: Day[]; rule: Rule | undefined; grade?: string | null }) {
+export default function RouteStrip({ days, rule, grade, vehicles }: { days: Day[]; rule: Rule | undefined; grade?: string | null; vehicles?: VehicleSpan[] }) {
   const ask = useAsk()
   // As wide as the card (the user, 17 Oct: "why cant it be stretched").
   const box = useRef<HTMLDivElement>(null)
@@ -67,7 +68,7 @@ export default function RouteStrip({ days, rule, grade }: { days: Day[]; rule: R
             <g key={ride.id}>
               <line x1={x1} y1={84} x2={x2} y2={84} stroke={m.color} strokeWidth={5} strokeLinecap="round" />
               <m.icon x={(x1 + x2) / 2 - 9} y={14} width={18} height={18} className="mode-ink" style={inkVars(m)} strokeWidth={2.2} />
-              {outOfPolicy(ride.mode, rule) && (
+              {outOfPolicy(ride.mode, rule, vehicles, ride.day.day ?? undefined) && (
                 // A press says what the mark means — a phone has no hover (the user, 21 Oct).
                 <g role="button" aria-label="Why the red mark" className="cursor-pointer" onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, grade), 'warn')}>
                   <title>{policyNote(m.label, grade)}</title>

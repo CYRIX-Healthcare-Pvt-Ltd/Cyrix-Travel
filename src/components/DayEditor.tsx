@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -10,6 +10,7 @@ import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import ModePicker from '@/components/ModePicker'
+import PickList from '@/components/PickList'
 import { useAsk } from '@/components/Ask'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
@@ -19,7 +20,7 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, expenseKinds, expenseRole, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
+  DA_KINDS, DA_LOOKS, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
   areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
@@ -696,7 +697,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             <div className="space-y-3">
               {d.rides.map((r, i) => {
                 const m = MODES[r.mode]
-                const notAllowed = outOfPolicy(r.mode, rule)
+                const notAllowed = outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)
                 const read = m.perKm ? null : billRead(data.bills, r.id)
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
                   <button type="button" id={`${end}-${r.id}`} onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
@@ -714,11 +715,11 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       <div className="min-w-0 flex-1 space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}</div>
                       <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-4 w-4" /></button>
                     </div>
-                    <div className="mt-2.5 flex items-center gap-2 pl-6">
-                      <ModePicker value={r.mode} onChange={code => setMode(r.id, code)} blocked={code => outOfPolicy(code, rule)} />
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-2 pl-6 sm:gap-x-2">
+                      <ModePicker value={r.mode} onChange={code => setMode(r.id, code)} blocked={code => outOfPolicy(code, rule, data.vehicles, d.day ?? undefined)} />
                       {m.perKm ? (
-                        <span className="relative min-w-0 max-w-[8rem] flex-1">
-                          <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full pr-9" value={r.claimed_km ?? ''} placeholder="0"
+                        <span className="relative min-w-[4.75rem] max-w-[8rem] flex-1">
+                          <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full !pl-2.5 !pr-7" value={r.claimed_km ?? ''} placeholder="0"
                             onChange={e => {
                               const v = e.target.value === '' ? null : Number(e.target.value)
                               // A key that cannot end in the band is not taken: map 10, "12" stays "1"; map 8.8, "7" is not taken (the user, 26–27 Oct).
@@ -728,7 +729,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                             // Emptied, or under the map's km, and left: the map's km again (the user, 26–27 Oct: "he shouldnt be able to type less than map km").
                             onFocus={() => setTypingKm(r.id)}
                             onBlur={() => { setTypingKm(null); if (r.map_km != null && (r.claimed_km == null || r.claimed_km < kmRange(r.map_km, tol).lo)) setRide(r.id, { claimed_km: r.map_km }) }} />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
                         </span>
                       ) : (
                         <span className="relative min-w-0 max-w-[8rem] flex-1">
@@ -746,16 +747,26 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       {/* The amount only where it is not the fare itself: km x rate. */}
                       {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{commute(r) && <span className="mr-1.5 text-xs font-medium text-ink-500">Home ↔ Work</span>}{money(paid(r))}</span>}
                     </div>
+                    {/* One short line about the map, under the km it checks (the user, 2 Nov), amber when the km is over (no chips). */}
+                    {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
+                    {r.map_km != null && (
+                      <div className="mt-1.5 flex items-center gap-3 pl-6">
+                        <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
+                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match' : m.perKm && kmChanged(r) ? ' · changed' : ''}
+                        </p>
+                        <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
+                          <MapIcon className="h-3.5 w-3.5" /> View on map
+                        </button>
+                      </div>
+                    )}
                     {/* Why, and for which call centre — each ride its own (te_0060). */}
-                    <div className="mt-2.5 grid grid-cols-2 gap-2 pl-6">
-                      <select id={'purpose-' + r.id} className={`input h-10 text-sm ${r.purpose ? '' : '!border-amber-400'} ${nudged(r.id, 'purpose') ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-500' : ''}`} aria-label="Purpose" value={r.purpose ?? ''} onChange={e => setRide(r.id, { purpose: e.target.value || null })}>
-                        <option value="">Purpose…</option>
-                        {data.purposes.map(p => <option key={p}>{p}</option>)}
-                      </select>
-                      <select className={`input h-10 text-sm ${r.project ? '' : '!border-amber-400'}`} aria-label="Call centre" value={r.project ?? ''} onChange={e => setRide(r.id, { project: e.target.value || null })}>
-                        <option value="">Call centre…</option>
-                        {[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => <option key={x}>{x}</option>)}
-                      </select>
+                    <div className="mt-2.5 grid grid-cols-1 gap-2 pl-6 sm:grid-cols-2">
+                      <PickList id={'purpose-' + r.id} label="Purpose" title={`Purpose of ride ${i + 1}`} placeholder="Purpose…" alarm={nudged(r.id, 'purpose')} value={r.purpose}
+                        options={[...new Set([...data.purposes, ...(r.purpose ? [r.purpose] : [])])].map(p => ({ value: p, label: p, ...purposeLook(p) }))}
+                        onChange={v => setRide(r.id, { purpose: v })} />
+                      <PickList label="Call centre" title={`Call centre of ride ${i + 1}`} placeholder="Call centre…" value={r.project}
+                        options={[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => ({ value: x, label: x, icon: Headset, tone: 'cyan' as const }))}
+                        onChange={v => setRide(r.id, { project: v })} />
                     </div>
                     {nudgeLine(r.id, 'purpose', i + 1, 'pl-6')}
                     {isBreakdown(r.purpose) && (
@@ -778,18 +789,6 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       <p className="mt-1.5 pl-6 text-xs font-semibold text-amber-800">
                         The ticket is for {new Date(r.ticket_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} — this day is {new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
                       </p>
-                    )}
-                    {/* One short line about the map, amber when the km is over (no chips). */}
-                    {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
-                    {r.map_km != null && (
-                      <div className="mt-1.5 flex items-center gap-3 pl-6">
-                        <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match' : m.perKm && kmChanged(r) ? ' · changed' : ''}
-                        </p>
-                        <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
-                          <MapIcon className="h-3.5 w-3.5" /> View on map
-                        </button>
-                      </div>
                     )}
                     {/*
                       The visit photo of a ride whose purpose needs one (te_0082): found by itself when taken that day
@@ -879,9 +878,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   ? <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-teal-800">From the map</span>
                   : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-900">Map says {DA_KINDS.find(k => k.code === auto)?.label.toLowerCase()}</span>)}
               </span>
-              <select className="input mt-1 h-11" value={d.da_kind} onChange={e => set({ da_kind: e.target.value as DaKind })}>
-                {DA_KINDS.filter(k => k.code !== 'deputation' || dep || d.da_kind === 'deputation').map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, dayPurpose, data.office_purposes, depDa))}` : ''}</option>)}
-              </select></label>
+              </label>
+              <div className="mt-1">
+                <PickList tall label="Daily allowance" title="Daily allowance" placeholder="Daily allowance…" value={d.da_kind}
+                  options={DA_KINDS.filter(k => k.code !== 'deputation' || dep || d.da_kind === 'deputation').map(k => ({
+                    value: k.code, label: k.label, ...DA_LOOKS[k.code],
+                    hint: k.code !== 'none' ? money(daFor(rule, k.code, dayPurpose, data.office_purposes, depDa)) : undefined,
+                  }))}
+                  onChange={v => set({ da_kind: v as DaKind })} />
+              </div>
           </section>
           )}
 
@@ -898,9 +903,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   return (
                     <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
                       <div className="grid grid-cols-[1fr_7.5rem_2.25rem] items-center gap-2 sm:grid-cols-[11rem_8rem_1fr_auto_2.5rem]">
-                        <select className="input h-10" aria-label="Category" value={x.category} onChange={e => put({ category: e.target.value })}>
-                          {expenseKinds().filter(k => k.active || k.label === x.category).map(k => <option key={k.label}>{k.label}</option>)}
-                        </select>
+                        <PickList label="Expense type" title="Expense type" placeholder="Expense type…" value={x.category}
+                          options={expenseKinds().filter(k => k.active || k.label === x.category).map(k => ({ value: k.label, label: k.label, icon: expenseIcon(k.label), tone: expenseTone(k.label) }))}
+                          onChange={v => put({ category: v })} />
                         <span className="relative">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
                           <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7 pr-7" aria-label="Amount" value={x.amount || ''} placeholder="from bill" onChange={e => put({ amount: Number(e.target.value) })} />

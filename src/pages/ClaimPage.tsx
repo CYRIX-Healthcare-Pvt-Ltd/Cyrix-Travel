@@ -516,7 +516,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         </div>
       </div>
 
-      <RouteStrip days={[d]} rule={rule} grade={c.grade} />
+      <RouteStrip days={[d]} rule={rule} grade={c.grade} vehicles={data.vehicles} />
 
       {/* What the day's total is made of (the user, 19 Oct: "6116 in travel and others what, user should be clear"). */}
       {(() => {
@@ -549,7 +549,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             </div>
           )}
           {d.rides.map(r => {
-            const m = MODES[r.mode], I = m.icon, bad = outOfPolicy(r.mode, rule)
+            const m = MODES[r.mode], I = m.icon, bad = outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)
             return (
               /*
                 On a computer one line in the shared columns (the user, 18 Oct). On a phone the mode, then From and To
@@ -802,7 +802,7 @@ export function claimObservations(data: ClaimData): Obs[] {
         if (hit && usual && hit.photo.device_id && hit.photo.device_id !== usual.device_id)
           items.push({ kind: 'photophone', day, to: r.id, detail: `${leg} · taken on ${hit.photo.device ?? 'another phone'}${usual.device ? `, usually ${usual.device}` : ''}` })
       }
-      if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
+      if (outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
       // Any km changed from the map's (te_0060; the user, 23 Oct).
       /*

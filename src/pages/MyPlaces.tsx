@@ -5,6 +5,7 @@ import { Briefcase, Building2, House, IdCard, LocateFixed, Map as MapIcon, MapPi
 import PlacePicker from '@/components/PlacePicker'
 import PlaceMapDialog from '@/components/PlaceMapDialog'
 import Deputations from '@/components/Deputations'
+import VehicleApprovals from '@/components/VehicleApprovals'
 import Advances from '@/pages/Advances'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
@@ -70,7 +71,7 @@ export default function MyPlaces() {
   // Sent here to set a home first, as an advance is from it (te_0063).
   const need = (useLocation().state as { need?: string } | null)?.need
   const [params, setParams] = useSearchParams()
-  const tab = (['advance', 'deputation'] as const).find(k => k === params.get('tab')) ?? 'home'
+  const tab = (['advance', 'deputation', 'vehicle'] as const).find(k => k === params.get('tab')) ?? 'home'
   const [marking, setMarking] = useState(false)
   const [homeOnMap, setHomeOnMap] = useState(false)
   const setHomeAt = async (at: { lat: number; lng: number }, how: 'here' | 'map') => {
@@ -114,16 +115,17 @@ export default function MyPlaces() {
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><IdCard className="h-5 w-5 text-teal-600" /> My profile</h1>
-      <div className="inline-flex rounded-xl bg-ink-100 p-1" role="tablist">
+      {/* Four tabs across a phone without scrolling: smaller words there (Vehicle added 2 Nov). */}
+      <div className="flex w-full rounded-xl bg-ink-100 p-1 sm:inline-flex sm:w-auto" role="tablist">
         {/* My advance before the deputation (the user, 28 Oct: "better move advance to My profile before deputation"). */}
-        {([['home', 'Home & places'], ['advance', 'Advance'], ['deputation', 'Deputation']] as const).map(([k, l]) => (
+        {([['home', 'Home & places'], ['advance', 'Advance'], ['deputation', 'Deputation'], ['vehicle', 'Vehicle']] as const).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setParams(k === 'home' ? {} : { tab: k }, { replace: true })}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${tab === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
+            className={`flex-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-semibold sm:flex-none sm:px-4 sm:text-sm ${tab === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
             {l}
           </button>
         ))}
       </div>
-      {tab === 'advance' ? <Advances inProfile /> : tab === 'deputation' ? <Deputations /> : <>
+      {tab === 'advance' ? <Advances inProfile /> : tab === 'deputation' ? <Deputations /> : tab === 'vehicle' ? <VehicleApprovals /> : <>
       {(fail || error) && <Alert kind="error">{fail ?? (error as Error).message}</Alert>}
       {home === null && <Alert kind="warning">{need ?? 'Home location is not yet set'}</Alert>}
       {/* Home and cost centre side by side from a tablet (the user, 26 Oct: "in desktop can we make home, cost center

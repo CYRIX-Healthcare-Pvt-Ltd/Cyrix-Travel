@@ -1,9 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bike, Bus, Car, CarTaxiFront, Cog, createLucideIcon, Construction, Package, Plane, Printer, ReceiptIndianRupee, Smartphone, TrainFront, TramFront, Truck, Users, Utensils, Wrench, type LucideIcon } from 'lucide-react'
+import type { VehicleSpan } from '@/lib/vehicles'
+import {
+  ArrowLeftRight, Ban, BedDouble, Bike, Briefcase, Building2, Bus, Car, CarTaxiFront, ClipboardCheck, Cog, createLucideIcon, Construction, GraduationCap, Handshake, Hospital, House,
+  Map as MapIcon, MapPin, Package, PackageOpen, Plane, Printer, ReceiptIndianRupee, Route, Smartphone, TrainFront, TramFront, Truck, Users, Utensils, Wrench, type LucideIcon,
+} from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
 import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
 import type { VisitPhoto, VisitSetup } from './visits'
+import type { Tone } from './tones'
 
 /*
   The month's claim by the day (te_0012; the user, 17 Oct 2026): the expense reimbursement Excel
@@ -64,15 +69,38 @@ let kinds: ExpenseKind[] = [
   ['Team meal', null, false], ['Phone', 'phone', false], ['Spare purchase', 'spare', false], ['Other', null, false],
 ].map(([label, role, bill]) => ({ label, role, bill_always: bill, active: true }) as ExpenseKind)
 export const setExpenseKinds = (k?: ExpenseKind[] | null) => { if (k?.length) kinds = k }
+/** Purposes and expense types read A to Z wherever they are listed, "Other" last (the user, 2 Nov). */
+const az = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
+export const alphabetical = <T>(list: readonly T[], label: (x: T) => string): T[] =>
+  [...list].sort((a, b) => Number(label(a) === 'Other') - Number(label(b) === 'Other') || az.compare(label(a), label(b)))
 export const expenseKinds = () => kinds
 export const expenseRole = (category: string) => kinds.find(k => k.label === category)?.role ?? null
 // Each kind of expense its own picture (the user, 21 Oct: "courier and phone having same icon?").
 const EXPENSE_ICONS: Record<string, LucideIcon> = {
   Courier: Package, 'Printing & stationery': Printer, Tools: Wrench, Toll: Construction,
-  'Client meal': Utensils, 'Team meal': Users, Phone: Smartphone, 'Spare purchase': Cog,
+  'Client meal': Utensils, 'Team meal': Users, Phone: Smartphone, 'Spare purchase': Cog, Food: Utensils,
 }
 const ROLE_ICONS: Record<string, LucideIcon> = { phone: Smartphone, tools: Wrench, spare: Cog }
 export const expenseIcon = (category: string): LucideIcon => EXPENSE_ICONS[category] ?? ROLE_ICONS[expenseRole(category) ?? ''] ?? ReceiptIndianRupee
+const EXPENSE_TONES: Record<string, Tone> = {
+  Courier: 'amber', 'Printing & stationery': 'slate', Tools: 'orange', Toll: 'sky', Food: 'green', 'Client meal': 'green', 'Team meal': 'teal',
+  Phone: 'violet', 'Spare purchase': 'indigo',
+}
+export const expenseTone = (category: string): Tone => EXPENSE_TONES[category] ?? 'slate'
+/** Each purpose its own picture and colour in the dropdown (the user, 2 Nov: "Make dropdown beautiful"); one SW Admin adds later gets a pin. */
+const PURPOSE_LOOKS: Array<[RegExp, LucideIcon, Tone]> = [
+  [/hospital|clinic|phc|chc/i, Hospital, 'rose'], [/breakdown|repair|complaint/i, Wrench, 'orange'], [/meeting/i, Users, 'violet'],
+  [/office|work/i, Building2, 'blue'], [/home/i, House, 'green'], [/mode/i, ArrowLeftRight, 'sky'], [/customer|client/i, Handshake, 'indigo'],
+  [/spare|collect|deliver/i, PackageOpen, 'teal'], [/training/i, GraduationCap, 'amber'], [/install|preventive|calibrat/i, ClipboardCheck, 'cyan'],
+]
+export const purposeLook = (purpose: string): { icon: LucideIcon; tone: Tone } => {
+  const m = PURPOSE_LOOKS.find(([re]) => re.test(purpose))
+  return m ? { icon: m[1], tone: m[2] } : { icon: MapPin, tone: 'slate' }
+}
+export const DA_LOOKS: Record<DaKind, { icon: LucideIcon; tone: Tone }> = {
+  none: { icon: Ban, tone: 'slate' }, in_district: { icon: MapPin, tone: 'green' }, out_district: { icon: Route, tone: 'sky' },
+  out_state: { icon: BedDouble, tone: 'indigo' }, out_state_stay: { icon: MapIcon, tone: 'violet' }, deputation: { icon: Briefcase, tone: 'amber' },
+}
 
 /** Each status as one strong hue: the claim header's stripe, and a claim row's edge. */
 export const STATUS_HUE: Record<string, string> = {
@@ -167,6 +195,8 @@ export interface Rule {
   flight: boolean; taxi: boolean
 }
 export interface ClaimData {
+  /** Out-of-policy vehicles approved over the claim's days (te_0096). */
+  vehicles?: VehicleSpan[]
   claim: {
     id: string; employee_id: string; month: string; part: number; status: string; number: string | null
     grade: string | null; designation: string | null; base_location: string | null; project: string | null; mobile: string | null
@@ -947,7 +977,8 @@ export function billRead(bills: Bill[], ownerId: string): number | null {
   return read.length ? Number(read[read.length - 1].ocr_amount) : null
 }
 /** A mode the grade's policy does not give (a car below MM3, a flight, a taxi…): it needs prior approval. */
-export function outOfPolicy(mode: ModeCode, rule: Rule | undefined) {
+export function outOfPolicy(mode: ModeCode, rule: Rule | undefined, vehicles?: VehicleSpan[], day?: string) {
+  if (day && vehicles?.some(v => v.mode === mode && day >= v.from_day && day <= v.to_day)) return false
   return !!rule && ((mode === 'car' && !rule.car_rate) || (mode === 'bike' && !rule.bike_rate) || (mode === 'flight' && !rule.flight) || (mode === 'taxi' && !rule.taxi))
 }
 /** What the red mark on such a ride means, said when it is pressed. */
@@ -1001,7 +1032,13 @@ export const useMyClaims = () => useQuery({
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
-  queryFn: () => rpc<ClaimData>('te_claim', { p_claim: id }).then(d => { setExpenseKinds(d.expense_kinds); return d }),
+  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id })]).then(([d, v]) => {
+    d.vehicles = v ?? []
+    d.purposes = alphabetical(d.purposes ?? [], p => p)
+    if (d.expense_kinds) d.expense_kinds = alphabetical(d.expense_kinds, k => k.label)
+    setExpenseKinds(d.expense_kinds)
+    return d
+  }),
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,

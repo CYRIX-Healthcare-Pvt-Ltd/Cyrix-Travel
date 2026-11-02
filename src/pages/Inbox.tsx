@@ -5,6 +5,8 @@ import { claimIssues } from '@/pages/ClaimPage'
 import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom'
 import AdvanceApprovals from '@/components/AdvanceApprovals'
 import DeputationApprovals from '@/components/DeputationApprovals'
+import { VehicleInbox } from '@/components/VehicleApprovals'
+import { useVehicleInbox } from '@/lib/vehicles'
 import { useDepInbox } from '@/lib/deputation'
 import { useAdvanceInbox } from '@/lib/advances'
 import { CheckCheck, ChevronRight, ClipboardCheck, FileSpreadsheet, IndianRupee, ReceiptText, Route, Users, type LucideIcon } from 'lucide-react'
@@ -76,9 +78,11 @@ export default function Inbox() {
   // Claims, or advances (te_0063): the bell's advance messages open ?view=advances.
   const [params, setParams] = useSearchParams()
   // Deputations too (te_0075): the bell's deputation messages open ?view=deputation.
-  const view = params.get('view') === 'advances' ? 'advances' : params.get('view') === 'deputation' ? 'deputation' : 'claims'
+  const view = params.get('view') === 'advances' ? 'advances' : params.get('view') === 'deputation' ? 'deputation' : params.get('view') === 'vehicle' ? 'vehicle' : 'claims'
+  const { data: vehicles } = useVehicleInbox()
   const { data: advances } = useAdvanceInbox()
   const { data: deputations } = useDepInbox()
+const switches: Array<readonly [string, string, number]> = [['claims', 'Claims', (data ?? []).filter(c => c.waiting).length] as const,    ...((advances ?? []).length ? [['advances', 'Advances', advances!.filter(a => a.waiting).length] as const] : []),    ...((deputations ?? []).length ? [['deputation', 'Deputation', deputations!.filter(x => x.waiting).length] as const] : []),    ...((vehicles ?? []).length ? [['vehicle', 'Vehicle', vehicles!.filter(x => x.waiting).length] as const] : [])]
   const [approving, setApproving] = useState(false)
   if (isLoading) return <PageLoader />
   const found = (data ?? []).filter(find.test)
@@ -140,17 +144,19 @@ export default function Inbox() {
       {/* Claims / Advances / Deputation beside the title; the search and days go with To approve / To be paid / Paid, which they sift (the user, 30 Oct). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
-      <div className="inline-flex shrink-0 rounded-xl bg-ink-100 p-1" role="tablist">
-        {([['claims', 'Claims', (data ?? []).filter(c => c.waiting).length], ['advances', 'Advances', (advances ?? []).filter(a => a.waiting).length],
-           ...((deputations ?? []).length ? [['deputation', 'Deputation', deputations!.filter(x => x.waiting).length] as const] : [])] as const).map(([k, l, n]) => (
-          <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setParams(k === 'claims' ? {} : { view: k }, { replace: true })}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${view === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
-            {l}{n > 0 && <span className="min-w-[1.25rem] rounded-full bg-cyrixRed-600 px-1.5 py-0.5 text-center text-xs font-bold text-white">{n}</span>}
-          </button>
-        ))}
+      {/* A switch only for what this person has: no Advances without a single one (the user, 2 Nov). */}
+      {switches.length > 1 && (
+        <div className="inline-flex shrink-0 rounded-xl bg-ink-100 p-1" role="tablist">
+          {switches.map(([k, l, n]) => (
+            <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setParams(k === 'claims' ? {} : { view: k }, { replace: true })}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${view === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>
+              {l}{n > 0 && <span className="min-w-[1.25rem] rounded-full bg-cyrixRed-600 px-1.5 py-0.5 text-center text-xs font-bold text-white">{n}</span>}
+            </button>
+          ))}
+        </div>
+        )}
       </div>
-      </div>
-      {view === 'advances' ? <AdvanceApprovals /> : view === 'deputation' ? <DeputationApprovals /> : <>
+      {view === 'advances' ? <AdvanceApprovals /> : view === 'deputation' ? <DeputationApprovals /> : view === 'vehicle' ? <VehicleInbox /> : <>
       {done && <Alert kind="success">{done}</Alert>}
       {error && <Alert kind="error">{(error as Error).message}</Alert>}
       <div className="card flex flex-col gap-2 p-2 lg:flex-row lg:items-center">
@@ -163,7 +169,7 @@ export default function Inbox() {
             </button>
           ))}
         </div>
-        {(data?.length ?? 0) > 0 && <div className="min-w-0 lg:flex-1">{find.bar}</div>}
+        {(data?.length ?? 0) > 0 && <div className="min-w-0 lg:flex-1">{find.bar()}</div>}
       </div>
       {shown.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">

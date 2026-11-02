@@ -22,6 +22,20 @@ const VisitPhotos = lazyRoute(() => import('@/pages/VisitPhotos'))
 export default function App() {
   const { session, loading, hasAccess, isAdmin, isDesk } = useAuth()
 
+  /*
+    The pages a tap opens next, fetched while the phone is idle after the first screen, so a tap waits only for its
+    data and not for its code too (the user, 2 Nov: "during demo our travel software loading too much time").
+  */
+  useEffect(() => {
+    if (!session || !hasAccess) return
+    const warm = () => {
+      for (const page of [() => import('@/pages/ClaimPage'), () => import('@/pages/DayPage'), () => import('@/pages/Months'),
+        () => import('@/pages/Inbox'), () => import('@/pages/ApprovalPerson'), () => import('@/pages/MyPlaces'), () => import('leaflet')]) void page().catch(() => {})
+    }
+    const t = window.setTimeout(() => ('requestIdleCallback' in window ? window.requestIdleCallback(warm, { timeout: 5000 }) : warm()), 1500)
+    return () => window.clearTimeout(t)
+  }, [session, hasAccess])
+
   if (loading) return <PageLoader />
   if (!session) return <SignInElsewhere />
   if (!hasAccess) return <NotGiven />

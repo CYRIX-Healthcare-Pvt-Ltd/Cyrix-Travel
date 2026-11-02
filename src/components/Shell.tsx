@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useInbox } from '@/lib/claims'
 import { useAdvanceInbox } from '@/lib/advances'
 import { useDepInbox } from '@/lib/deputation'
+import { useVehicleInbox } from '@/lib/vehicles'
 import { useVisitSetup } from '@/lib/visits'
 import { TONE_TEXT, type Tone } from '@/lib/tones'
 import { Logo } from '@/components/Logo'
@@ -21,9 +22,10 @@ export default function Shell() {
   // Claims and advances of other people's that wait on this person: as manager, coordinator or Travel Desk.
   const { data: advances } = useAdvanceInbox()
   const { data: deputations } = useDepInbox()
+  const { data: vehicles } = useVehicleInbox()
   const photos = useVisitSetup().data?.on
-  const waiting = (inbox ?? []).filter(c => c.waiting).length + (advances ?? []).filter(a => a.waiting).length + (deputations ?? []).filter(d => d.waiting).length
-  const manages = (inbox ?? []).length > 0 || (advances ?? []).length > 0 || (deputations ?? []).length > 0 || isDesk
+  const waiting = (inbox ?? []).filter(c => c.waiting).length + (advances ?? []).filter(a => a.waiting).length + (deputations ?? []).filter(d => d.waiting).length + (vehicles ?? []).filter(v => v.waiting).length
+  const manages = (inbox ?? []).length > 0 || (advances ?? []).length > 0 || (deputations ?? []).length > 0 || (vehicles ?? []).length > 0 || isDesk
 
   const items: Array<{ to: string; label: string; short: string; icon: typeof Navigation; tone: Tone; end?: boolean; badge?: number }> = [
     { to: '/', label: 'Summary', short: 'Summary', icon: BarChart3, tone: 'sky', end: true },
