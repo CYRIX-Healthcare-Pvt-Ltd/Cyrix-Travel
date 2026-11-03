@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import HomeGate from '@/components/HomeGate'
 import clsx from 'clsx'
 import { BarChart3, Building2, Camera, ClipboardCheck, Grid2x2, IdCard, LogOut, Navigation, ReceiptText, Settings2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -90,7 +91,7 @@ export default function Shell() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-6 pb-28 lg:pb-6">
-        <Outlet />
+        <HomeGate><Outlet /></HomeGate>
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-200 bg-surface lg:hidden">

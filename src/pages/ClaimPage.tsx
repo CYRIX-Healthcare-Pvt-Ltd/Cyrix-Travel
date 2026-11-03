@@ -3,12 +3,13 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lateBy, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
+import { HOME_M, startName, stayMinutes, stayText } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -442,6 +443,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const dep = depOn(data.deputations, d.day)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const shots = matchPhotos(d.rides, d.day, data.visit_photos, data.photo_setup)
+  const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
   // Each line its own raised card (the user, 30 Oct: "it looks very plain", "like each ride 3d? div?"); red while its bill is still needed.
   const tile = ' rounded-lg border px-3 shadow-[0_1px_2px_rgb(15_23_42/0.07),0_3px_8px_-2px_rgb(15_23_42/0.08)]'
   const mark = (id: string) => tile + (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' border-cyrixRed-300 bg-cyrixRed-50' : ' border-ink-200 bg-surface')
@@ -543,9 +545,11 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 
       {(
         <div data-details className="grid gap-x-2 gap-y-2 rounded-xl bg-ink-100/60 p-2" style={{ gridTemplateColumns: cols }}>
-          {hasMap && (
-            <div className="col-span-full flex justify-end px-1 pt-0.5">
-              <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>
+          {(hasMap || dayStart) && (
+            <div className="col-span-full flex items-center justify-end gap-3 px-1 pt-0.5">
+              {/* Where and when the day was started (te_0104). */}
+              {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">Day started {clock(dayStart.at)} · <b className="font-semibold text-ink-800">{short(startName(dayStart))}</b>{dayStart.home_m != null && dayStart.home_m > HOME_M && ` · ${km(dayStart.home_m / 1000)} from home`}</span></span>}
+              {hasMap && <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>}
             </div>
           )}
           {d.rides.map(r => {
@@ -590,7 +594,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
                       <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? short(r.to_name)} · ${clock(hit.photo.shot_at)}`} className="h-9 w-9" />
-                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{data.usual_device && hit.photo.device_id && hit.photo.device_id !== data.usual_device.device_id && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
+                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{(() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{data.usual_device && hit.photo.device_id && hit.photo.device_id !== data.usual_device.device_id && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
                     </span>
                   )
                   return r.photo_skip
@@ -723,6 +727,9 @@ export const OBS = {
   photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera, group: 'photos' },
   photophone: { title: 'Visit photo from another phone', level: 'approve', icon: Smartphone, group: 'photos' },
   photospeed: { title: 'Too fast between visit photos', level: 'approve', icon: Timer, group: 'photos' },
+  nostart:  { title: 'Day not started in the app', level: 'check', icon: Sunrise, group: 'start' },
+  startfar: { title: 'Day started away from home', level: 'check', icon: Sunrise, group: 'start' },
+  startoff: { title: 'First ride not from where the day started', level: 'approve', icon: Sunrise, group: 'start' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
   hotel:    { title: 'Over the room limit',      level: 'check',   icon: BedDouble, group: 'policy' },
@@ -749,6 +756,7 @@ const GROUPS = {
   km:      { title: 'Km and fares', icon: Gauge },
   policy:  { title: 'Policy and allowance', icon: ShieldAlert },
   tickets: { title: 'Tickets and bookings', icon: TicketIcon },
+  start:   { title: 'Start of day', icon: Sunrise },
   home:    { title: 'Home', icon: House },
   changes: { title: 'Changed by approvers', icon: PencilLine },
 } as const
@@ -860,6 +868,18 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Room stay · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
       if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Room stay · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
     }
+    /*
+      Start my day (te_0104; the user, 3 Nov: "in observation it will show isnt, ie start location far from home"): a day
+      with rides and no start, a start more than 500 m from home (after a room stay, said so), a first ride from elsewhere.
+    */
+    const st = data.day_starts?.find(s => s.day === d.day), first = d.rides[0]
+    if (first && data.day_start_from && d.day >= data.day_start_from && !st) items.push({ kind: 'nostart', day, to: first.id, detail: `First ride from ${short(first.from_name)}` })
+    if (st && st.home_m != null && st.home_m > HOME_M) {
+      const before = data.days.find(x => x.day === new Date(new Date(d.day + 'T00:00:00').getTime() - 86_400_000).toLocaleDateString('en-CA'))
+      items.push({ kind: 'startfar', day, to: first?.id, detail: `${short(startName(st))} at ${clock(st.at)} · ${km(st.home_m / 1000)} from home${before?.hotel || before?.room_by ? ' · after a room stay' : ''}` })
+    }
+    if (st && first?.from_lat != null && distanceKm(st, { lat: first.from_lat, lng: first.from_lng! }) > 0.5)
+      items.push({ kind: 'startoff', day, to: first.id, detail: `From ${short(first.from_name)}, ${km(distanceKm(st, { lat: first.from_lat, lng: first.from_lng! }))} from where the day started (${short(startName(st))})` })
     // Visit photos too far apart for the time between them (te_0089), said to the person too; the day still saves.
     for (const x of photoRush(d.rides, d.day, data.visit_photos, setup)) {
       const at = (p: VisitPhoto, i: number) => `${i >= 0 ? short(d.rides[i].to_name) : short(p.place)} ${clock(p.shot_at)}`

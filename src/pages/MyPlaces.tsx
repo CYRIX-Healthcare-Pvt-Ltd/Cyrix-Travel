@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { placeName, whereAmI } from '@/lib/geo'
 import { useAuth } from '@/contexts/AuthContext'
 import { distanceKm, km, rpc, type Place } from '@/lib/claims'
+import { useHomeChanges } from '@/lib/travel'
 
 /*
   My places (the user, 17 Oct): the places this person named — home, an office, a hospital they visit
@@ -77,8 +78,9 @@ export default function MyPlaces() {
   const setHomeAt = async (at: { lat: number; lng: number }, how: 'here' | 'map') => {
     const { error: e } = await supabase.rpc('travel_set_home', { p_lat: at.lat, p_lng: at.lng, p_how: how })
     if (e) throw new Error(e.message)
-    await qc.invalidateQueries({ queryKey: ['te_home'] })
+    await Promise.all(['te_home', 'te_home_changes'].map(k => qc.invalidateQueries({ queryKey: [k] })))
   }
+  const changes = useHomeChanges()
   /*
     A change of home says from where to where before it is saved (the user, 21 Oct: "if changing home show an
     alert that home location will be changed from this to that"). The phone's own wobble (under 200 m) is no change.
@@ -86,7 +88,9 @@ export default function MyPlaces() {
   const coords = (p: { lat: number; lng: number }) => `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`
   const changeHome = (to: { lat: number; lng: number }, toName: string, how: 'here' | 'map') => ask.confirm({
     title: 'Change your home?',
-    body: `From: ${homeName ?? coords(home!)}\nTo: ${toName} · ${km(distanceKm(home!, to))} away\n\nYour approvers will see this move${how === 'map' ? ', set on the map' : ''}.`,
+    body: `From: ${homeName ?? coords(home!)}\nTo: ${toName} · ${km(distanceKm(home!, to))} away\n\nYour approvers will see this move${how === 'map' ? ', set on the map' : ''}.${changes ? `
+
+Changes left this month: ${Math.max(changes.limit - changes.used, 0)} of ${changes.limit}` : ''}`,
     yes: 'Change home',
   })
   const markHome = async () => {

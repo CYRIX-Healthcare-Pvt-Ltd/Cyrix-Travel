@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
 import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
 import type { VisitPhoto, VisitSetup } from './visits'
+import type { DayStart } from './dayStart'
 import type { Tone } from './tones'
 
 /*
@@ -197,6 +198,8 @@ export interface Rule {
 export interface ClaimData {
   /** Out-of-policy vehicles approved over the claim's days (te_0096). */
   vehicles?: VehicleSpan[]
+  /** Start my day (te_0104): the day it is asked from, and the claim month's starts. */
+  day_start_from?: string | null; day_starts?: DayStart[]
   claim: {
     id: string; employee_id: string; month: string; part: number; status: string; number: string | null
     grade: string | null; designation: string | null; base_location: string | null; project: string | null; mobile: string | null
@@ -1032,8 +1035,9 @@ export const useMyClaims = () => useQuery({
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
-  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id })]).then(([d, v]) => {
+  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id }), rpc<{ from: string | null; starts: DayStart[] }>('te_claim_starts', { p_claim: id })]).then(([d, v, s]) => {
     d.vehicles = v ?? []
+    d.day_start_from = s?.from ?? null; d.day_starts = s?.starts ?? []
     d.purposes = alphabetical(d.purposes ?? [], p => p)
     if (d.expense_kinds) d.expense_kinds = alphabetical(d.expense_kinds, k => k.label)
     setExpenseKinds(d.expense_kinds)

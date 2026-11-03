@@ -3,6 +3,8 @@ import { Navigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Camera, CloudUpload, LayoutGrid, MapPin, Trash2, X } from 'lucide-react'
 import VisitCamera from '@/components/VisitCamera'
+import { StartArt, StartDayButton, startPreview, startTitle, useMyStarts } from '@/components/StartDay'
+import { startName, useMyDay, type DayStart } from '@/lib/dayStart'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
@@ -35,6 +37,12 @@ export default function VisitPhotos() {
   const { from, to } = custom ? (span.from <= span.to ? span : { from: span.to, to: span.from }) : thisMonth
   const { data, isLoading } = useMyPhotos(from, to)
   const urls = usePhotoUrls((data ?? []).map(p => p.path)).data ?? {}
+  // Start my day (te_0104): pressed first each day, then the camera; the day's start is its first tile, drawn.
+  const { data: myDay } = useMyDay()
+  const { data: savedStarts } = useMyStarts(from, to)
+  const [tried, setTried] = useState<DayStart | null>(null)
+  const starts = [...(savedStarts ?? []), ...(tried && !(savedStarts ?? []).some(s => s.day === tried.day) ? [tried] : [])]
+  const mustStart = (startPreview || !!myDay?.required) && !starts.some(s => s.day === today) && !myDay?.start
   const [camera, setCamera] = useState(false)
   const [note, setNote] = useState<{ kind: 'success' | 'info' | 'error'; text: string } | null>(null)
   const [waiting, setWaiting] = useState(0)
@@ -65,14 +73,16 @@ export default function VisitPhotos() {
     if (!(await ask.confirm({ title: 'Delete this photo?', body: `${p.place ?? 'Visit photo'} · ${clock(p.shot_at)}`, yes: 'Delete', danger: true }))) return
     try { await deletePhoto(p.id); setOpen(null); await refresh() } catch (e) { await ask.alert('Not deleted', (e as Error).message, 'warn') }
   }
-  const days = [...new Set((data ?? []).map(p => p.day))]
+  const days = [...new Set([...(data ?? []).map(p => p.day), ...starts.map(s => s.day!)])].sort().reverse()
 
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Camera className="h-5 w-5 text-rose-600" /> Visit photos</h1>
-      <button type="button" className="btn-primary btn-go h-12 w-full text-base sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(true) }}>
-        <Camera className="h-5 w-5" /> Take visit photo
-      </button>
+      {mustStart ? <StartDayButton onStarted={s => setTried(s)} /> : (
+        <button type="button" className="btn-primary btn-go h-12 w-full text-base sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(true) }}>
+          <Camera className="h-5 w-5" /> Take visit photo
+        </button>
+      )}
       {note && <Alert kind={note.kind}>{note.text}</Alert>}
       {waiting > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 ring-1 ring-amber-200">
@@ -108,14 +118,27 @@ export default function VisitPhotos() {
       {isLoading ? <PageLoader /> : days.length === 0 ? (
         <div className="card p-6 text-center text-sm text-ink-500">No visit photos {custom ? 'in these dates' : 'this month'}.</div>
       ) : days.map(day => {
-        const list = (data ?? []).filter(p => p.day === day)
+        const list = (data ?? []).filter(p => p.day === day), st = starts.find(s => s.day === day)
         return (
           <section key={day} className="space-y-2">
             <h2 className="text-sm font-semibold text-ink-700">
               {new Date(day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
-              <span className="ml-2 text-xs font-normal text-ink-500">{list.length} {list.length === 1 ? 'photo' : 'photos'}</span>
+              {list.length > 0 && <span className="ml-2 text-xs font-normal text-ink-500">{list.length} {list.length === 1 ? 'photo' : 'photos'}</span>}
             </h2>
             <div className={`grid ${COLS[cols]}`}>
+              {/* The day's start: a drawn picture, its place and time, nothing to change or delete. */}
+              {st && (
+                <div className={`card overflow-hidden text-left ${cols >= 4 ? '!rounded-lg' : ''}`}>
+                  <div className={`relative ${cols >= 4 ? 'aspect-square' : 'aspect-[4/3]'}`}>
+                    <StartArt home={startName(st) === 'Home'} />
+                    {cols >= 4 && <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] font-medium leading-4 text-white">{clock(st.at)}</span>}
+                  </div>
+                  {cols < 4 && <div className={`space-y-0.5 ${cols === 3 ? 'px-2 py-1.5' : 'px-2.5 py-2'}`}>
+                    <p className="truncate text-sm font-semibold text-ink-900">{startTitle(st)}</p>
+                    <p className="text-xs text-ink-500">Day started · {clock(st.at)}</p>
+                  </div>}
+                </div>
+              )}
               {list.map(p => {
                 const late = lateBy(p)
                 return (

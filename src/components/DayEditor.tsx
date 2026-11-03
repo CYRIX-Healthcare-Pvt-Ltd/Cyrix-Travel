@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -262,6 +263,22 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const near = (a: Place | null, lat: number | null | undefined, lng: number | null | undefined) => !!a && lat != null && lng != null && distanceKm(a, { lat, lng }) <= 0.3
   const commute = (r: Ride) => (near(home, r.from_lat, r.from_lng) && near(work, r.to_lat, r.to_lng)) || (near(work, r.from_lat, r.from_lng) && near(home, r.to_lat, r.to_lng))
   const paid = (r: Ride) => rideAmount({ ...r, commute: commute(r) }, rule)
+  /*
+    Start my day (te_0104): the day's first ride starts where the day was started — Home when within 500 m of it — and
+    that From is not changed here (the user, 3 Nov: "start my day, with the first ride's From locked to where he pressed").
+  */
+  const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
+  const { data: myDay } = useMyDay()
+  const notStarted = !!myDay?.required && !myDay.start
+  const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
+  const firstId = d.rides[0]?.id
+  useEffect(() => {
+    const r = latest.current.rides[0]
+    if (!startPlace || !r) return
+    if (r.from_lat != null && distanceKm(startPlace, { lat: r.from_lat, lng: r.from_lng! }) <= 0.05 && r.from_name === startPlace.name) return
+    void placed(r.id, 'from', startPlace)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstId, startPlace?.name, startPlace?.lat, startPlace?.lng])
 
   // The hotel of the night, found from its voucher: one tap for the ride to it, or from it (the user, 21 Oct).
   const [stayAt, setStayAt] = useState<(Place & { label: string }) | null>(null)
@@ -699,12 +716,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 const m = MODES[r.mode]
                 const notAllowed = outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)
                 const read = m.perKm ? null : billRead(data.bills, r.id)
+                const locked = i === 0 && !!startPlace
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
-                  <button type="button" id={`${end}-${r.id}`} onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
+                  <button type="button" id={`${end}-${r.id}`} disabled={end === 'from' && locked} onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
                     className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'text-ink-700'} ${end === 'to' && nudged(r.id, 'to') ? 'ring-2 ring-cyrixRed-500' : ''}`}>
                     <span className="grid w-4 shrink-0 place-items-center">{end === 'from' ? <span className="h-2.5 w-2.5 rounded-full bg-teal-500" /> : <MapPin className="h-4 w-4 text-cyrixRed-600" />}</span>
                     <span className="w-9 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{end === 'from' ? 'From' : 'To'}</span>
                     <span className="truncate">{name ?? (end === 'from' ? 'Choose where you started' : 'Choose where you went')}</span>
+                    {end === 'from' && locked && <Sunrise className="ml-auto h-4 w-4 shrink-0 text-amber-500" aria-label="Where the day started" />}
                   </button>
                 )
                 return (
@@ -801,7 +820,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         return (
                           <div className="mt-2 ml-6 flex items-center gap-2.5 rounded-lg bg-emerald-50 px-2 py-1.5 ring-1 ring-emerald-200">
                             <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? to} · ${clock(hit.photo.shot_at)}`} />
-                            <p className="min-w-0 text-xs text-emerald-900"><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${to}`}{late && <span className="font-semibold text-amber-700"> · {late}</span>}</p>
+                            <p className="min-w-0 text-xs text-emerald-900"><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${to}`}{(() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{late && <span className="font-semibold text-amber-700"> · {late}</span>}</p>
                           </div>
                         )
                       }
@@ -812,7 +831,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       return (
                         <div className="mt-2 ml-6 space-y-1.5 rounded-lg bg-amber-50 px-2.5 py-2 ring-1 ring-amber-200">
                           <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900"><CameraOff className="h-3.5 w-3.5" /> No visit photo
-                            {d.day === today && <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setCameraFor(r.id)}><Camera className="h-3.5 w-3.5" /> Take photo</button>}
+                            {d.day === today && (notStarted
+                              ? <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => nav('/photos')}><Sunrise className="h-3.5 w-3.5" /> Start my day</button>
+                              : <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setCameraFor(r.id)}><Camera className="h-3.5 w-3.5" /> Take photo</button>)}
                           </p>
                           {open && <input className={`input h-10 w-full text-sm ${!why.trim() ? '!border-amber-400' : ''}`} aria-label="Why there is no visit photo" placeholder="Why no photo (required)" value={why} onChange={e => setRide(r.id, { photo_skip: e.target.value === '' ? null : e.target.value })} />}
                           <p className="text-[11px] font-medium text-amber-800">{left >= 0 ? (left > 0 || r.photo_skip != null ? `${left} of ${lim} left in ${month}` : `${lim} of ${lim} used in ${month}${blocked ? '' : ` · ${boss} decides`}`) : `Over the ${lim} a month · ${boss} decides`}</p>
@@ -854,7 +875,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   return
                 }
                 setNudge(null)
-                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
+                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? home : null
                 set({ rides: [...d.rides, blankRide(from, carry())] })
               }}><span className="grid h-6 w-6 place-items-center rounded-full bg-teal-600 text-white"><Plus className="h-4 w-4" /></span> {d.rides.length ? 'Add another ride' : 'Add a ride'}</button>
 
