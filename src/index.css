@@ -846,6 +846,20 @@
     }
   }
 
+  /*
+    A pick list's box takes the colour the browser gives real fields, so it matches them. iPhone Safari paints Field
+    white on a button in dark mode, with light text on it (the user, 3 Nov: "Da field not visible"); its own fields
+    are clear there, so the box is too.
+  */
+  .pick-field {
+    background-color: Field;
+  }
+  @supports (-webkit-touch-callout: none) {
+    .pick-field {
+      background-color: transparent;
+    }
+  }
+
   .input {
     @apply w-full rounded-lg border border-ink-200 px-3 py-2 text-sm
            placeholder:text-ink-300 focus:outline-none focus:ring-1

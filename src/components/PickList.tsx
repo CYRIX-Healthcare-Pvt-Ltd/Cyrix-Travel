@@ -82,7 +82,7 @@ export default function PickList({ id, value, options, placeholder, title, onCha
         aria-expanded={!!open}
         onClick={() => (open ? close() : show())}
         onKeyDown={onKey}
-        className={`input flex w-full min-w-0 items-center gap-2 !pr-2 text-left text-sm [background-color:Field] ${tall ? 'h-11' : 'h-10'} ${chosen ? '' : '!border-amber-400'} ${alarm ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-500' : ''}`}
+        className={`input flex w-full min-w-0 items-center gap-2 !pr-2 text-left text-sm pick-field ${tall ? 'h-11' : 'h-10'} ${chosen ? '' : '!border-amber-400'} ${alarm ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-500' : ''}`}
       >
         {chosen && Icon
           ? <span aria-hidden className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${TONE_SOFT[chosen.tone]}`}><Icon className="h-3.5 w-3.5" /></span>
