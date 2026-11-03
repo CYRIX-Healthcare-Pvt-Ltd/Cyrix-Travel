@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAuth } from '@/contexts/AuthContext'
 import { initialsOf } from '@/components/Avatar'
 import { claimIssues } from '@/pages/ClaimPage'
 import { Link, useLocation, useNavigationType, useSearchParams } from 'react-router-dom'
@@ -67,6 +68,17 @@ export const keptTab = (): Tab => { try { const t = sessionStorage.getItem(TAB_K
 
 export default function Inbox() {
   const { data, isLoading, error } = useInbox()
+  /*
+    A desk or admin person who also has reportees sees the whole company here; My team keeps only the people under
+    them, and opens first (te_0099; the user, 3 Nov: "this smitha has reportees also … how to only take here teams?",
+    "default for admin should be my team").
+  */
+  const { isDesk, isAdmin } = useAuth()
+  const { data: team } = useQuery({ queryKey: ['te_my_team'], enabled: isDesk || isAdmin, staleTime: 10 * 60_000, queryFn: () => rpc<string[]>('te_my_team') })
+  const both = (isDesk || isAdmin) && !!team?.length
+  const [scope, setScopeState] = useState<'team' | 'all'>(() => { try { return sessionStorage.getItem('te.approvals.scope') === 'all' ? 'all' : 'team' } catch { return 'team' } })
+  const setScope = (v: 'team' | 'all') => { setScopeState(v); try { sessionStorage.setItem('te.approvals.scope', v) } catch { /* only a convenience */ } }
+  const inScope = (id: string) => !both || scope === 'all' || team!.includes(id)
   const sent = useLocation().state as { done?: string; tab?: Tab } | null
   const done = sent?.done
   const find = useClaimFilter('te.approvals')
@@ -85,7 +97,7 @@ export default function Inbox() {
 const switches: Array<readonly [string, string, number]> = [['claims', 'Claims', (data ?? []).filter(c => c.waiting).length] as const,    ...((advances ?? []).length ? [['advances', 'Advances', advances!.filter(a => a.waiting).length] as const] : []),    ...((deputations ?? []).length ? [['deputation', 'Deputation', deputations!.filter(x => x.waiting).length] as const] : []),    ...((vehicles ?? []).length ? [['vehicle', 'Vehicle', vehicles!.filter(x => x.waiting).length] as const] : [])]
   const [approving, setApproving] = useState(false)
   if (isLoading) return <PageLoader />
-  const found = (data ?? []).filter(find.test)
+  const found = (data ?? []).filter(c => inScope(c.employee_id) && find.test(c))
   /*
     Passed on and not yet paid, and paid (the user, 21 Oct: "it is what the manager approves, the pending
     payment"); a claim sent back sits with the unpaid ones, its chip saying where it is.
@@ -144,6 +156,14 @@ const switches: Array<readonly [string, string, number]> = [['claims', 'Claims',
       {/* Claims / Advances / Deputation beside the title; the search and days go with To approve / To be paid / Paid, which they sift (the user, 30 Oct). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><ClipboardCheck className="h-5 w-5 text-green-600" /> Approvals</h1>
+      {both && view === 'claims' && (
+        <div className="inline-flex shrink-0 rounded-xl bg-ink-100 p-1" role="tablist" aria-label="Whose claims">
+          {([['team', 'My team'], ['all', isDesk ? 'Travel Desk' : 'Everyone']] as const).map(([k, l]) => (
+            <button key={k} type="button" role="tab" aria-selected={scope === k} onClick={() => setScope(k)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold sm:px-4 ${scope === k ? 'bg-surface text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'}`}>{l}</button>
+          ))}
+        </div>
+      )}
       {/* A switch only for what this person has: no Advances without a single one (the user, 2 Nov). */}
       {switches.length > 1 && (
         <div className="inline-flex shrink-0 rounded-xl bg-ink-100 p-1" role="tablist">
