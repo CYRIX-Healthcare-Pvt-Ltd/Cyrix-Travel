@@ -3,6 +3,8 @@ import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
 import { startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
+import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
+import { startMyDay } from '@/components/StartDay'
 import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -172,13 +174,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const [typingKm, setTypingKm] = useState<string | null>(null)
   // Visit photos (te_0082): the camera opened from a ride of today, and "Photo not possible" used this month so far.
   const [cameraFor, setCameraFor] = useState<string | null>(null)
+  // A To taken by the camera (the user, 3 Nov): the photo is saved, and where it was taken is the ride's end.
+  const [cameraTo, setCameraTo] = useState<string | null>(null)
   const setup = data.photo_setup
   const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
   // Each ride its own photo (te_0092): a hospital gone to twice needs two.
   const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
   const photoNeeded = (r: Ride) => needsPhoto(r, setup) && !!d.day && !shots.has(r.id)
   // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
-  const dayPhotos = useMemo(() => (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
+  const dayPhotos = useMemo(() => photosPreview && d.day ? previewPhotos(d.day) : (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
   // Rides claimed in another order than their photos were taken: said on the ride, and Save waits (the user, 30 Oct).
   const order = setup?.on && d.day ? photoOrder(d.rides, d.day, data.visit_photos, setup) : null
   const orderText = order && {
@@ -270,6 +274,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
   const { data: myDay } = useMyDay()
   const notStarted = !!myDay?.required && !myDay.start
+  const startHere = async () => {
+    try {
+      await startMyDay()
+      await Promise.all([qc.invalidateQueries({ queryKey: ['te_my_day'] }), qc.invalidateQueries({ queryKey: ['te_my_starts'] }), qc.invalidateQueries({ queryKey: ['te_claim', c.id] })])
+    } catch (e) { void ask.alert('Day not started', (e as Error).message, 'warn') }
+  }
   const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
   const firstId = d.rides[0]?.id
   useEffect(() => {
@@ -875,7 +885,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   return
                 }
                 setNudge(null)
-                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? home : null
+                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? (notStarted && d.day === today ? null : home) : null
                 set({ rides: [...d.rides, blankRide(from, carry())] })
               }}><span className="grid h-6 w-6 place-items-center rounded-full bg-teal-600 text-white"><Plus className="h-4 w-4" /></span> {d.rides.length ? 'Add another ride' : 'Add a ride'}</button>
 
@@ -1041,6 +1051,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           </div>
         </Dialog>
       )}
+      {cameraTo && <VisitCamera onClose={() => setCameraTo(null)} onDone={(text, q, at) => {
+        const id = cameraTo
+        setCameraTo(null); refresh()
+        if (at) void placed(id, 'to', { name: at.place ?? `${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`, lat: at.lat, lng: at.lng })
+        if (q) void ask.alert('Kept on this phone', text, 'info')
+      }} />}
       {cameraFor && <VisitCamera onClose={() => setCameraFor(null)} onDone={(text, q) => { setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info') }} />}
       {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
       {picking && ride && (
@@ -1055,6 +1071,18 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           photos={dayPhotos}
           used={setup && d.day ? d.rides.map(r => (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo.id).filter((x): x is string => !!x) : []}
           onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
+          /*
+            Today, before the day is started, the first ride's From is Start my day: the press is the From, and it is
+            locked from then (the user, 3 Nov: "how to having start my day?, it should be from isnt"). The To's camera
+            follows once the day is started.
+          */
+          camera={setup?.on && d.day === today
+            ? notStarted
+              ? { label: 'Start my day', icon: <Sunrise className="h-5 w-5" />, onPress: () => { setPicking(null); void startHere() }, only: true }
+              : picking.end === 'to'
+                ? { label: 'Take visit photo', icon: <Camera className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setCameraTo(id) } }
+                : undefined
+            : undefined}
           onClose={() => setPicking(null)}
         />
       )}

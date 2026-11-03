@@ -22,6 +22,18 @@ export const useMyStarts = (from: string, to: string) => useQuery({
   },
 })
 
+/** Saves where the phone is as the day's start (te_0104), and says it. */
+export async function startMyDay(): Promise<DayStart> {
+  // The local preview, with location off, starts at a sample spot (Vyttila).
+  const fix = await whereAmI().catch(e => { if (startPreview) return { lat: 9.9667, lng: 76.3186, accuracy: 10 }; throw e })
+  const place = await placeName(fix)
+  if (!startPreview) {
+    const { error } = await supabase.rpc('te_start_day', { p_lat: fix.lat, p_lng: fix.lng, p_accuracy: fix.accuracy, p_place: place })
+    if (error) throw new Error(friendlyError(error))
+  }
+  return { day: new Date().toLocaleDateString('en-CA'), at: new Date().toISOString(), lat: fix.lat, lng: fix.lng, place, home_m: null }
+}
+
 export function StartDayButton({ onStarted }: { onStarted?: (s: DayStart) => void }) {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
@@ -29,15 +41,9 @@ export function StartDayButton({ onStarted }: { onStarted?: (s: DayStart) => voi
   const press = async () => {
     setBusy(true); setErr(null)
     try {
-      // The local preview, with location off, starts at a sample spot (Vyttila).
-      const fix = await whereAmI().catch(e => { if (startPreview) return { lat: 9.9667, lng: 76.3186, accuracy: 10 }; throw e })
-      const place = await placeName(fix)
-      if (!startPreview) {
-        const { error } = await supabase.rpc('te_start_day', { p_lat: fix.lat, p_lng: fix.lng, p_accuracy: fix.accuracy, p_place: place })
-        if (error) throw new Error(friendlyError(error))
-        await Promise.all(['te_my_day', 'te_my_starts'].map(k => qc.invalidateQueries({ queryKey: [k] })))
-      }
-      onStarted?.({ day: new Date().toLocaleDateString('en-CA'), at: new Date().toISOString(), lat: fix.lat, lng: fix.lng, place, home_m: null })
+      const s = await startMyDay()
+      await Promise.all(['te_my_day', 'te_my_starts'].map(k => qc.invalidateQueries({ queryKey: [k] })))
+      onStarted?.(s)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   return (

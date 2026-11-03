@@ -10,7 +10,7 @@ import { deviceId, deviceName, grab, newPending, queuePhoto, sendPhoto, stamp, s
   so nothing from the gallery can come in. The location is read all the while; the frame is taken at the press and
   stamped with the date, time, place, point and who before it is kept.
 */
-export default function VisitCamera({ onClose, onDone }: { onClose: () => void; onDone: (text: string, queued: boolean) => void }) {
+export default function VisitCamera({ onClose, onDone }: { onClose: () => void; onDone: (text: string, queued: boolean, at?: { lat: number; lng: number; place: string | null }) => void }) {
   const { employee } = useAuth()
   const video = useRef<HTMLVideoElement>(null)
   const [live, setLive] = useState(false)
@@ -61,12 +61,13 @@ export default function VisitCamera({ onClose, onDone }: { onClose: () => void; 
     if (!shot || !employee) return
     setBusy('sending'); setErr(null)
     const p = newPending(shot.blob, employee.id, shot.fix, shot.at, shot.place)
-    try { await sendPhoto(p); onDone('Photo saved', false) }
+    const where = { lat: shot.fix.lat, lng: shot.fix.lng, place: shot.place }
+    try { await sendPhoto(p); onDone('Photo saved', false, where) }
     catch (e) {
       if ((e as { refused?: boolean }).refused) { setErr((e as Error).message); setBusy(null); return }
       // No signal: it waits on the phone and goes when the phone is back online.
       await queuePhoto(p)
-      onDone('No signal. The photo is kept on this phone and goes by itself when the signal is back', true)
+      onDone('No signal. The photo is kept on this phone and goes by itself when the signal is back', true, where)
     }
   }
 

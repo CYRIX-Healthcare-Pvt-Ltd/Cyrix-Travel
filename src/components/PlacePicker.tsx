@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useBackCloses } from '@/lib/useBackCloses'
 import { BedDouble, Camera, Check, Crosshair, Home, Hospital, MapPin, Search, Star, X } from 'lucide-react'
@@ -16,7 +16,7 @@ import { clock, usePhotoUrls, type VisitPhoto } from '@/lib/visits'
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes }: {
+export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes, camera }: {
   title: string
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
@@ -36,6 +36,8 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
   /** Only a spot is wanted (a home): no name to write and nothing to save. */
   plain?: boolean
   yes?: string
+  /** Today's To: the camera, whose photo is the place (the user, 3 Nov: "on travel itself they want to claim, so we need camera option here also"). */
+  camera?: { label: string; icon: ReactNode; onPress: () => void; only?: boolean }
 }) {
   // Saved places first (te_0023; the user, 17 Oct), and saving the one chosen with a name.
   const { data: saved } = useMyPlaces()
@@ -211,6 +213,13 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
           there why downward?"); each kind its own colour — saved amber star, home teal, hotel violet, hospital red,
           a place used before a grey pin.
         */}
+        {camera && (
+          <button type="button" className="btn-primary btn-go h-12 w-full shrink-0 text-base" onClick={camera.onPress}>{camera.icon} {camera.label}</button>
+        )}
+        {/* Before the day is started, Start my day is the only way on (the user, 3 Nov: "i didnt start my day, still it is doable"). */}
+        {camera?.only ? (
+          <div className="flex justify-end"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button></div>
+        ) : <>
         {/* The day's visit photos first, earliest first: the photo is the place. */}
         {(photos ?? []).length > 0 && (
           <div className="shrink-0">
@@ -220,7 +229,7 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
                 <button key={ph.id} type="button" onClick={() => void pickPhoto(ph)} disabled={!!fromPhoto}
                   className={`w-24 shrink-0 overflow-hidden rounded-xl border text-left transition-colors ${used?.includes(ph.id) ? 'border-emerald-500 outline outline-2 -outline-offset-2 outline-emerald-500' : 'border-ink-200 hover:border-ink-400'}`}>
                   <span className="relative grid h-14 w-full place-items-center overflow-hidden bg-ink-100">
-                    {ph.path && photoUrls[ph.path] ? <img src={photoUrls[ph.path]} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <Camera className="h-5 w-5 text-ink-400" />}
+                    {ph.path && (ph.path.startsWith('data:') || photoUrls[ph.path]) ? <img src={ph.path.startsWith('data:') ? ph.path : photoUrls[ph.path]} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <Camera className="h-5 w-5 text-ink-400" />}
                     {used?.includes(ph.id) && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white shadow"><Check className="h-3.5 w-3.5" strokeWidth={3} /></span>}
                     {fromPhoto === ph.id && <span className="absolute inset-0 grid place-items-center bg-black/40"><Spinner className="h-5 w-5 text-white" /></span>}
                   </span>
@@ -300,6 +309,7 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
             else void finish(picked, false)
           }}>{yes ?? (askName ? 'Save place' : 'Use this place')}</button>
         </div>
+        </>}
       </div>
       {naming !== null && picked && (
         <NameThisPlace at={picked} start={naming} onCancel={() => { setNaming(null); knownAt.current = null }}
