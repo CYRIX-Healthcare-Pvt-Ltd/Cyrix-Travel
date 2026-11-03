@@ -28,6 +28,8 @@ export const startName = (s: DayStart) => (s.home_m != null && s.home_m <= HOME_
   no km, or a flight is between.
 */
 const TOWN_KMH: Record<string, number> = { bike: 30, car: 35, auto: 25, taxi: 35, taxi_bike: 30, bus: 25, metro: 35, train: 50 }
+// From 10 km, the open road (the user, 3 Nov: "if in bike, we can take like 60km, we can reach by 90 mins").
+const ROAD_KMH: Record<string, number> = { bike: 40, car: 50, auto: 30, taxi: 50, taxi_bike: 40, bus: 40, metro: 35, train: 60 }
 type StayRide = { id: string; mode: string; claimed_km: number | null; map_km: number | null }
 export function stayMinutes(rides: StayRide[], shots: Map<string, { photo: VisitPhoto }>, rideId: string): number | null {
   const i = rides.findIndex(r => r.id === rideId), here = shots.get(rideId)
@@ -36,7 +38,7 @@ export function stayMinutes(rides: StayRide[], shots: Map<string, { photo: Visit
   if (j < 0) return null
   let road = 0
   for (const r of rides.slice(i + 1, j + 1)) {
-    const km = r.map_km ?? r.claimed_km, v = TOWN_KMH[r.mode]
+    const km = r.map_km ?? r.claimed_km, v = (km != null && km >= 10 ? ROAD_KMH : TOWN_KMH)[r.mode]
     if (km == null || !v) return null
     road += (km / v) * 60
   }

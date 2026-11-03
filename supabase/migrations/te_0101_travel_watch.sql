@@ -130,7 +130,7 @@ begin
     /*
       From one visit photo, or the day's start (te_0104), to the next (the user, 3 Nov): too fast for the km between them;
       a short visit or a long gap, the time at a place being the time to the next photo less the road time, the straight
-      line × 1.3 at 30 km/h.
+      line × 1.3 at 30 km/h, 40 km/h from 10 km (the user, 3 Nov: "if in bike … 60km, we can reach by 90 mins").
     */
     select z.employee_id, z.day, null, null, z.kind, z.weight, z.detail, null, z.point from (
       select y.employee_id, y.day,
@@ -142,11 +142,11 @@ begin
           then split_part(y.a_place, ',', 1) || ' ' || to_char(y.a_at at time zone 'Asia/Kolkata', 'FMHH12:MI am') || ' → ' || split_part(y.b_place, ',', 1) || ' ' || to_char(y.b_at at time zone 'Asia/Kolkata', 'FMHH12:MI am')
             || ': ' || round(y.km::numeric, 1) || ' km in ' || round(y.mins::numeric) || ' min = ' || round((y.km / greatest(y.mins, 1) * 60)::numeric) || ' km/h, limit ' || fast
           else 'About ' || case when y.stay >= 60 then floor(y.stay / 60) || ' h ' || round(y.stay::numeric % 60) || ' m' else greatest(round(y.stay::numeric), 0) || ' min' end || ' at ' || split_part(y.a_place, ',', 1) || ' (photo ' || to_char(y.a_at at time zone 'Asia/Kolkata', 'FMHH12:MI am') || ', next ' || split_part(y.b_place, ',', 1) || ' '
-            || to_char(y.b_at at time zone 'Asia/Kolkata', 'FMHH12:MI am') || ', ~' || round((y.km * 1.3 / 30 * 60)::numeric) || ' min road for ' || round((y.km * 1.3)::numeric, 1) || ' km)' end detail,
+            || to_char(y.b_at at time zone 'Asia/Kolkata', 'FMHH12:MI am') || ', ~' || round(y.road_min::numeric) || ' min road for ' || round((y.km * 1.3)::numeric, 1) || ' km)' end detail,
         case when y.km >= 2 and y.km / greatest(y.mins, 1) * 60 > fast then jsonb_build_object('lat', y.b_lat, 'lng', y.b_lng)
           else jsonb_build_object('lat', y.a_lat, 'lng', y.a_lng) end point
       from (
-        select x.*, x.mins - x.km * 1.3 / 30 * 60 stay from (
+        select x.*, x.mins - x.road_min stay from (select x0.*, x0.km * 1.3 / (case when x0.km * 1.3 >= 10 then 40 else 30 end) * 60 road_min from (
           select p.employee_id, p.day, p.place a_place, p.at a_at, p.is_start a_start, p.lat a_lat, p.lng a_lng,
             lead(p.place) over w b_place, lead(p.at) over w b_at, lead(p.lat) over w b_lat, lead(p.lng) over w b_lng,
             te_m(p.lat, p.lng, lead(p.lat) over w, lead(p.lng) over w) / 1000 km,
@@ -159,7 +159,7 @@ begin
             from te_day_starts s join real r on r.id = s.employee_id where s.day between f and t
           ) p
           window w as (partition by p.employee_id, p.day order by p.at)
-        ) x where x.b_at is not null
+        ) x0) x where x.b_at is not null
       ) y
     ) z where z.kind is not null
     union all

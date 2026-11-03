@@ -90,7 +90,7 @@ const EXPENSE_TONES: Record<string, Tone> = {
 export const expenseTone = (category: string): Tone => EXPENSE_TONES[category] ?? 'slate'
 /** Each purpose its own picture and colour in the dropdown (the user, 2 Nov: "Make dropdown beautiful"); one SW Admin adds later gets a pin. */
 const PURPOSE_LOOKS: Array<[RegExp, LucideIcon, Tone]> = [
-  [/hospital|clinic|phc|chc/i, Hospital, 'rose'], [/breakdown|repair|complaint/i, Wrench, 'orange'], [/meeting/i, Users, 'violet'],
+  [/hospital|clinic|phc|chc/i, Hospital, 'rose'], [/breakdown|repair|complaint|service/i, Wrench, 'orange'], [/meeting/i, Users, 'violet'],
   [/office|work/i, Building2, 'blue'], [/home/i, House, 'green'], [/mode/i, ArrowLeftRight, 'sky'], [/customer|client/i, Handshake, 'indigo'],
   [/spare|collect|deliver/i, PackageOpen, 'teal'], [/training/i, GraduationCap, 'amber'], [/install|preventive|calibrat/i, ClipboardCheck, 'cyan'],
 ]
@@ -326,8 +326,10 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
   const x = item as Expense
   return x.amount > over || kinds.some(k => k.label === x.category && k.bill_always)
 }
-/** A breakdown call: its ride names the ticket (te_0060). */
-export const isBreakdown = (purpose: string | null | undefined) => /breakdown/i.test(purpose ?? '')
+/** A ride whose purpose has Ticket ID ticked names its ticket (te_0060; te_0105, the tick, not the name). */
+let ticketPurposes: string[] | null = null
+export const setTicketPurposes = (l: string[] | null) => { ticketPurposes = l }
+export const isBreakdown = (purpose: string | null | undefined) => (ticketPurposes ? !!purpose && ticketPurposes.includes(purpose) : /breakdown/i.test(purpose ?? ''))
 /** The km typed is not the map's (te_0060: "if any changes in km it should be added in observation"). */
 /*
   The km a bike or car may claim: the map's road km, up to the tolerance more (10%, set by the admins), never less (the
@@ -1035,7 +1037,8 @@ export const useMyClaims = () => useQuery({
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
-  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id }), rpc<{ from: string | null; starts: DayStart[] }>('te_claim_starts', { p_claim: id })]).then(([d, v, s]) => {
+  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id }), rpc<{ from: string | null; starts: DayStart[] }>('te_claim_starts', { p_claim: id }), rpc<string[]>('te_ticket_purposes')]).then(([d, v, s, tp]) => {
+    setTicketPurposes(tp ?? null)
     d.vehicles = v ?? []
     d.day_start_from = s?.from ?? null; d.day_starts = s?.starts ?? []
     d.purposes = alphabetical(d.purposes ?? [], p => p)
