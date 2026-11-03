@@ -101,15 +101,17 @@ Changes left this month: ${Math.max(changes.limit - changes.used, 0)} of ${chang
       await setHomeAt(at, 'here')
     } catch (e) { setFail((e as Error).message) } finally { setMarking(false) }
   }
-  const homeFromMap = async (p: Place) => {
+  // Use my location in the map, the pin left there, is a home set at home (the user, 3 Nov).
+  const homeFromMap = async (p: Place, gps = false) => {
+    const how = gps ? 'here' : 'map'
     setHomeOnMap(false)
     // The same spot chosen again leaves a home marked by standing there as it was.
     if (home && Math.abs(p.lat - home.lat) < 1e-6 && Math.abs(p.lng - home.lng) < 1e-6) return
     const name = p.name && p.name !== '…' ? p.name : coords(p)
-    if (!(await (home ? changeHome(p, name, 'map')
-      : ask.confirm({ title: 'Set your home here?', body: `${name}\n\nYour approvers will see that it was set on the map.`, yes: 'Set home' })))) return
+    if (!(await (home ? changeHome(p, name, how)
+      : ask.confirm({ title: 'Set your home here?', body: how === 'map' ? `${name}\n\nYour approvers will see that it was set on the map.` : name, yes: 'Set home' })))) return
     setFail(null)
-    try { await setHomeAt(p, 'map') } catch (e) { setFail((e as Error).message) }
+    try { await setHomeAt(p, how) } catch (e) { setFail((e as Error).message) }
   }
   const remove = async (p: SavedPlace) => {
     if (!(await ask.confirm({ title: `Remove ${p.name}?`, body: 'It comes off your saved places. Claims that used it keep it.', yes: 'Remove', danger: true }))) return
@@ -207,7 +209,7 @@ Changes left this month: ${Math.max(changes.limit - changes.used, 0)} of ${chang
       )}
       {homeOnMap && (
         <PlacePicker title="Your home" start={home ? { name: homeName ?? 'Home', lat: home.lat, lng: home.lng } : null} quick={[]} plain yes={home ? 'Move home here' : 'Set as home'}
-          onPick={p => void homeFromMap(p)} onClose={() => setHomeOnMap(false)} />
+          onPick={(p, _n, _named, gps) => void homeFromMap(p, gps)} onClose={() => setHomeOnMap(false)} />
       )}
       {editing && (
         <PlaceMapDialog place={editing} onClose={() => setEditing(null)}

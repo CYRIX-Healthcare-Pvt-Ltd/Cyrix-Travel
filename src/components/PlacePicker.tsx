@@ -16,7 +16,7 @@ import { clock, usePhotoUrls, type VisitPhoto } from '@/lib/visits'
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes, camera }: {
+export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes, camera, startGps = false }: {
   title: string
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
@@ -29,7 +29,8 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
   /** The photos already on one of the day's rides: a green edge and a tick (the user, 30 Oct: "already selected image show a green border"). */
   used?: string[]
   /** `named`: a spot the map does not have, given its name by hand — learned for everyone once its day is saved (te_0071). */
-  onPick: (p: Place, name?: string, named?: boolean) => void
+  /** `gps`: the pin is where the phone was, untouched (a home set so counts as set at home; the user, 3 Nov). */
+  onPick: (p: Place, name?: string, named?: boolean, gps?: boolean) => void
   onClose: () => void
   /** Adding a saved place: the name is asked for, not offered. */
   askName?: boolean
@@ -38,6 +39,8 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
   yes?: string
   /** Today's To: the camera, whose photo is the place (the user, 3 Nov: "on travel itself they want to claim, so we need camera option here also"). */
   camera?: { label: string; icon: ReactNode; onPress: () => void; only?: boolean }
+  /** `start` is where the phone is. */
+  startGps?: boolean
 }) {
   // Saved places first (te_0023; the user, 17 Oct), and saving the one chosen with a name.
   const { data: saved } = useMyPlaces()
@@ -54,6 +57,7 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
   // A spot pressed on the map gets a name the engineer can write (the user, 21 Oct: a PHC the map does not have).
   const [fromMap, setFromMap] = useState(false)
   const edited = useRef(false)
+  const gps = useRef(false)
   const [busy, setBusy] = useState(false)
   const [none, setNone] = useState(false)
   const [picked, setPicked] = useState<Place | null>(start ?? null)
@@ -112,8 +116,9 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
     setNaming(named)
   }
 
-  const put = async (lat: number, lng: number, name?: string, move = true, fromLink?: string) => {
+  const put = async (lat: number, lng: number, name?: string, move = true, fromLink?: string, byGps = false) => {
     linkName.current = fromLink
+    gps.current = byGps
     const L = (await import('leaflet')).default
     const map = mapRef.current
     if (!map) return
@@ -122,6 +127,7 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
       pinRef.current = L.marker([lat, lng], { icon, draggable: true }).addTo(map)
       pinRef.current.on('dragend', async () => {
         const p = pinRef.current!.getLatLng()
+        gps.current = false
         if (!edited.current) setPicked({ name: '…', lat: p.lat, lng: p.lng })
         else setPicked(x => ({ name: x?.name ?? '…', lat: p.lat, lng: p.lng }))
         setFromMap(true)
@@ -159,7 +165,7 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
       const ro = new ResizeObserver(() => map.invalidateSize())
       ro.observe(box.current)
       map.on('unload', () => ro.disconnect())
-      if (start) void put(start.lat, start.lng, start.name, false)
+      if (start) void put(start.lat, start.lng, start.name, false, undefined, startGps)
       // A home tapped on a far view is brought close, to be put right to the street.
       map.on('click', e => {
         if (dismissing.current) { dismissing.current = false; return }
@@ -201,7 +207,7 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
   const here = () => {
     setErr(null)
     if (!navigator.geolocation) { setErr('This phone cannot give its location.'); return }
-    navigator.geolocation.getCurrentPosition(p => void put(p.coords.latitude, p.coords.longitude),
+    navigator.geolocation.getCurrentPosition(p => void put(p.coords.latitude, p.coords.longitude, undefined, true, undefined, true),
       () => setErr('Location is off. Allow it, or search or tap the map.'), { enableHighAccuracy: true, timeout: 15000 })
   }
 
@@ -336,8 +342,8 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
       try { await rpc('te_save_place', { p_id: null, p_name: name, p_lat: p.lat, p_lng: p.lng }); await qc.invalidateQueries({ queryKey: ['te_places'] }) }
       catch (e) { setSaveErr((e as Error).message); return }
       // A place named by hand keeps its official name on the ride; the saved one is the person's own.
-      onPick(named ? p : { ...p, name }, name, named)
-    } else onPick(p, name || undefined, named)
+      onPick(named ? p : { ...p, name }, name, named, gps.current)
+    } else onPick(p, name || undefined, named, gps.current)
   }
 }
 

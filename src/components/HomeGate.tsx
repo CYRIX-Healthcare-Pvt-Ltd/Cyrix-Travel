@@ -32,7 +32,8 @@ export default function HomeGate({ children }: { children: ReactNode }) {
   const changes = useHomeChanges()
   const [shown, setShown] = useState(preview)
   const [busy, setBusy] = useState(false)
-  const [onMap, setOnMap] = useState(false)
+  // The map, open on where the phone is after I'm at home, to see the pin before setting it (the user, 3 Nov).
+  const [onMap, setOnMap] = useState<{ at: Place | null } | null>(null)
   const [err, setErr] = useState<{ at: 'here' | 'map'; text: string; n: number } | null>(null)
   const fail = (at: 'here' | 'map', text: string) => setErr(x => ({ at, text, n: (x?.n ?? 0) + 1 }))
 
@@ -51,13 +52,15 @@ export default function HomeGate({ children }: { children: ReactNode }) {
     setBusy(true); setErr(null)
     try {
       const at = await whereAmI()
-      await save(at, 'here', (await placeName(at)) ?? `${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`)
+      setOnMap({ at: { name: (await placeName(at)) ?? `${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`, lat: at.lat, lng: at.lng } })
     } catch (e) { fail('here', (e as Error).message) } finally { setBusy(false) }
   }
-  const fromMap = async (p: Place) => {
-    setOnMap(false); setErr(null)
-    try { await save(p, 'map', p.name && p.name !== '…' ? p.name : `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`) }
-    catch (e) { fail('map', (e as Error).message) }
+  // A pin left where the phone put it is a home set at home; one moved or searched is a map home (te_0053).
+  const fromMap = async (p: Place, gps: boolean) => {
+    const from = onMap?.at ? 'here' : 'map'
+    setOnMap(null); setErr(null)
+    try { await save(p, gps ? 'here' : 'map', p.name && p.name !== '…' ? p.name : `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`) }
+    catch (e) { fail(from, (e as Error).message) }
   }
 
   return (
@@ -75,15 +78,15 @@ export default function HomeGate({ children }: { children: ReactNode }) {
           {err?.at === 'here' && <div className="mt-2 text-left"><Alert key={err.n} kind="error">{err.text}</Alert></div>}
         </div>
         <div>
-          <button type="button" className="btn-secondary h-14 w-full justify-center rounded-xl text-base" disabled={busy} onClick={() => { setErr(null); setOnMap(true) }}>
+          <button type="button" className="btn-secondary h-14 w-full justify-center rounded-xl text-base" disabled={busy} onClick={() => { setErr(null); setOnMap({ at: null }) }}>
             <MapIcon className="h-5 w-5" /> Mark it on the map
           </button>
           {err?.at === 'map' && <div className="mt-2 text-left"><Alert key={err.n} kind="error">{err.text}</Alert></div>}
         </div>
       </div>
       {onMap && (
-        <PlacePicker title="Your home" start={null} quick={[]} plain yes="Set as home"
-          onPick={p => void fromMap(p)} onClose={() => setOnMap(false)} />
+        <PlacePicker title="Your home" start={onMap.at} startGps={!!onMap.at} quick={[]} plain yes="Set as home"
+          onPick={(p, _n, _named, gps) => void fromMap(p, !!gps)} onClose={() => setOnMap(null)} />
       )}
     </div>
   )
