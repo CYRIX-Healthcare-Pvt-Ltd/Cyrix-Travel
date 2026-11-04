@@ -10,7 +10,8 @@ import { deviceId, deviceName, grab, newPending, queuePhoto, sendPhoto, stamp, s
   so nothing from the gallery can come in. The location is read all the while; the frame is taken at the press and
   stamped with the date, time, place, point and who before it is kept.
 */
-export default function VisitCamera({ onClose, onDone }: { onClose: () => void; onDone: (text: string, queued: boolean, at?: { lat: number; lng: number; place: string | null }) => void }) {
+/** `forDay`: the day before, for a visit of its trip after midnight (te_0108). */
+export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: string | null; onClose: () => void; onDone: (text: string, queued: boolean, at?: { lat: number; lng: number; place: string | null }) => void }) {
   const { employee } = useAuth()
   const video = useRef<HTMLVideoElement>(null)
   const [live, setLive] = useState(false)
@@ -53,14 +54,14 @@ export default function VisitCamera({ onClose, onDone }: { onClose: () => void; 
     const at = new Date(), here = fix, frame = grab(video.current)
     try {
       const place = await stampPlace(here)
-      const blob = await stamp(frame, at, here, place, `${employee.full_name} · ${employee.ecode}`, phone)
+      const blob = await stamp(frame, at, here, place, `${employee.full_name} · ${employee.ecode}`, phone, forDay)
       setShot({ blob, url: URL.createObjectURL(blob), at, fix: here, place })
     } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
   }
   const use = async () => {
     if (!shot || !employee) return
     setBusy('sending'); setErr(null)
-    const p = newPending(shot.blob, employee.id, shot.fix, shot.at, shot.place)
+    const p = newPending(shot.blob, employee.id, shot.fix, shot.at, shot.place, forDay)
     const where = { lat: shot.fix.lat, lng: shot.fix.lng, place: shot.place }
     try { await sendPhoto(p); onDone('Photo saved', false, where) }
     catch (e) {

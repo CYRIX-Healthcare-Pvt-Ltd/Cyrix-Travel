@@ -180,7 +180,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
   // Each ride its own photo (te_0092): a hospital gone to twice needs two.
   const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
-  const photoNeeded = (r: Ride) => needsPhoto(r, setup) && !!d.day && !shots.has(r.id)
+  const photoNeeded = (r: Ride) => needsPhoto(r, setup, d.day) && !!d.day && !shots.has(r.id)
   // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
   const dayPhotos = useMemo(() => photosPreview && d.day ? previewPhotos(d.day) : (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
   // Rides claimed in another order than their photos were taken: said on the ride, and Save waits (the user, 30 Oct).
@@ -275,6 +275,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const { data: myDay } = useMyDay()
   const notStarted = !!myDay?.required && !myDay.start
   const [starting, setStarting] = useState(false)
+  // The day before, after midnight and before today is started: its photos are still taken here (te_0108).
+  const lateHere = !!d.day && d.day === myDay?.late_day
   const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
   const firstId = d.rides[0]?.id
   useEffect(() => {
@@ -558,7 +560,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     // No visit photo: the photo or why not, before the day saves — today too, so Send finds nothing left (the user, 30 Oct).
     if (photoNeeded(r) && !r.photo_skip?.trim()) {
       const out = r.photo_skip == null && (setup!.skips - skipsUsed) <= 0 && setup!.after === 'block'
-      blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : d.day === today ? `Take the visit photo of ${n}, or write why not` : `Write why there is no visit photo for ${n}`, to })
+      blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : d.day === today || lateHere ? `Take the visit photo of ${n}, or write why not` : `Write why there is no visit photo for ${n}`, to })
     }
     if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(paid(r))}`, to })
     if (order && orderText && order.late.ride.id === r.id) blockers.push({ text: `Rides out of order: the ${orderText.late} photo is ${orderText.lateAt}, before ${orderText.early} at ${orderText.earlyAt}`, to })
@@ -818,7 +820,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       The visit photo of a ride whose purpose needs one (te_0082): found by itself when taken that day
                       near where the ride went; else Take photo (today only) or Photo not possible, with how many are left.
                     */}
-                    {needsPhoto(r, setup) && d.day && (() => {
+                    {needsPhoto(r, setup, d.day) && d.day && (() => {
                       const hit = shots.get(r.id), to = (r.to_name ?? '').split(',')[0]
                       if (hit) {
                         const late = lateBy(hit.photo)
@@ -836,8 +838,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       return (
                         <div className="mt-2 ml-6 space-y-1.5 rounded-lg bg-amber-50 px-2.5 py-2 ring-1 ring-amber-200">
                           <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900"><CameraOff className="h-3.5 w-3.5" /> No visit photo
-                            {d.day === today && (notStarted
-                              ? <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => nav('/photos')}><Sunrise className="h-3.5 w-3.5" /> Start my day</button>
+                            {(d.day === today || lateHere) && (notStarted && !lateHere
+                              ? <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setStarting(true)}><Sunrise className="h-3.5 w-3.5" /> Start my day</button>
                               : <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setCameraFor(r.id)}><Camera className="h-3.5 w-3.5" /> Take photo</button>)}
                           </p>
                           {open && <input className={`input h-10 w-full text-sm ${!why.trim() ? '!border-amber-400' : ''}`} aria-label="Why there is no visit photo" placeholder="Why no photo (required)" value={why} onChange={e => setRide(r.id, { photo_skip: e.target.value === '' ? null : e.target.value })} />}
@@ -1047,13 +1049,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         </Dialog>
       )}
       {starting && <StartConfirm onClose={() => setStarting(false)} />}
-      {cameraTo && <VisitCamera onClose={() => setCameraTo(null)} onDone={(text, q, at) => {
+      {cameraTo && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraTo(null)} onDone={(text, q, at) => {
         const id = cameraTo
         setCameraTo(null); refresh()
         if (at) void placed(id, 'to', { name: at.place ?? `${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`, lat: at.lat, lng: at.lng })
         if (q) void ask.alert('Kept on this phone', text, 'info')
       }} />}
-      {cameraFor && <VisitCamera onClose={() => setCameraFor(null)} onDone={(text, q) => { setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info') }} />}
+      {cameraFor && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraFor(null)} onDone={(text, q) => { setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info') }} />}
       {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
       {picking && ride && (
         <PlacePicker
@@ -1072,8 +1074,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             locked from then (the user, 3 Nov: "how to having start my day?, it should be from isnt"). The To's camera
             follows once the day is started.
           */
-          camera={setup?.on && d.day === today
-            ? notStarted
+          camera={setup?.on && (d.day === today || lateHere)
+            ? notStarted && !lateHere
               ? { label: 'Start my day', icon: <Sunrise className="h-5 w-5" />, onPress: () => { setPicking(null); setStarting(true) }, only: true }
               : picking.end === 'to'
                 ? { label: 'Take visit photo', icon: <Camera className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setCameraTo(id) } }

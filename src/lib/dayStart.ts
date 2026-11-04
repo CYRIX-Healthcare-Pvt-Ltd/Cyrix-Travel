@@ -8,15 +8,33 @@ import type { VisitPhoto } from '@/lib/visits'
 */
 export interface DayStart { day?: string; at: string; lat: number; lng: number; place: string | null; home_m: number | null }
 
+/*
+  Late night work (te_0108; the user, 4 Nov: "just add a button example visit of 3rd Nov photo and start my day"): after
+  midnight, until the new day is started, late_day is the day before, whose trip may still go on. Locally,
+  ?late-preview shows it to anyone, with yesterday as that day and today not started.
+*/
+export const latePreview = (() => {
+  if (!import.meta.env.DEV) return false
+  try {
+    if (new URLSearchParams(window.location.search).has('late-preview')) sessionStorage.setItem('late-preview', '1')
+    return sessionStorage.getItem('late-preview') === '1'
+  } catch { return false }
+})()
+const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toLocaleDateString('en-CA') }
+
 export const useMyDay = () => useQuery({
   queryKey: ['te_my_day'],
   staleTime: 60_000,
   queryFn: async () => {
     const { data, error } = await supabase.rpc('te_my_day')
     if (error) throw new Error(friendlyError(error))
-    return data as { required: boolean; start: DayStart | null }
+    const day = data as { required: boolean; start: DayStart | null; late_day?: string | null }
+    return latePreview ? { ...day, required: true, start: null, late_day: yesterday() } : day
   },
 })
+
+/** "3 Nov" */
+export const shortDay = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 
 /** Within this of the saved home, a start is at home. */
 export const HOME_M = 500

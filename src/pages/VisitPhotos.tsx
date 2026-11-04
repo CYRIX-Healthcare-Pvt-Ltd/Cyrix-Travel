@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Camera, CloudUpload, LayoutGrid, MapPin, Trash2, X } from 'lucide-react'
+import { Camera, CloudUpload, LayoutGrid, MapPin, Moon, Trash2, X } from 'lucide-react'
 import VisitCamera from '@/components/VisitCamera'
 import { StartArt, StartDayButton, startPreview, startTitle, useMyStarts } from '@/components/StartDay'
-import { startName, useMyDay, type DayStart } from '@/lib/dayStart'
+import { shortDay, startName, useMyDay, type DayStart } from '@/lib/dayStart'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
-import { clock, deletePhoto, flushQueue, lateBy, queued, useMyPhotos, usePhotoUrls, useVisitSetup, type VisitPhoto } from '@/lib/visits'
+import { clock, clockOf, deletePhoto, nightOf, flushQueue, lateBy, queued, useMyPhotos, usePhotoUrls, useVisitSetup, type VisitPhoto } from '@/lib/visits'
 
 /*
   Visit photos (te_0082): a photo of each hospital reached, taken here in the app's camera; a ride for a purpose that
@@ -43,7 +43,9 @@ export default function VisitPhotos() {
   const [tried, setTried] = useState<DayStart | null>(null)
   const starts = [...(savedStarts ?? []), ...(tried && !(savedStarts ?? []).some(s => s.day === tried.day) ? [tried] : [])]
   const mustStart = (startPreview || !!myDay?.required) && !starts.some(s => s.day === today) && !myDay?.start
-  const [camera, setCamera] = useState(false)
+  // false, true (today), or the day before for a visit of its trip after midnight (te_0108).
+  const [camera, setCamera] = useState<boolean | string>(false)
+  const lateDay = mustStart ? myDay?.late_day ?? null : null
   const [note, setNote] = useState<{ kind: 'success' | 'info' | 'error'; text: string } | null>(null)
   const [waiting, setWaiting] = useState(0)
   const [open, setOpen] = useState<VisitPhoto | null>(null)
@@ -78,6 +80,11 @@ export default function VisitPhotos() {
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Camera className="h-5 w-5 text-rose-600" /> Visit photos</h1>
+      {lateDay && (
+        <button type="button" className="h-12 w-full rounded-xl bg-indigo-600 text-base font-semibold text-white shadow-sm hover:bg-indigo-700 sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(lateDay) }}>
+          <span className="inline-flex items-center justify-center gap-2"><Moon className="h-5 w-5" /> Visit of {shortDay(lateDay)}</span>
+        </button>
+      )}
       {mustStart ? <StartDayButton onStarted={s => setTried(s)} /> : (
         <button type="button" className="btn-primary btn-go h-12 w-full text-base sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(true) }}>
           <Camera className="h-5 w-5" /> Take visit photo
@@ -145,12 +152,12 @@ export default function VisitPhotos() {
                   <button key={p.id} type="button" className={`card overflow-hidden text-left ${cols >= 4 ? '!rounded-lg' : ''}`} onClick={() => setOpen(p)}>
                     <div className={`relative bg-ink-100 ${cols >= 4 ? 'aspect-square' : 'aspect-[4/3]'}`}>
                       {p.path && urls[p.path] ? <img src={urls[p.path]} alt={p.place ?? 'Visit photo'} className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full place-items-center p-1 text-center text-xs text-ink-400">{p.path ? '' : cols >= 4 ? '' : 'Removed after payment'}</div>}
-                      {cols >= 4 && <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] font-medium leading-4 text-white">{clock(p.shot_at)}</span>}
+                      {cols >= 4 && <span className={`absolute bottom-1 left-1 rounded px-1 text-[10px] font-medium leading-4 text-white ${nightOf(p) ? 'bg-indigo-700/90' : 'bg-black/60'}`}>{nightOf(p) && <Moon className="mr-0.5 inline h-2.5 w-2.5" />}{clock(p.shot_at)}</span>}
                     </div>
                     {cols < 4 && <div className={`space-y-0.5 ${cols === 3 ? 'px-2 py-1.5' : 'px-2.5 py-2'}`}>
                       <p className="truncate text-sm font-semibold text-ink-900">{p.place ?? 'Place not named'}</p>
                       <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-ink-500">
-                        {clock(p.shot_at)}
+                        {nightOf(p) ? <span className="inline-flex items-center gap-1 font-semibold text-indigo-700"><Moon className="h-3 w-3" />{clockOf(p)}</span> : clock(p.shot_at)}
                         {p.on && <span className={`rounded px-1.5 py-px font-semibold ${p.on === 'draft' ? 'bg-ink-100 text-ink-700' : 'bg-sky-100 text-sky-800'}`}>{p.on === 'draft' ? 'On a draft' : `On ${p.on}`}</span>}
                         {late && <span className="font-semibold text-amber-700">{late}</span>}
                       </p>
@@ -166,7 +173,7 @@ export default function VisitPhotos() {
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black/90 p-3" role="dialog" aria-label="Visit photo" onClick={() => setOpen(null)}>
           <div className="flex items-center justify-between gap-2 text-white" onClick={e => e.stopPropagation()}>
-            <p className="min-w-0 truncate text-sm font-semibold"><MapPin className="mr-1 inline h-4 w-4" />{open.place ?? 'Place not named'} · {clock(open.shot_at)}</p>
+            <p className="min-w-0 truncate text-sm font-semibold"><MapPin className="mr-1 inline h-4 w-4" />{open.place ?? 'Place not named'} · {clockOf(open)}</p>
             <span className="flex shrink-0 gap-2">
               {(!open.on || open.on === 'draft') && <button type="button" className="grid h-9 w-9 place-items-center rounded-full bg-white/15" aria-label="Delete this photo" onClick={() => void remove(open)}><Trash2 className="h-4 w-4" /></button>}
               <button type="button" className="grid h-9 w-9 place-items-center rounded-full bg-white/15" aria-label="Close" onClick={() => setOpen(null)}><X className="h-4 w-4" /></button>
@@ -176,7 +183,7 @@ export default function VisitPhotos() {
         </div>
       )}
 
-      {camera && <VisitCamera onClose={() => setCamera(false)} onDone={(text, q) => { setCamera(false); setNote({ kind: q ? 'info' : 'success', text }); void refresh(); if (q && employee) void queued(employee.id).then(l => setWaiting(l.length)) }} />}
+      {camera && <VisitCamera forDay={typeof camera === 'string' ? camera : null} onClose={() => setCamera(false)} onDone={(text, q) => { setCamera(false); setNote({ kind: q ? 'info' : 'success', text }); void refresh(); if (q && employee) void queued(employee.id).then(l => setWaiting(l.length)) }} />}
     </div>
   )
 }

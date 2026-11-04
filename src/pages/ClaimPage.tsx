@@ -3,12 +3,12 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise } from 'lucide-react'
+import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
-import { clock, lateBy, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
+import { clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
 import { HOME_M, startName, stayMinutes, stayText } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
@@ -589,7 +589,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
                 {(r.purpose || r.project) && <span className="col-span-full pl-1 text-xs text-ink-500">{[r.purpose, r.project].filter(Boolean).join(' · ')}</span>}
                 {/* The visit photo, found by itself (te_0082), or why there is none. */}
-                {needsPhoto(r, data.photo_setup) && (() => {
+                {needsPhoto(r, data.photo_setup, d.day) && (() => {
                   const hit = shots.get(r.id)
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
@@ -730,6 +730,7 @@ export const OBS = {
   nostart:  { title: 'Day not started in the app', level: 'check', icon: Sunrise, group: 'start' },
   startfar: { title: 'Day started away from home', level: 'check', icon: Sunrise, group: 'start' },
   startoff: { title: 'First ride not from where the day started', level: 'approve', icon: Sunrise, group: 'start' },
+  latenight: { title: 'Late night work', level: 'check', icon: Moon, group: 'start' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
   hotel:    { title: 'Over the room limit',      level: 'check',   icon: BedDouble, group: 'policy' },
@@ -799,7 +800,7 @@ export function claimObservations(data: ClaimData): Obs[] {
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
-      if (needsPhoto(r, setup)) {
+      if (needsPhoto(r, setup, d.day)) {
         const hit = shots.get(r.id), late = hit && lateBy(hit.photo)
         if (!hit && r.photo_skip) items.push({ kind: 'nophoto', day, to: r.id, detail: `${leg} · “${r.photo_skip}”${skipped > setup!.skips ? ` · ${skipped} this month, over the ${setup!.skips}` : ''}` })
         // Saved today without one yet: Send asks for the photo or Photo not possible (te_submit).
@@ -877,6 +878,12 @@ export function claimObservations(data: ClaimData): Obs[] {
     if (st && st.home_m != null && st.home_m > HOME_M) {
       const before = data.days.find(x => x.day === new Date(new Date(d.day + 'T00:00:00').getTime() - 86_400_000).toLocaleDateString('en-CA'))
       items.push({ kind: 'startfar', day, to: first?.id, detail: `${short(startName(st))} at ${clock(st.at)} · ${km(st.home_m / 1000)} from home${before?.hotel || before?.room_by ? ' · after a room stay' : ''}` })
+    }
+    // Photos of the day's trip taken after its midnight (te_0108; the user, 4 Nov: "in observation also it should say late night work").
+    const night = (data.visit_photos ?? []).filter(p => p.day === d.day && nightOf(p))
+    if (night.length) {
+      const last = night[night.length - 1]
+      items.push({ kind: 'latenight', day, to: d.rides[d.rides.length - 1]?.id, detail: `${night.length === 1 ? '1 visit photo' : `${night.length} visit photos`} after midnight · last ${clockOf(last)}${last.place ? ` at ${short(last.place)}` : ''}` })
     }
     if (st && first?.from_lat != null && distanceKm(st, { lat: first.from_lat, lng: first.from_lng! }) > 0.5)
       items.push({ kind: 'startoff', day, to: first.id, detail: `From ${short(first.from_name)}, ${km(distanceKm(st, { lat: first.from_lat, lng: first.from_lng! }))} from where the day started (${short(startName(st))})` })

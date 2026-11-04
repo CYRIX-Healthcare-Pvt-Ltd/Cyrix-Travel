@@ -13,6 +13,8 @@ export interface VisitSetup {
   on: boolean; near_m: number; skips: number; after: 'block' | 'send'; keep_days: number; needs: string[]
   /** The travel time check between photos and the km/h each way of travel can do (te_0089). */
   speed_on?: boolean; speeds?: Record<string, number>
+  /** From this day the ride home needs its photo too (te_0108). */
+  home_from?: string | null
 }
 export interface VisitPhoto {
   id: string; day: string; shot_at: string; taken_at: string; lat: number; lng: number; accuracy: number | null
@@ -36,8 +38,9 @@ export const useMyPhotos = (from: string, to: string) =>
 const firstPart = (s: string | null | undefined) => (s ?? '').split(',')[0].trim()
 
 /** A ride whose purpose asks for a visit photo, to somewhere that is not home. */
-export const needsPhoto = (r: { purpose?: string | null; to_name: string | null; to_lat: number | null }, s?: VisitSetup | null) =>
-  !!s?.on && !!r.purpose && s.needs.includes(r.purpose) && r.to_lat != null && firstPart(r.to_name).toLowerCase() !== 'home'
+export const needsPhoto = (r: { purpose?: string | null; to_name: string | null; to_lat: number | null }, s?: VisitSetup | null, day?: string | null) =>
+  !!s?.on && !!r.purpose && s.needs.includes(r.purpose) && r.to_lat != null
+    && (firstPart(r.to_name).toLowerCase() !== 'home' || (!!s.home_from && !!day && day >= s.home_from))
 
 /** The photo taken that day nearest where the ride went, within reach: which photos the place picker marks as used. */
 export function photoNear(r: { to_lat: number | null; to_lng: number | null }, day: string, photos: VisitPhoto[] | undefined, nearM: number) {
@@ -63,7 +66,7 @@ export function matchPhotos(rides: PhotoRide[], day: string, photos: VisitPhoto[
   const taken = new Set<string>()
   let after = -Infinity
   for (const r of rides) {
-    if (!needsPhoto(r, s) || r.to_lat == null || r.to_lng == null) continue
+    if (!needsPhoto(r, s, day) || r.to_lat == null || r.to_lng == null) continue
     const at = { lat: r.to_lat, lng: r.to_lng }
     const free = (photos ?? []).filter(p => p.day === day && !taken.has(p.id)).map(p => ({ photo: p, m: lineKm(p, at) * 1000 }))
     const nearest = Math.min(...free.map(x => x.m))
@@ -144,6 +147,13 @@ export const lateBy = (p: VisitPhoto) => {
 }
 
 export const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s/g, ' ')
+/** A photo of a day's trip taken after its midnight (te_0108): the date it was really taken, "4 Nov"; else null. */
+export const nightOf = (p: { day: string; shot_at: string }) => {
+  const at = new Date(p.shot_at)
+  return at.toLocaleDateString('en-CA') > p.day ? at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null
+}
+/** The time a photo was taken, with its date when that is after the day it is kept on. */
+export const clockOf = (p: { day: string; shot_at: string }) => { const n = nightOf(p); return n ? `${clock(p.shot_at)} · ${n}` : clock(p.shot_at) }
 export const metres = (m: number) => (m < 1000 ? `${Math.round(m / 10) * 10 || Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`)
 
 /** Short-lived links for pictures this person may see (the bucket's own rule decides). */
@@ -183,9 +193,11 @@ export function grab(video: HTMLVideoElement) {
 }
 
 /** The date, time, place, point, who and on which phone, printed along the frame's foot. */
-export function stamp(cv: HTMLCanvasElement, at: Date, fix: Fix, place: string | null, who: string, phone?: string | null) {
+/** `trip`: the day before, for a visit of its trip after midnight ("Trip of 3 Nov"). */
+export function stamp(cv: HTMLCanvasElement, at: Date, fix: Fix, place: string | null, who: string, phone?: string | null, trip?: string | null) {
   const w = cv.width, h = cv.height, g = cv.getContext('2d')!
   const lines = [
+    ...(trip ? [`Trip of ${new Date(trip + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`] : []),
     `${at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · ${at.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })}`,
     place ?? 'Place not named',
     `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)} · ±${Math.round(fix.accuracy)} m`,
@@ -237,7 +249,7 @@ export async function deviceName() {
   return /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : null
 }
 
-export interface Pending { id: string; blob: Blob; employee: string; fix: Fix; shot_at: string; place: string | null }
+export interface Pending { id: string; blob: Blob; employee: string; fix: Fix; shot_at: string; place: string | null; for_day?: string | null }
 
 /** Into the bucket, then recorded; a refusal from the database takes the picture back out. */
 export async function sendPhoto(p: Pending) {
@@ -247,7 +259,7 @@ export async function sendPhoto(p: Pending) {
   if (up && !/exists|duplicate/i.test(up.message)) throw new Error(friendlyError(up))
   const { error } = await supabase.rpc('te_photo_add', {
     p_path: path, p_lat: p.fix.lat, p_lng: p.fix.lng, p_acc: Math.round(p.fix.accuracy), p_shot_at: p.shot_at, p_place: p.place, p_sha256: hash,
-    p_device_id: deviceId(), p_device: await deviceName(),
+    p_device_id: deviceId(), p_device: await deviceName(), ...(p.for_day ? { p_day: p.for_day } : {}),
   })
   if (error) {
     await supabase.storage.from('te-visits').remove([path])
@@ -262,8 +274,8 @@ export async function deletePhoto(id: string) {
   await supabase.storage.from('te-visits').remove([path])
 }
 
-export const newPending = (blob: Blob, employee: string, fix: Fix, at: Date, place: string | null): Pending =>
-  ({ id: newId(), blob, employee, fix, shot_at: at.toISOString(), place })
+export const newPending = (blob: Blob, employee: string, fix: Fix, at: Date, place: string | null, forDay?: string | null): Pending =>
+  ({ id: newId(), blob, employee, fix, shot_at: at.toISOString(), place, for_day: forDay ?? null })
 
 /*
   Photos taken with no signal wait on the phone (IndexedDB) and go when it is back. A browser that refuses the store
