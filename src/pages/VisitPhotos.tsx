@@ -138,7 +138,8 @@ export default function VisitPhotos() {
       {isLoading ? <PageLoader /> : days.length === 0 ? (
         <div className="card p-6 text-center text-sm text-ink-500">No visit photos {custom ? 'in these dates' : 'this month'}.</div>
       ) : days.map(day => {
-        const list = (data ?? []).filter(p => p.day === day), st = starts.find(s => s.day === day), en = (ends ?? []).find(e => e.day === day)
+        // Oldest first, between the start and the end (the user, 4 Nov: "the visit order not correct").
+        const list = (data ?? []).filter(p => p.day === day).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), st = starts.find(s => s.day === day), en = (ends ?? []).find(e => e.day === day)
         return (
           <section key={day} className="space-y-2">
             <h2 className="text-sm font-semibold text-ink-700">

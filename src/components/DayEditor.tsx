@@ -904,7 +904,11 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 }
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? (notStarted && d.day === today ? null : home) : null
                 // With the day ended and a ride already there, the next is the ride to where it ended.
-                if (endPlace && last && from && distanceKm(from, endPlace) > 0.05) {
+                // …only once every visit photo of the day has its ride (the user, 4 Nov: Home → Medicare, then
+                // "why after medicare, 2nd ride home came?" with two more hospitals photographed after it).
+                const usedPhotos = new Set([...shots.values()].map(x => x.photo.id))
+                const visitsLeft = dayPhotos.some(p => !usedPhotos.has(p.id) && Date.parse(p.shot_at) > Date.parse(shots.get(last?.id ?? '')?.photo.shot_at ?? '1970-01-01'))
+                if (endPlace && last && from && !visitsLeft && distanceKm(from, endPlace) > 0.05) {
                   const goal = near(home, endPlace.lat, endPlace.lng) ? data.purposes.find(x => /home/i.test(x)) : undefined
                   const nr = { ...blankRide(from, carry()), to_name: endPlace.name, to_lat: endPlace.lat, to_lng: endPlace.lng, ...(goal ? { purpose: goal } : {}) }
                   set({ rides: [...d.rides, nr] })
