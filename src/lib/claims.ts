@@ -57,7 +57,16 @@ export const DA_KINDS = [
   { code: 'out_state_stay', label: 'Out of state, staying' },
   // Inside an approved deputation, in its state: the same for every grade (te_0075, te_policy deputation_da).
   { code: 'deputation', label: 'Deputation' },
+  // Aurum (te_0123): outstation is per diem or actual food, each with a day's fixed misc; local has none.
+  { code: 'aurum_actual', label: 'Outstation · food at actual' },
+  { code: 'aurum_per_diem', label: 'Outstation · per diem' },
+  { code: 'aurum_per_diem_lodging', label: 'Per diem · lodging given' },
+  { code: 'aurum_per_diem_board', label: 'Per diem · lodging and food given' },
 ] as const
+/** The Daily allowance choices of an Aurum grade (one with a per diem), and of every other grade. */
+export const AURUM_DA = new Set<string>(['none', 'aurum_actual', 'aurum_per_diem', 'aurum_per_diem_lodging', 'aurum_per_diem_board'])
+export const isAurum = (rule: Pick<Rule, 'per_diem'> | undefined) => rule?.per_diem != null
+export const daKindsFor = (rule: Rule | undefined) => DA_KINDS.filter(k => isAurum(rule) ? AURUM_DA.has(k.code) : !k.code.startsWith('aurum_'))
 export type DaKind = typeof DA_KINDS[number]['code']
 
 /*
@@ -101,6 +110,7 @@ export const purposeLook = (purpose: string): { icon: LucideIcon; tone: Tone } =
 export const DA_LOOKS: Record<DaKind, { icon: LucideIcon; tone: Tone }> = {
   none: { icon: Ban, tone: 'slate' }, in_district: { icon: MapPin, tone: 'green' }, out_district: { icon: Route, tone: 'sky' },
   out_state: { icon: BedDouble, tone: 'indigo' }, out_state_stay: { icon: MapIcon, tone: 'violet' }, deputation: { icon: Briefcase, tone: 'amber' },
+  aurum_actual: { icon: Route, tone: 'sky' }, aurum_per_diem: { icon: MapIcon, tone: 'violet' }, aurum_per_diem_lodging: { icon: BedDouble, tone: 'indigo' }, aurum_per_diem_board: { icon: BedDouble, tone: 'green' },
 }
 
 /** Each status as one strong hue: the claim header's stripe, and a claim row's edge. */
@@ -193,6 +203,12 @@ export interface Rule {
   grade: string; da_in_district: number; da_out_district: number; da_out_state: number; da_out_state_stay: number
   hotel_in_single: number; hotel_in_double: number; hotel_out_single: number; hotel_out_double: number
   bike_rate: number | null; bike_km_month: number | null; car_rate: number | null; car_km_month: number | null
+  /** Aurum E1–E3 (te_0122): the car is paid at car_rate, with a vehicle request first. */
+  car_approval?: boolean
+  /** The room limit in a metro city (Aurum, te_0122); else the out-of-state limit plus the metro extra. */
+  hotel_metro?: number | null
+  /** Aurum (te_0123): per diem and fixed misc a day, and a day trip's limit at actual, metro and other cities. */
+  per_diem?: number | null; misc_day?: number | null; day_trip_metro?: number | null; day_trip_other?: number | null
   flight: boolean; taxi: boolean
 }
 export interface ClaimData {
@@ -296,7 +312,11 @@ export function daFor(rule: Rule | undefined, kind: DaKind, purpose: string | nu
   if (!rule || (purpose && office.includes(purpose))) return 0
   return kind === 'in_district' ? rule.da_in_district : kind === 'out_district' ? rule.da_out_district
     : kind === 'out_state' ? rule.da_out_state : kind === 'out_state_stay' ? rule.da_out_state_stay
-    : kind === 'deputation' ? depDa : 0
+    : kind === 'deputation' ? depDa
+    : kind === 'aurum_actual' ? (rule.misc_day ?? 0)
+    : kind === 'aurum_per_diem' ? (rule.per_diem ?? 0) + (rule.misc_day ?? 0)
+    : kind === 'aurum_per_diem_lodging' ? Math.round((rule.per_diem ?? 0) * 0.5) + (rule.misc_day ?? 0)
+    : kind === 'aurum_per_diem_board' ? Math.round((rule.per_diem ?? 0) * 0.25) + (rule.misc_day ?? 0) : 0
 }
 /** The hotel limit for the night: grade, single or double, in or out of state, +20% in a metropolitan city. */
 export function hotelLimit(rule: Rule | undefined, h: Pick<Hotel, 'occupancy' | 'metro'>, outOfState: boolean, metroPct: number) {
@@ -304,6 +324,7 @@ export function hotelLimit(rule: Rule | undefined, h: Pick<Hotel, 'occupancy' | 
   const base = outOfState
     ? (h.occupancy === 'double' ? rule.hotel_out_double : rule.hotel_out_single)
     : (h.occupancy === 'double' ? rule.hotel_in_double : rule.hotel_in_single)
+  if (h.metro && rule.hotel_metro != null) return rule.hotel_metro
   return h.metro ? Math.round(base * (1 + metroPct / 100)) : base
 }
 /** Claimed km more than the map's road km plus the tolerance (10%, set by the admins). */
@@ -741,7 +762,7 @@ export async function autoDa(from: Place | null, places: Place[], stay: boolean)
   if (district) return stay ? 'out_state' : 'out_district'
   return 'in_district'
 }
-export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4, deputation: 5 }
+export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4, deputation: 5, aurum_actual: 2, aurum_per_diem_board: 3, aurum_per_diem_lodging: 3, aurum_per_diem: 4 }
 
 /** Straight-line km between two points. */
 export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -986,7 +1007,7 @@ export function billRead(bills: Bill[], ownerId: string): number | null {
 /** A mode the grade's policy does not give (a car below MM3, a flight, a taxi…): it needs prior approval. */
 export function outOfPolicy(mode: ModeCode, rule: Rule | undefined, vehicles?: VehicleSpan[], day?: string) {
   if (day && vehicles?.some(v => v.mode === mode && day >= v.from_day && day <= v.to_day)) return false
-  return !!rule && ((mode === 'car' && !rule.car_rate) || (mode === 'bike' && !rule.bike_rate) || (mode === 'flight' && !rule.flight) || (mode === 'taxi' && !rule.taxi))
+  return !!rule && ((mode === 'car' && (!rule.car_rate || !!rule.car_approval)) || (mode === 'bike' && !rule.bike_rate) || (mode === 'flight' && !rule.flight) || (mode === 'taxi' && !rule.taxi))
 }
 /** What the red mark on such a ride means, said when it is pressed. */
 export const policyNote = (mode: string, grade: string | null | undefined) =>

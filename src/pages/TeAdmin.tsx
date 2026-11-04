@@ -32,8 +32,9 @@ type AdminData = {
 const TABS = [['rules', 'Allowances by grade'], ['policy', 'Settings'], ['purposes', 'Purposes'], ['projects', 'Projects'], ['coord', 'Coordinators'], ['desk', 'Travel Desk'], ['places', 'Places']] as const
 const RULE_COLS: Array<[keyof Rule, string]> = [
   ['da_in_district', 'DA in district'], ['da_out_district', 'DA out of district'], ['da_out_state', 'DA out of district, staying'], ['da_out_state_stay', 'DA out of state, staying'],
-  ['hotel_in_single', 'Room in state S'], ['hotel_in_double', 'Room in state D'], ['hotel_out_single', 'Room out of state S'], ['hotel_out_double', 'Room out of state D'],
+  ['hotel_in_single', 'Room in state S'], ['hotel_in_double', 'Room in state D'], ['hotel_out_single', 'Room out of state S'], ['hotel_out_double', 'Room out of state D'], ['hotel_metro', 'Room metro'],
   ['bike_rate', 'Bike ₹/km'], ['bike_km_month', 'Bike km/month'], ['car_rate', 'Car ₹/km'], ['car_km_month', 'Car km/month'],
+  ['per_diem', 'Per diem'], ['misc_day', 'Misc a day'], ['day_trip_metro', 'Day trip metro'], ['day_trip_other', 'Day trip other'],
 ]
 const POLICY: Array<[string, string]> = [
   ['km_tolerance_pct', 'Km over the map allowed, %'], ['bill_over', 'Bill needed above ₹'], ['auto_month', 'Auto allowance a month ₹'],
@@ -101,7 +102,7 @@ function Rules({ rules, onSave }: { rules: Rule[]; onSave: (r: Rule) => void }) 
     <div className="card overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead><tr className="border-b border-ink-200 text-left text-xs text-ink-500">
-          <th className="px-3 py-2">Grade</th>{RULE_COLS.map(([, l]) => <th key={l} className="px-2 py-2">{l}</th>)}<th className="px-2 py-2">Flight</th><th className="px-2 py-2">Taxi car</th><th />
+          <th className="px-3 py-2">Grade</th>{RULE_COLS.map(([, l]) => <th key={l} className="px-2 py-2">{l}</th>)}<th className="px-2 py-2">Flight</th><th className="px-2 py-2">Taxi car</th><th className="px-2 py-2">Car needs approval</th><th />
         </tr></thead>
         <tbody>
           {grades.map(g => {
@@ -116,6 +117,7 @@ function Rules({ rules, onSave }: { rules: Rule[]; onSave: (r: Rule) => void }) 
                 ))}
                 <td className="px-2"><input type="checkbox" checked={r.flight} onChange={e => set({ flight: e.target.checked })} /></td>
                 <td className="px-2"><input type="checkbox" checked={r.taxi} onChange={e => set({ taxi: e.target.checked })} /></td>
+                <td className="px-2"><input type="checkbox" checked={!!r.car_approval} onChange={e => set({ car_approval: e.target.checked })} /></td>
                 <td className="px-2">{dirty && <button type="button" className="btn-primary !px-2.5 !py-1 text-xs" onClick={() => { onSave(r); const n = { ...edit }; delete n[g]; setEdit(n) }}>Save</button>}</td>
               </tr>
             )

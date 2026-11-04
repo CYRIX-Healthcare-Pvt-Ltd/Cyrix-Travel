@@ -8,7 +8,7 @@ import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
-import { clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
+import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
 import { HOME_M, startName, stayMinutes, stayText } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
 import BillButton from '@/components/BillButton'
@@ -18,7 +18,7 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
+  DA_KINDS, DA_RANK, isAurum, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day, type ModeCode,
 } from '@/lib/claims'
 
@@ -591,7 +591,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
                 {(r.purpose || r.project) && <span className="col-span-full pl-1 text-xs text-ink-500">{[r.purpose, r.project].filter(Boolean).join(' · ')}</span>}
                 {/* The visit photo, found by itself (te_0082), or why there is none. */}
-                {needsPhoto(r, data.photo_setup, d.day, r.id === d.rides[d.rides.length - 1]?.id) && (() => {
+                {needsPhoto(r, data.photo_setup, d.day, r.id === lastGoing(d.rides)) && (() => {
                   const hit = shots.get(r.id)
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
@@ -748,6 +748,9 @@ export const OBS = {
   tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange, group: 'tickets' },
   retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon, group: 'tickets' },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins, group: 'policy' },
+  perdiemday: { title: 'Per diem on a one-day trip', level: 'check', icon: HandCoins, group: 'policy' },
+  daytrip:  { title: 'Day trip over the limit',  level: 'check',   icon: HandCoins, group: 'policy' },
+  flightcap: { title: 'Flight over ₹12,000',     level: 'approve', icon: ShieldAlert, group: 'policy' },
   depoff:   { title: 'Outside the deputation state', level: 'approve', icon: MapPinOff, group: 'policy' },
   depout:   { title: 'Deputation DA outside its dates', level: 'approve', icon: BriefcaseBusiness, group: 'policy' },
   month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange, group: 'km' },
@@ -804,7 +807,7 @@ export function claimObservations(data: ClaimData): Obs[] {
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
-      if (needsPhoto(r, setup, d.day, r.id === d.rides[d.rides.length - 1]?.id)) {
+      if (needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides))) {
         const hit = shots.get(r.id), late = hit && lateBy(hit.photo)
         if (!hit && r.photo_skip) items.push({ kind: 'nophoto', day, to: r.id, detail: `${leg} · “${r.photo_skip}”${skipped > setup!.skips ? ` · ${skipped} this month, over the ${setup!.skips}` : ''}` })
         // Saved today without one yet: Send asks for the photo or Photo not possible (te_submit).
@@ -872,6 +875,22 @@ export function claimObservations(data: ClaimData): Obs[] {
       const hr = billRead(data.bills, d.hotel.id)
       if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Room stay · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
       if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Room stay · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
+    }
+    /*
+      Aurum (te_0123; Domestic Travel Policy A1/A4): per diem is for a trip over 24 hours, a day trip with no night away
+      is at actual within the grade's limit, and a flight above ₹12,000 one way is a deviation.
+    */
+    if (isAurum(rule)) {
+      const near = (n: number) => data.days.find(x => x.day === new Date(new Date(d.day + 'T00:00:00').getTime() + n * 86_400_000).toLocaleDateString('en-CA'))
+      const away = (x?: typeof d) => !!x && x.da_kind.startsWith('aurum_')
+      const oneDay = !away(near(-1)) && !away(near(1)) && !d.hotel && !d.room_by
+      const label = DA_KINDS.find(k => k.code === d.da_kind)?.label
+      if (oneDay && d.da_kind.startsWith('aurum_per_diem')) items.push({ kind: 'perdiemday', day, detail: `${label} with no night away · per diem is for a trip over 24 hours` })
+      const spent = d.expenses.reduce((t, x) => t + (x.amount ?? 0), 0)
+      if (oneDay && d.da_kind === 'aurum_actual' && rule?.day_trip_other != null && spent > rule.day_trip_other)
+        items.push({ kind: 'daytrip', day, detail: `${money(spent)} at actual · the limit is ${money(rule.day_trip_other)}${rule.day_trip_metro != null ? `, ${money(rule.day_trip_metro)} in a metro` : ''}` })
+      for (const r of d.rides) if (r.mode === 'flight' && (r.fare ?? 0) > 12000)
+        items.push({ kind: 'flightcap', day, to: r.id, detail: `Flight ${short(r.from_name)} → ${short(r.to_name)} · ${money(r.fare)}` })
     }
     /*
       Start my day (te_0104; the user, 3 Nov: "in observation it will show isnt, ie start location far from home"): a day

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
-import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
+import { clock, lastGoing, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
 import { HOME_M, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
 import { StartConfirm } from '@/components/StartDay'
@@ -23,7 +23,7 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, DA_LOOKS, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
+  DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
   areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
@@ -180,7 +180,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
   // Each ride its own photo (te_0092): a hospital gone to twice needs two.
   const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
-  const photoNeeded = (r: Ride) => needsPhoto(r, setup, d.day, r.id === d.rides[d.rides.length - 1]?.id) && !!d.day && !shots.has(r.id)
+  const photoNeeded = (r: Ride) => needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides)) && !!d.day && !shots.has(r.id)
   // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
   const dayPhotos = useMemo(() => photosPreview && d.day ? previewPhotos(d.day) : (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
   // Rides claimed in another order than their photos were taken: said on the ride, and Save waits (the user, 30 Oct).
@@ -346,6 +346,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         }
         if (!outside) k = 'deputation'
       }
+      // Aurum: local is within 100 km of base and has no allowance; past it, outstation at actual (the person may
+      // choose per diem instead).
+      if (k && k !== 'deputation' && isAurum(rule)) k = home && stops.some(p => distanceKm(home, p) > 100) ? 'aurum_actual' : 'none'
       if (!live || !k) return
       setAuto(k); setOff(outside)
       if (applied.current !== stopsKey + depKey) { applied.current = stopsKey + depKey; set({ da_kind: k }) }
@@ -832,7 +835,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       The visit photo of a ride whose purpose needs one (te_0082): found by itself when taken that day
                       near where the ride went; else Take photo (today only) or Photo not possible, with how many are left.
                     */}
-                    {needsPhoto(r, setup, d.day, r.id === d.rides[d.rides.length - 1]?.id) && d.day && (() => {
+                    {needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides)) && d.day && (() => {
                       const hit = shots.get(r.id), to = (r.to_name ?? '').split(',')[0]
                       if (hit) {
                         const late = lateBy(hit.photo)
@@ -941,12 +944,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
               </label>
               <div className="mt-1">
                 <PickList tall label="Daily allowance" title="Daily allowance" placeholder="Daily allowance…" value={d.da_kind}
-                  options={DA_KINDS.filter(k => k.code !== 'deputation' || dep || d.da_kind === 'deputation').map(k => ({
+                  options={daKindsFor(rule).filter(k => k.code !== 'deputation' || dep || d.da_kind === 'deputation').map(k => ({
                     value: k.code, label: k.label, ...DA_LOOKS[k.code],
                     hint: k.code !== 'none' ? money(daFor(rule, k.code, dayPurpose, data.office_purposes, depDa)) : undefined,
                   }))}
                   onChange={v => set({ da_kind: v as DaKind })} />
               </div>
+              {d.da_kind === 'aurum_per_diem' && (d.hotel?.amount ?? 0) > 0 && (
+                <p className="mt-1.5 text-sm font-medium text-cyrixRed-700">Per diem is paid only without a room stay. Choose food at actual, or remove the room.</p>
+              )}
           </section>
           )}
 
