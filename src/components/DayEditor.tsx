@@ -4,7 +4,7 @@ import VisitThumb from '@/components/VisitThumb'
 import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
 import { startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
-import { startMyDay } from '@/components/StartDay'
+import { StartConfirm } from '@/components/StartDay'
 import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -274,12 +274,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
   const { data: myDay } = useMyDay()
   const notStarted = !!myDay?.required && !myDay.start
-  const startHere = async () => {
-    try {
-      await startMyDay()
-      await Promise.all([qc.invalidateQueries({ queryKey: ['te_my_day'] }), qc.invalidateQueries({ queryKey: ['te_my_starts'] }), qc.invalidateQueries({ queryKey: ['te_claim', c.id] })])
-    } catch (e) { void ask.alert('Day not started', (e as Error).message, 'warn') }
-  }
+  const [starting, setStarting] = useState(false)
   const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
   const firstId = d.rides[0]?.id
   useEffect(() => {
@@ -1051,6 +1046,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           </div>
         </Dialog>
       )}
+      {starting && <StartConfirm onClose={() => setStarting(false)} />}
       {cameraTo && <VisitCamera onClose={() => setCameraTo(null)} onDone={(text, q, at) => {
         const id = cameraTo
         setCameraTo(null); refresh()
@@ -1078,7 +1074,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           */
           camera={setup?.on && d.day === today
             ? notStarted
-              ? { label: 'Start my day', icon: <Sunrise className="h-5 w-5" />, onPress: () => { setPicking(null); void startHere() }, only: true }
+              ? { label: 'Start my day', icon: <Sunrise className="h-5 w-5" />, onPress: () => { setPicking(null); setStarting(true) }, only: true }
               : picking.end === 'to'
                 ? { label: 'Take visit photo', icon: <Camera className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setCameraTo(id) } }
                 : undefined
