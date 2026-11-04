@@ -591,7 +591,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
                 {(r.purpose || r.project) && <span className="col-span-full pl-1 text-xs text-ink-500">{[r.purpose, r.project].filter(Boolean).join(' · ')}</span>}
                 {/* The visit photo, found by itself (te_0082), or why there is none. */}
-                {needsPhoto(r, data.photo_setup, d.day) && (() => {
+                {needsPhoto(r, data.photo_setup, d.day, r.id === d.rides[d.rides.length - 1]?.id) && (() => {
                   const hit = shots.get(r.id)
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
@@ -804,7 +804,7 @@ export function claimObservations(data: ClaimData): Obs[] {
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
-      if (needsPhoto(r, setup, d.day)) {
+      if (needsPhoto(r, setup, d.day, r.id === d.rides[d.rides.length - 1]?.id)) {
         const hit = shots.get(r.id), late = hit && lateBy(hit.photo)
         if (!hit && r.photo_skip) items.push({ kind: 'nophoto', day, to: r.id, detail: `${leg} · “${r.photo_skip}”${skipped > setup!.skips ? ` · ${skipped} this month, over the ${setup!.skips}` : ''}` })
         // Saved today without one yet: Send asks for the photo or Photo not possible (te_submit).

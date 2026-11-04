@@ -38,9 +38,13 @@ export const useMyPhotos = (from: string, to: string) =>
 const firstPart = (s: string | null | undefined) => (s ?? '').split(',')[0].trim()
 
 /** A ride whose purpose asks for a visit photo, to somewhere that is not home. */
-export const needsPhoto = (r: { purpose?: string | null; to_name: string | null; to_lat: number | null }, s?: VisitSetup | null, day?: string | null) =>
+/*
+  A ride to Home needs its photo too, unless it is the day's last ride — End my day stands for that one (te_0121; the
+  user, 4 Nov: a ride home in the middle of the day without a photo "is a loop hole").
+*/
+export const needsPhoto = (r: { purpose?: string | null; to_name: string | null; to_lat: number | null }, s?: VisitSetup | null, day?: string | null, last = false) =>
   !!s?.on && !!r.purpose && s.needs.includes(r.purpose) && r.to_lat != null
-    && (firstPart(r.to_name).toLowerCase() !== 'home' || (!!s.home_from && !!day && day >= s.home_from))
+    && (firstPart(r.to_name).toLowerCase() !== 'home' || (!last && !!s.home_from && !!day && day >= s.home_from))
 
 /** The photo taken that day nearest where the ride went, within reach: which photos the place picker marks as used. */
 export function photoNear(r: { to_lat: number | null; to_lng: number | null }, day: string, photos: VisitPhoto[] | undefined, nearM: number) {
@@ -65,8 +69,8 @@ export function matchPhotos(rides: PhotoRide[], day: string, photos: VisitPhoto[
   const out = new Map<string, { photo: VisitPhoto; m: number }>()
   const taken = new Set<string>()
   let after = -Infinity
-  for (const r of rides) {
-    if (!needsPhoto(r, s, day) || r.to_lat == null || r.to_lng == null) continue
+  for (const [i, r] of rides.entries()) {
+    if (!needsPhoto(r, s, day, i === rides.length - 1) || r.to_lat == null || r.to_lng == null) continue
     const at = { lat: r.to_lat, lng: r.to_lng }
     const free = (photos ?? []).filter(p => p.day === day && !taken.has(p.id)).map(p => ({ photo: p, m: lineKm(p, at) * 1000 }))
     const nearest = Math.min(...free.map(x => x.m))

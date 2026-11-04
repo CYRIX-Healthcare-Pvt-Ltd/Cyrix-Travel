@@ -180,7 +180,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
   // Each ride its own photo (te_0092): a hospital gone to twice needs two.
   const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
-  const photoNeeded = (r: Ride) => needsPhoto(r, setup, d.day) && !!d.day && !shots.has(r.id)
+  const photoNeeded = (r: Ride) => needsPhoto(r, setup, d.day, r.id === d.rides[d.rides.length - 1]?.id) && !!d.day && !shots.has(r.id)
   // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
   const dayPhotos = useMemo(() => photosPreview && d.day ? previewPhotos(d.day) : (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
   // Rides claimed in another order than their photos were taken: said on the ride, and Save waits (the user, 30 Oct).
@@ -832,7 +832,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       The visit photo of a ride whose purpose needs one (te_0082): found by itself when taken that day
                       near where the ride went; else Take photo (today only) or Photo not possible, with how many are left.
                     */}
-                    {needsPhoto(r, setup, d.day) && d.day && (() => {
+                    {needsPhoto(r, setup, d.day, r.id === d.rides[d.rides.length - 1]?.id) && d.day && (() => {
                       const hit = shots.get(r.id), to = (r.to_name ?? '').split(',')[0]
                       if (hit) {
                         const late = lateBy(hit.photo)
