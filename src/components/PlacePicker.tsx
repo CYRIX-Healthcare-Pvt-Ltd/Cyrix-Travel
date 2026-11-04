@@ -16,7 +16,7 @@ import { clock, usePhotoUrls, type VisitPhoto } from '@/lib/visits'
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes, camera, startGps = false }: {
+export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes, camera, also, startGps = false }: {
   title: string
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
@@ -39,6 +39,8 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
   yes?: string
   /** Today's To: the camera, whose photo is the place (the user, 3 Nov: "on travel itself they want to claim, so we need camera option here also"). */
   camera?: { label: string; icon: ReactNode; onPress: () => void; only?: boolean }
+  /** Beside the camera: End my day, in the last ride's To (the user, 4 Nov: "in claim form, how to end my day?"). */
+  also?: { label: string; icon: ReactNode; onPress: () => void }
   /** `start` is where the phone is. */
   startGps?: boolean
 }) {
@@ -220,7 +222,15 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
           a place used before a grey pin.
         */}
         {camera && (
-          <button type="button" className="btn-primary btn-go h-12 w-full shrink-0 text-base" onClick={camera.onPress}>{camera.icon} {camera.label}</button>
+          <div className={`grid shrink-0 gap-2 ${also ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {/* The camera on the right, End my day on the left (the user, 4 Nov: "better make take visit photo in right"). */}
+            <button type="button" className="btn-primary btn-go order-2 h-12 w-full whitespace-nowrap !px-3 text-base [&_svg]:shrink-0" onClick={camera.onPress}>{camera.icon} {camera.label}</button>
+            {also && (
+              <button type="button" className="order-1 h-12 w-full rounded-xl border border-orange-300 bg-orange-50 px-3 text-base font-semibold text-orange-800 hover:bg-orange-100 [&_svg]:shrink-0" onClick={also.onPress}>
+                <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">{also.icon} {also.label}</span>
+              </button>
+            )}
+          </div>
         )}
         {/* Before the day is started, Start my day is the only way on (the user, 3 Nov: "i didnt start my day, still it is doable"). */}
         {camera?.only ? (

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
-import { startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
+import { HOME_M, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
 import { StartConfirm } from '@/components/StartDay'
 import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
@@ -275,6 +275,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const { data: myDay } = useMyDay()
   const notStarted = !!myDay?.required && !myDay.start
   const [starting, setStarting] = useState(false)
+  // End my day from the last ride's To (te_0109): the ride whose To it fills.
+  const [ending, setEnding] = useState<string | null>(null)
   // The day before, after midnight and before today is started: its photos are still taken here (te_0108).
   const lateHere = !!d.day && d.day === myDay?.late_day
   const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
@@ -1075,6 +1077,10 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         </Dialog>
       )}
       {starting && <StartConfirm onClose={() => setStarting(false)} />}
+      {ending && <StartConfirm end day={lateHere ? d.day : null} onClose={() => setEnding(null)} onStarted={s => {
+        const at = home && distanceKm(home, s) <= HOME_M / 1000 ? home : { name: s.place ?? `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`, lat: s.lat, lng: s.lng }
+        void placed(ending, 'to', at)
+      }} />}
       {cameraTo && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraTo(null)} onDone={(text, q, at) => {
         const id = cameraTo
         setCameraTo(null); refresh()
@@ -1106,6 +1112,10 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
               : picking.end === 'to'
                 ? { label: 'Take visit photo', icon: <Camera className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setCameraTo(id) } }
                 : undefined
+            : undefined}
+          also={setup?.on && picking.end === 'to' && picking.ride === d.rides[d.rides.length - 1]?.id && !dayEnd
+            && ((d.day === today && !notStarted && !myDay?.end) || lateHere)
+            ? { label: lateHere ? `End ${shortDay(d.day!)}` : 'End my day', icon: <Sunset className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setEnding(id) } }
             : undefined}
           onClose={() => setPicking(null)}
         />
