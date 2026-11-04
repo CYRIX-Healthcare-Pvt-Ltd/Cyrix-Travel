@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon } from 'lucide-react'
+import { type LucideIcon, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
@@ -444,6 +444,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const shots = matchPhotos(d.rides, d.day, data.visit_photos, data.photo_setup)
   const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
+  const dayEnd = data.day_ends?.find(s => s.day === d.day) ?? null
   // Each line its own raised card (the user, 30 Oct: "it looks very plain", "like each ride 3d? div?"); red while its bill is still needed.
   const tile = ' rounded-lg border px-3 shadow-[0_1px_2px_rgb(15_23_42/0.07),0_3px_8px_-2px_rgb(15_23_42/0.08)]'
   const mark = (id: string) => tile + (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' border-cyrixRed-300 bg-cyrixRed-50' : ' border-ink-200 bg-surface')
@@ -545,10 +546,11 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 
       {(
         <div data-details className="grid gap-x-2 gap-y-2 rounded-xl bg-ink-100/60 p-2" style={{ gridTemplateColumns: cols }}>
-          {(hasMap || dayStart) && (
+          {(hasMap || dayStart || dayEnd) && (
             <div className="col-span-full flex items-center justify-end gap-3 px-1 pt-0.5">
               {/* Where and when the day was started (te_0104). */}
               {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">Day started {clock(dayStart.at)} · <b className="font-semibold text-ink-800">{short(startName(dayStart))}</b>{dayStart.home_m != null && dayStart.home_m > HOME_M && ` · ${km(dayStart.home_m / 1000)} from home`}</span></span>}
+              {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">Day ended {clockOf({ day: d.day, shot_at: dayEnd.at })} · <b className="font-semibold text-ink-800">{short(startName(dayEnd))}</b>{dayEnd.home_m != null && dayEnd.home_m > HOME_M && ` · ${km(dayEnd.home_m / 1000)} from home`}</span></span>}
               {hasMap && <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>}
             </div>
           )}
@@ -731,6 +733,8 @@ export const OBS = {
   startfar: { title: 'Day started away from home', level: 'check', icon: Sunrise, group: 'start' },
   startoff: { title: 'First ride not from where the day started', level: 'approve', icon: Sunrise, group: 'start' },
   latenight: { title: 'Late night work', level: 'check', icon: Moon, group: 'start' },
+  noend:    { title: 'Day not ended in the app', level: 'check', icon: Sunset, group: 'start' },
+  endfar:   { title: 'Day ended away from home', level: 'check', icon: Sunset, group: 'start' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
   hotel:    { title: 'Over the room limit',      level: 'check',   icon: BedDouble, group: 'policy' },
@@ -879,6 +883,12 @@ export function claimObservations(data: ClaimData): Obs[] {
       const before = data.days.find(x => x.day === new Date(new Date(d.day + 'T00:00:00').getTime() - 86_400_000).toLocaleDateString('en-CA'))
       items.push({ kind: 'startfar', day, to: first?.id, detail: `${short(startName(st))} at ${clock(st.at)} · ${km(st.home_m / 1000)} from home${before?.hotel || before?.room_by ? ' · after a room stay' : ''}` })
     }
+    // End my day (te_0109): a past day with rides and no end; an end more than 500 m from home (a room stay that night, said so).
+    const en = data.day_ends?.find(s => s.day === d.day), lastR = d.rides[d.rides.length - 1]
+    if (lastR && data.day_end_from && d.day >= data.day_end_from && !en && d.day < new Date().toLocaleDateString('en-CA'))
+      items.push({ kind: 'noend', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)}` })
+    if (en && en.home_m != null && en.home_m > HOME_M)
+      items.push({ kind: 'endfar', day, to: lastR?.id, detail: `${short(startName(en))} at ${clockOf({ day: d.day, shot_at: en.at })} · ${km(en.home_m / 1000)} from home${d.hotel || d.room_by ? ' · a room stay that night' : ''}` })
     // Photos of the day's trip taken after its midnight (te_0108; the user, 4 Nov: "in observation also it should say late night work").
     const night = (data.visit_photos ?? []).filter(p => p.day === d.day && nightOf(p))
     if (night.length) {

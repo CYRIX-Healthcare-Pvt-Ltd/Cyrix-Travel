@@ -7,6 +7,8 @@ import type { VisitPhoto } from '@/lib/visits'
   press a day before the first visit photo keeps where the phone was; the day's first ride starts there.
 */
 export interface DayStart { day?: string; at: string; lat: number; lng: number; place: string | null; home_m: number | null }
+/** End my day (te_0109): the same, where and when the day was ended. */
+export type DayEnd = DayStart
 
 /*
   Late night work (te_0108; the user, 4 Nov: "just add a button example visit of 3rd Nov photo and start my day"): after
@@ -20,6 +22,13 @@ export const latePreview = (() => {
     return sessionStorage.getItem('late-preview') === '1'
   } catch { return false }
 })()
+export const endPreview = (() => {
+  if (!import.meta.env.DEV) return false
+  try {
+    if (new URLSearchParams(window.location.search).has('end-preview')) sessionStorage.setItem('end-preview', '1')
+    return sessionStorage.getItem('end-preview') === '1'
+  } catch { return false }
+})()
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toLocaleDateString('en-CA') }
 
 export const useMyDay = () => useQuery({
@@ -28,8 +37,11 @@ export const useMyDay = () => useQuery({
   queryFn: async () => {
     const { data, error } = await supabase.rpc('te_my_day')
     if (error) throw new Error(friendlyError(error))
-    const day = data as { required: boolean; start: DayStart | null; late_day?: string | null }
-    return latePreview ? { ...day, required: true, start: null, late_day: yesterday() } : day
+    const day = data as { required: boolean; start: DayStart | null; end?: DayEnd | null; late_day?: string | null }
+    if (latePreview) return { ...day, required: true, start: null, end: null, late_day: yesterday() }
+    // ?end-preview: today started at a sample spot and not ended, to see End my day.
+    if (endPreview) return { ...day, required: true, start: { at: new Date().toISOString(), lat: 9.9667, lng: 76.3186, place: 'Vyttila', home_m: 0 }, end: null, late_day: null }
+    return day
   },
 })
 

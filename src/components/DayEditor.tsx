@@ -5,7 +5,7 @@ import { clock, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder }
 import { startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
 import { StartConfirm } from '@/components/StartDay'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -279,6 +279,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const lateHere = !!d.day && d.day === myDay?.late_day
   const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
   const firstId = d.rides[0]?.id
+  /*
+    End my day (te_0109; the user, 4 Nov): the day's last ride ends where the day was ended — Home within 500 m of it —
+    and that To is not changed here; a ride added after it goes before it.
+  */
+  const dayEnd = data.day_ends?.find(s => s.day === d.day) ?? null
+  const endPlace: Place | null = dayEnd ? (startName(dayEnd) === 'Home' && home ? home : { name: startName(dayEnd), lat: dayEnd.lat, lng: dayEnd.lng }) : null
+  const lastRide = d.rides[d.rides.length - 1]
+  const endRideId = endPlace && lastRide?.to_lat != null && lastRide.to_name === endPlace.name && distanceKm(endPlace, { lat: lastRide.to_lat, lng: lastRide.to_lng! }) <= 0.05 ? lastRide.id : null
   useEffect(() => {
     const r = latest.current.rides[0]
     if (!startPlace || !r) return
@@ -724,13 +732,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 const notAllowed = outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)
                 const read = m.perKm ? null : billRead(data.bills, r.id)
                 const locked = i === 0 && !!startPlace
+                const endLocked = r.id === endRideId
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
-                  <button type="button" id={`${end}-${r.id}`} disabled={end === 'from' && locked} onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
+                  <button type="button" id={`${end}-${r.id}`} disabled={(end === 'from' && locked) || (end === 'to' && endLocked)} onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
                     className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'text-ink-700'} ${end === 'to' && nudged(r.id, 'to') ? 'ring-2 ring-cyrixRed-500' : ''}`}>
                     <span className="grid w-4 shrink-0 place-items-center">{end === 'from' ? <span className="h-2.5 w-2.5 rounded-full bg-teal-500" /> : <MapPin className="h-4 w-4 text-cyrixRed-600" />}</span>
                     <span className="w-9 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{end === 'from' ? 'From' : 'To'}</span>
                     <span className="truncate">{name ?? (end === 'from' ? 'Choose where you started' : 'Choose where you went')}</span>
                     {end === 'from' && locked && <Sunrise className="ml-auto h-4 w-4 shrink-0 text-amber-500" aria-label="Where the day started" />}
+                    {end === 'to' && endLocked && <Sunset className="ml-auto h-4 w-4 shrink-0 text-orange-500" aria-label="Where the day ended" />}
                   </button>
                 )
                 return (
@@ -882,7 +892,23 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   return
                 }
                 setNudge(null)
+                // The ride ending the day stays last: one added goes before it, and it then starts where the new one ends.
+                if (endRideId) {
+                  const before = d.rides[d.rides.length - 2]
+                  const from = before?.to_lat != null ? { name: before.to_name!, lat: before.to_lat, lng: before.to_lng! } : startPlace ?? home
+                  const er = d.rides[d.rides.length - 1]
+                  set({ rides: [...d.rides.slice(0, -1), blankRide(from, carry()), { ...er, from_name: null, from_lat: null, from_lng: null, map_km: null }] })
+                  return
+                }
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? (notStarted && d.day === today ? null : home) : null
+                // With the day ended and a ride already there, the next is the ride to where it ended.
+                if (endPlace && last && from && distanceKm(from, endPlace) > 0.05) {
+                  const goal = near(home, endPlace.lat, endPlace.lng) ? data.purposes.find(x => /home/i.test(x)) : undefined
+                  const nr = { ...blankRide(from, carry()), to_name: endPlace.name, to_lat: endPlace.lat, to_lng: endPlace.lng, ...(goal ? { purpose: goal } : {}) }
+                  set({ rides: [...d.rides, nr] })
+                  void roadKm(from, endPlace, nr.mode).then(road => setRide(nr.id, { map_km: road?.km ?? null }))
+                  return
+                }
                 set({ rides: [...d.rides, blankRide(from, carry())] })
               }}><span className="grid h-6 w-6 place-items-center rounded-full bg-teal-600 text-white"><Plus className="h-4 w-4" /></span> {d.rides.length ? 'Add another ride' : 'Add a ride'}</button>
 

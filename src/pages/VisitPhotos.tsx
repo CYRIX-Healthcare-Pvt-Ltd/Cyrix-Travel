@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Camera, CloudUpload, LayoutGrid, MapPin, Moon, Trash2, X } from 'lucide-react'
 import VisitCamera from '@/components/VisitCamera'
-import { StartArt, StartDayButton, startPreview, startTitle, useMyStarts } from '@/components/StartDay'
+import { EndDayButton, StartArt, StartDayButton, startPreview, startTitle, useMyEnds, useMyStarts } from '@/components/StartDay'
 import { shortDay, startName, useMyDay, type DayStart } from '@/lib/dayStart'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader } from '@/components/ui'
@@ -40,12 +40,15 @@ export default function VisitPhotos() {
   // Start my day (te_0104): pressed first each day, then the camera; the day's start is its first tile, drawn.
   const { data: myDay } = useMyDay()
   const { data: savedStarts } = useMyStarts(from, to)
+  const { data: ends } = useMyEnds(from, to)
   const [tried, setTried] = useState<DayStart | null>(null)
   const starts = [...(savedStarts ?? []), ...(tried && !(savedStarts ?? []).some(s => s.day === tried.day) ? [tried] : [])]
   const mustStart = (startPreview || !!myDay?.required) && !starts.some(s => s.day === today) && !myDay?.start
   // false, true (today), or the day before for a visit of its trip after midnight (te_0108).
   const [camera, setCamera] = useState<boolean | string>(false)
   const lateDay = mustStart ? myDay?.late_day ?? null : null
+  // Today started and not ended: End my day (te_0109). Ended: no more photos today.
+  const ended = !!myDay?.end || (ends ?? []).some(e => e.day === today)
   const [note, setNote] = useState<{ kind: 'success' | 'info' | 'error'; text: string } | null>(null)
   const [waiting, setWaiting] = useState(0)
   const [open, setOpen] = useState<VisitPhoto | null>(null)
@@ -75,20 +78,30 @@ export default function VisitPhotos() {
     if (!(await ask.confirm({ title: 'Delete this photo?', body: `${p.place ?? 'Visit photo'} · ${clock(p.shot_at)}`, yes: 'Delete', danger: true }))) return
     try { await deletePhoto(p.id); setOpen(null); await refresh() } catch (e) { await ask.alert('Not deleted', (e as Error).message, 'warn') }
   }
-  const days = [...new Set([...(data ?? []).map(p => p.day), ...starts.map(s => s.day!)])].sort().reverse()
+  const days = [...new Set([...(data ?? []).map(p => p.day), ...starts.map(s => s.day!), ...(ends ?? []).map(e => e.day!)])].sort().reverse()
 
   return (
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Camera className="h-5 w-5 text-rose-600" /> Visit photos</h1>
+      {/* After midnight, the day before's trip, if not ended: a visit of it, or its end (the user, 4 Nov). */}
       {lateDay && (
-        <button type="button" className="h-12 w-full rounded-xl bg-indigo-600 text-base font-semibold text-white shadow-sm hover:bg-indigo-700 sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(lateDay) }}>
-          <span className="inline-flex items-center justify-center gap-2"><Moon className="h-5 w-5" /> Visit of {shortDay(lateDay)}</span>
-        </button>
+        <div className="rounded-2xl bg-indigo-50 p-2 ring-1 ring-indigo-200 sm:inline-block">
+          <p className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-wide text-indigo-800">{shortDay(lateDay)} trip</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" className="h-12 rounded-xl bg-indigo-600 px-3 text-base font-semibold text-white shadow-sm hover:bg-indigo-700" onClick={() => { setNote(null); setCamera(lateDay) }}>
+              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Moon className="h-5 w-5" /> Visit of {shortDay(lateDay)}</span>
+            </button>
+            <EndDayButton day={lateDay} />
+          </div>
+        </div>
       )}
-      {mustStart ? <StartDayButton onStarted={s => setTried(s)} /> : (
-        <button type="button" className="btn-primary btn-go h-12 w-full text-base sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(true) }}>
-          <Camera className="h-5 w-5" /> Take visit photo
-        </button>
+      {mustStart ? <StartDayButton onStarted={s => setTried(s)} /> : !ended && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button type="button" className="btn-primary btn-go h-12 w-full text-base sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(true) }}>
+            <Camera className="h-5 w-5" /> Take visit photo
+          </button>
+          {(myDay?.required || startPreview) && <EndDayButton />}
+        </div>
       )}
       {note && <Alert kind={note.kind}>{note.text}</Alert>}
       {waiting > 0 && (
@@ -125,7 +138,7 @@ export default function VisitPhotos() {
       {isLoading ? <PageLoader /> : days.length === 0 ? (
         <div className="card p-6 text-center text-sm text-ink-500">No visit photos {custom ? 'in these dates' : 'this month'}.</div>
       ) : days.map(day => {
-        const list = (data ?? []).filter(p => p.day === day), st = starts.find(s => s.day === day)
+        const list = (data ?? []).filter(p => p.day === day), st = starts.find(s => s.day === day), en = (ends ?? []).find(e => e.day === day)
         return (
           <section key={day} className="space-y-2">
             <h2 className="text-sm font-semibold text-ink-700">
@@ -165,6 +178,19 @@ export default function VisitPhotos() {
                   </button>
                 )
               })}
+              {/* The day's end (te_0109): last, drawn, nothing to change or delete. */}
+              {en && (
+                <div className={`card overflow-hidden text-left ${cols >= 4 ? '!rounded-lg' : ''}`}>
+                  <div className={`relative ${cols >= 4 ? 'aspect-square' : 'aspect-[4/3]'}`}>
+                    <StartArt end home={startName(en) === 'Home'} />
+                    {cols >= 4 && <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] font-medium leading-4 text-white">{clockOf({ day, shot_at: en.at })}</span>}
+                  </div>
+                  {cols < 4 && <div className={`space-y-0.5 ${cols === 3 ? 'px-2 py-1.5' : 'px-2.5 py-2'}`}>
+                    <p className="truncate text-sm font-semibold text-ink-900">{startTitle(en)}</p>
+                    <p className="text-xs text-ink-500">Day ended · {clockOf({ day, shot_at: en.at })}</p>
+                  </div>}
+                </div>
+              )}
             </div>
           </section>
         )

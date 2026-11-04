@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Sunrise } from 'lucide-react'
+import { RefreshCw, Sunrise, Sunset } from 'lucide-react'
 import Dialog from '@/components/Dialog'
 import { Alert, Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { placeName, whereAmI, type Fix } from '@/lib/geo'
-import { startName, type DayStart } from '@/lib/dayStart'
+import { endPreview, latePreview, shortDay, startName, type DayStart } from '@/lib/dayStart'
 
 /*
   Start my day (te_0104; the user, 3 Nov: "instead of take visit photo, make it as start my day, so save that location
@@ -14,6 +14,15 @@ import { startName, type DayStart } from '@/lib/dayStart'
   visit photo is until the day is started. Locally, ?start-preview shows it to anyone, and the press there saves nothing.
 */
 export const startPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).has('start-preview')
+
+export const useMyEnds = (from: string, to: string) => useQuery({
+  queryKey: ['te_my_ends', from, to],
+  queryFn: async () => {
+    const { data, error } = await supabase.rpc('te_my_ends', { p_from: from, p_to: to })
+    if (error) throw new Error(friendlyError(error))
+    return data as DayStart[]
+  },
+})
 
 export const useMyStarts = (from: string, to: string) => useQuery({
   queryKey: ['te_my_starts', from, to],
@@ -25,12 +34,12 @@ export const useMyStarts = (from: string, to: string) => useQuery({
 })
 
 // The local preview, with location off, starts at a sample spot (Vyttila).
-const findMe = () => whereAmI().catch(e => { if (startPreview) return { lat: 9.9667, lng: 76.3186, accuracy: 10 }; throw e })
+const findMe = () => whereAmI().catch(e => { if (startPreview || endPreview || latePreview) return { lat: 9.9667, lng: 76.3186, accuracy: 10 }; throw e })
 
-/** Saves the spot as the day's start (te_0104), and says it. */
-async function saveStart(fix: Fix, place: string | null): Promise<DayStart> {
-  if (!startPreview) {
-    const { error } = await supabase.rpc('te_start_day', { p_lat: fix.lat, p_lng: fix.lng, p_accuracy: fix.accuracy, p_place: place })
+/** Saves the spot as the day's start (te_0104) or end (te_0109), and says it. */
+async function saveStart(fix: Fix, place: string | null, end: boolean): Promise<DayStart> {
+  if (!(startPreview || endPreview || latePreview)) {
+    const { error } = await supabase.rpc(end ? 'te_end_day' : 'te_start_day', { p_lat: fix.lat, p_lng: fix.lng, p_accuracy: fix.accuracy, p_place: place })
     if (error) throw new Error(friendlyError(error))
   }
   return { day: new Date().toLocaleDateString('en-CA'), at: new Date().toISOString(), lat: fix.lat, lng: fix.lng, place, home_m: null }
@@ -41,7 +50,8 @@ async function saveStart(fix: Fix, place: string | null): Promise<DayStart> {
   fetching is wrong, so better we can show a map and pin to confirm"): the pin can't be dragged, so the start stays
   where the phone is; a rough or wrong fix is read again with Try again.
 */
-export function StartConfirm({ onStarted, onClose }: { onStarted?: (s: DayStart) => void; onClose: () => void }) {
+/** `end`: End my day (te_0109), with `day` when it ends the day before after midnight ("End 3 Nov"). */
+export function StartConfirm({ onStarted, onClose, end = false, day }: { onStarted?: (s: DayStart) => void; onClose: () => void; end?: boolean; day?: string | null }) {
   const qc = useQueryClient()
   const box = useRef<HTMLDivElement>(null)
   const mapRef = useRef<import('leaflet').Map | null>(null)
@@ -85,8 +95,8 @@ export function StartConfirm({ onStarted, onClose }: { onStarted?: (s: DayStart)
     if (!fix) return
     setBusy(true); setErr(null)
     try {
-      const s = await saveStart(fix, place)
-      await Promise.all(['te_my_day', 'te_my_starts', 'te_claim'].map(k => qc.invalidateQueries({ queryKey: [k] })))
+      const s = await saveStart(fix, place, end)
+      await Promise.all(['te_my_day', 'te_my_starts', 'te_my_ends', 'te_claim'].map(k => qc.invalidateQueries({ queryKey: [k] })))
       onStarted?.(s)
       onClose()
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -96,7 +106,7 @@ export function StartConfirm({ onStarted, onClose }: { onStarted?: (s: DayStart)
   const tooRough = !!fix && fix.accuracy > 500
 
   return (
-    <Dialog title="Start my day" icon={<Sunrise className="h-5 w-5 text-amber-500" />} onClose={onClose}>
+    <Dialog title={end ? (day ? `End ${shortDay(day)}` : 'End my day') : 'Start my day'} icon={end ? <Sunset className="h-5 w-5 text-orange-500" /> : <Sunrise className="h-5 w-5 text-amber-500" />} onClose={onClose}>
       <div className="space-y-3">
         <div className="relative h-64 overflow-hidden rounded-xl border border-ink-200 bg-ink-100">
           <div ref={box} className="absolute inset-0" />
@@ -113,7 +123,7 @@ export function StartConfirm({ onStarted, onClose }: { onStarted?: (s: DayStart)
             <RefreshCw className="h-5 w-5" /> Try again
           </button>
           <button type="button" className="btn-primary btn-go h-12 flex-[2] justify-center text-base" disabled={!fix || tooRough || busy} onClick={() => void start()}>
-            {busy ? <Spinner className="h-5 w-5" /> : <Sunrise className="h-5 w-5" />} Start my day here
+            {busy ? <Spinner className="h-5 w-5" /> : end ? <Sunset className="h-5 w-5" /> : <Sunrise className="h-5 w-5" />} {end ? (day ? `End ${shortDay(day)} here` : 'End my day here') : 'Start my day here'}
           </button>
         </div>
       </div>
@@ -134,21 +144,37 @@ export function StartDayButton({ onStarted }: { onStarted?: (s: DayStart) => voi
 }
 
 /** The drawn picture a day's start carries among the photos: sunrise over a road leaving home. */
-export function StartArt({ home }: { home: boolean }) {
+export function EndDayButton({ day }: { day?: string | null }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" className="h-12 w-full rounded-xl border border-orange-300 bg-orange-50 px-4 text-base font-semibold text-orange-800 hover:bg-orange-100 sm:w-auto sm:px-6" onClick={() => setOpen(true)}>
+        <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Sunset className="h-5 w-5" /> {day ? `End ${shortDay(day)}` : 'End my day'}</span>
+      </button>
+      {open && <StartConfirm end day={day} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+/** The drawn picture of a day's start, or with `end` its end: the sun going down over the road home. */
+export function StartArt({ home, end = false }: { home: boolean; end?: boolean }) {
   return (
     <svg viewBox="0 0 160 120" className="h-full w-full" preserveAspectRatio="xMidYMid slice" aria-hidden>
       <defs>
         <linearGradient id="sd-sky" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#fde68a" /><stop offset="0.6" stopColor="#fdba74" /><stop offset="1" stopColor="#fb923c" />
         </linearGradient>
+        <linearGradient id="sd-dusk" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#4c1d95" /><stop offset="0.55" stopColor="#c026d3" /><stop offset="1" stopColor="#f97316" />
+        </linearGradient>
       </defs>
-      <rect width="160" height="120" fill="url(#sd-sky)" />
-      <circle cx="80" cy="78" r="24" fill="#fff7ed" opacity="0.95" />
-      {[-60, -30, 0, 30, 60].map(a => (
+      <rect width="160" height="120" fill={end ? 'url(#sd-dusk)' : 'url(#sd-sky)'} />
+      <circle cx="80" cy={end ? 88 : 78} r="24" fill={end ? '#fdba74' : '#fff7ed'} opacity="0.95" />
+      {!end && [-60, -30, 0, 30, 60].map(a => (
         <line key={a} x1="80" y1="78" x2={80 + Math.sin((a * Math.PI) / 180) * 40} y2={78 - Math.cos((a * Math.PI) / 180) * 40} stroke="#fff7ed" strokeWidth="2.5" strokeLinecap="round" opacity="0.7" />
       ))}
-      <path d="M0 86 Q40 68 80 82 T160 78 V120 H0Z" fill="#65a30d" />
-      <path d="M0 96 Q50 84 100 96 T160 92 V120 H0Z" fill="#4d7c0f" />
+      <path d="M0 86 Q40 68 80 82 T160 78 V120 H0Z" fill={end ? '#3f6212' : '#65a30d'} />
+      <path d="M0 96 Q50 84 100 96 T160 92 V120 H0Z" fill={end ? '#365314' : '#4d7c0f'} />
       <path d="M68 120 L78 92 H82 L92 120Z" fill="#57534e" />
       <path d="M80 96 V100 M80 105 V110 M80 115 V120" stroke="#fef3c7" strokeWidth="1.5" />
       {home && (
