@@ -745,6 +745,7 @@ export const OBS = {
   cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange, group: 'tickets' },
   cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2, group: 'tickets' },
   autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront, group: 'km' },
+  autobike: { title: 'Auto on a bike day',       level: 'check',   icon: CarTaxiFront, group: 'km' },
   tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange, group: 'tickets' },
   retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon, group: 'tickets' },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins, group: 'policy' },
@@ -804,6 +805,24 @@ export function claimObservations(data: ClaimData): Obs[] {
   for (const d of data.days) {
     const day = dn(d.day)
     const shots = matchPhotos(d.rides, d.day, data.visit_photos, setup)
+    /*
+      An auto or taxi on a day the person rode their own bike (the user, 5 Nov: "he went 52 km in bike, then just for
+      1.4 km he went by auto, why?"): all of the day's together, against the same km by bike. A bill does not answer it.
+    */
+    const hired = d.rides.filter(r => (r.mode === 'auto' || r.mode === 'taxi' || r.mode === 'taxi_bike') && (r.fare ?? 0) > 0)
+    if (hired.length && d.rides.some(r => r.mode === 'bike')) {
+      const kms = hired.reduce((t, r) => t + (r.claimed_km ?? r.map_km ?? 0), 0)
+      const paid = hired.reduce((t, r) => t + (r.fare ?? 0), 0)
+      const byBike = Math.round(kms * (rule?.bike_rate ?? 5))
+      const why = [...new Set(hired.map(r => r.purpose).filter(Boolean))].join(', ')
+      const what = hired.every(r => r.mode === 'auto') ? 'an auto' : 'an auto or taxi'
+      const who = data.claim.mine ? 'You' : data.claim.name.split(' ')[0]
+      items.push({ kind: 'autobike', day, to: hired[0].id,
+        // A courier sent the same day: the box may have been too big for the bike (the user, 5 Nov: "that is genuine, see the photo of courier, large box").
+        detail: d.expenses.some(x => /courier/i.test(`${x.category} ${x.description ?? ''}`))
+          ? `${who} came by bike, but took ${what} for ${km(Math.round(kms * 10) / 10)}${why ? ` (${why})` : ''} · ${money(paid)}. By bike ${money(byBike)}. A courier was sent that day: if the box was large or heavy, the auto is fine.`
+          : `${who} came by bike, but took ${what} for ${km(Math.round(kms * 10) / 10)}${why ? ` (${why})` : ''} · ${money(paid)}. By bike it would be ${money(byBike)}.` })
+    }
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
