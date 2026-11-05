@@ -1,5 +1,9 @@
 import { useState } from 'react'
-import { Check, X } from 'lucide-react'
+import { Check, ChevronRight, FileSpreadsheet, HandCoins, Pencil, PencilLine, X } from 'lucide-react'
+import { exportAdvances } from '@/lib/exportAdvances'
+import AdvanceDetail from '@/components/AdvanceDetail'
+import AdvanceForm from '@/components/AdvanceForm'
+import Dialog from '@/components/Dialog'
 import { useAsk } from '@/components/Ask'
 import { useAuth } from '@/contexts/AuthContext'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
@@ -41,19 +45,30 @@ export default function AdvanceApprovals() {
           </button>
         ))}
       </div>
+      {/* The Travel Desk's Excel of everything approved (the user, 5 Nov: "excel download in approved tab … for each or total"). */}
+      {tab === 'done' && isDesk && lists.done.length > 0 && (
+        <div className="flex justify-end">
+          <button type="button" className="btn-secondary !py-1.5 text-sm"
+            onClick={() => void exportAdvances({ file: 'Approved advances', heading: 'Approved advances', rows: lists.done })}>
+            <FileSpreadsheet className="h-4 w-4 text-green-700" /> Download Excel · all {lists.done.length}
+          </button>
+        </div>
+      )}
       {lists[tab].length
-        ? <div className="card divide-y divide-ink-100 overflow-hidden">{lists[tab].map(a => <Row key={a.id} a={a} />)}</div>
+        ? <div className="card divide-y divide-ink-100 overflow-hidden">{lists[tab].map(a => <Row key={a.id} a={a} excel={tab === 'done' && isDesk} />)}</div>
         : <div className="card p-6 text-center text-sm text-ink-500">{EMPTY[tab]}</div>}
     </div>
   )
 }
 
-function Row({ a }: { a: InboxAdvance }) {
+function Row({ a, excel = false }: { a: InboxAdvance; excel?: boolean }) {
   const ask = useAsk()
   const refresh = useAdvanceRefresh()
   const [busy, setBusy] = useState(false)
   // Said in the row whose button was pressed (errors where the button is).
   const [err, setErr] = useState<{ text: string; n: number } | null>(null)
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
   const s = ADVANCE_STATUS[a.status]
   const decide = async (approve: boolean) => {
     let note: string | null = null
@@ -70,14 +85,16 @@ function Row({ a }: { a: InboxAdvance }) {
   }
   return (
     <div className="space-y-2 px-4 py-3">
+      <button type="button" onClick={() => setOpen(true)} className="block w-full space-y-2 text-left">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-medium text-ink-900">{a.name} <span className="text-xs text-ink-500">{a.ecode}</span></p>
           <p className="truncate text-xs text-ink-600"><b className="text-ink-900">{a.number}</b> · {a.base_state} → {a.dest_name}{a.cost_centre ? ` · ${a.cost_centre}` : ''} · {shortDate(a.created_at)}</p>
         </div>
-        <span className="shrink-0 text-right text-base font-semibold text-ink-900">{money(a.amount)}</span>
+        <span className="flex shrink-0 items-center gap-1 text-right text-base font-semibold text-ink-900">{money(a.amount)} <ChevronRight className="h-4 w-4 text-ink-400" /></span>
       </div>
       <p className="text-sm text-ink-800">{a.purpose}<span className="text-ink-500"> · {a.reason}</span></p>
+      </button>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
         <span className={`badge whitespace-nowrap ${s.tone}`}>{s.label}</span>
         <span>{a.month_count} this month · {money(a.month_amount)}</span>
@@ -85,15 +102,37 @@ function Row({ a }: { a: InboxAdvance }) {
         {a.manager_at && a.status !== 'with_manager' && <span>{a.manager_name} approved {shortDate(a.manager_at)}</span>}
         {a.declined_at && <span className="text-cyrixRed-700">Declined by {a.declined_name}: {a.decline_note}</span>}
       </div>
+      {a.edited_at && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-800">
+          <PencilLine className="mt-0.5 h-3.5 w-3.5 shrink-0" /> Edited by {a.edited_name} {shortDate(a.edited_at)} · {a.edit_note}
+        </p>
+      )}
       {a.waiting && (
         <div className="flex flex-wrap gap-2 pt-1">
           <button type="button" className="btn-primary !py-1.5 text-sm" disabled={busy} onClick={() => void decide(true)}>
             {busy ? <Spinner className="h-4 w-4" /> : <Check className="h-4 w-4" />} Approve
           </button>
+          {a.status === 'with_manager' && (
+            <button type="button" className="btn-secondary !py-1.5 text-sm" disabled={busy} onClick={() => setEditing(true)}><Pencil className="h-4 w-4" /> Edit</button>
+          )}
           <button type="button" className="btn-secondary !py-1.5 text-sm" disabled={busy} onClick={() => void decide(false)}><X className="h-4 w-4" /> Decline</button>
         </div>
       )}
+      {excel && (
+        <div className="pt-1">
+          <button type="button" className="btn-secondary !py-1.5 text-sm"
+            onClick={() => void exportAdvances({ file: `${a.number} ${a.name}`, heading: `${a.name} (${a.ecode})`, rows: [a] })}>
+            <FileSpreadsheet className="h-4 w-4 text-green-700" /> Excel
+          </button>
+        </div>
+      )}
       {err && <Alert key={err.n} kind="error">{err.text}</Alert>}
+      {open && <AdvanceDetail a={a} onClose={() => setOpen(false)} />}
+      {editing && (
+        <Dialog title={`Edit ${a.number} · ${a.name}`} icon={<HandCoins className="h-5 w-5 text-indigo-600" />} wide onClose={() => setEditing(false)}>
+          <AdvanceForm advance={a} ownCentre={a.own_centre ?? null} onClose={() => setEditing(false)} />
+        </Dialog>
+      )}
     </div>
   )
 }

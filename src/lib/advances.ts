@@ -8,6 +8,11 @@ import { rpc } from '@/lib/claims'
 export interface Advance {
   id: string; number: string; amount: number; purpose: string; reason: string; cost_centre: string | null
   base_name: string | null; base_state: string; dest_name: string; dest_state: string; month: string
+  dest_lat: number | null; dest_lng: number | null
+  /** The manager's edit (te_0127): who, when and what changed. */
+  edited_at: string | null; edited_name: string | null; edit_note: string | null
+  /** The person's own cost centre (their function). */
+  own_centre?: string | null
   status: 'with_manager' | 'with_desk' | 'given' | 'declined' | 'cancelled'
   manager_at: string | null; manager_note: string | null; manager_name: string | null
   desk_at: string | null; desk_note: string | null; desk_name: string | null
