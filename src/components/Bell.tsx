@@ -11,6 +11,9 @@ import clsx from 'clsx'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
+/** The buttons a message names, in bold (the user, 5 Nov: "is there option to highlight end my day?"). */
+const PRESS = /(Start my day|End my day)/
+const strong = (t: string) => t.split(PRESS).map((part, i) => i % 2 ? <strong key={i} className="font-semibold text-ink-900">{part}</strong> : part)
 interface Msg { id: string; title: string; body: string; url: string | null; created_at: string; unread: boolean }
 const KEY = ['bell', 'travel']
 
@@ -93,7 +96,7 @@ export default function Bell() {
                     <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium text-ink-900">{m.title}</span>
-                      {m.body && <span className="mt-0.5 block whitespace-pre-line text-xs leading-relaxed text-ink-600">{m.body}</span>}
+                      {m.body && <span className="mt-0.5 block whitespace-pre-line text-xs leading-relaxed text-ink-600">{strong(m.body)}</span>}
                       <span className="mt-1 block text-[11px] text-ink-400">
                         {new Date(m.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       </span>

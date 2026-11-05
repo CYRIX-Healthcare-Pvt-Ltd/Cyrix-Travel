@@ -4,8 +4,8 @@
   day. At 8 pm (most End my day presses come between 4 and 10 pm), whoever pressed Start my day today and not End my
   day gets one message in the Travel bell, which the push round (every 5 minutes) also sends to their phone. It opens
   today's day in their claim when there is one, else their claims. One a person a day (dedupe_key).
-  The words (the user, 5 Nov): "Hi Kevin, your day is still open" / "You started your day but haven’t pressed End my
-  day. Tap here to end it."
+  The words (the user, 5 Nov, from 6 Nov): "Hi Kevin, done for the day? 👋" / "Don’t forget to press 🌇 End my day. Tap
+  here to end your day."
   p_only: that one person, whether or not they started (for showing it working on a test account).
 */
 create or replace function public.te_end_day_reminders(p_only uuid default null)
@@ -27,8 +27,8 @@ begin
     where c.employee_id = r.id and d.day = today and c.status in ('draft', 'returned')
     limit 1;
     insert into push_messages (kind, title, body, url, target, people, dedupe_key)
-    values ('travel', 'Hi ' || r.first || ', your day is still open',
-            'You started your day but haven’t pressed End my day. Tap here to end it.',
+    values ('travel', 'Hi ' || r.first || ', done for the day? 👋',
+            'Don’t forget to press 🌇 End my day. Tap here to end your day.',
             coalesce(link, '/travel/claims'), jsonb_build_object('kind', 'travel', 'what', 'end_day'), 1,
             'te-end-day:' || r.id || ':' || today || case when p_only is not null then ':' || extract(epoch from now())::bigint else '' end)
     on conflict (dedupe_key) do nothing
