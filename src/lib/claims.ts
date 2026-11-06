@@ -906,11 +906,24 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   const lines = text.split('\n')
   const figs = (s: string) => [...s.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => n > 0 && n < 200000)
   let amount: number | null = upi
+  // The bill's own final line first — NET TOTAL, Grand total, Amount payable — then any line that says total (the
+  // user, 6 Nov: a Kerala Sales Corporation tax invoice read ₹100.01, its first item, for a NET TOTAL of ₹175.00).
+  if (amount == null) for (const l of lines) if (/net\s*total|grand\s*total|net\s*(amt|amount|payable)|(amount|total)\s*payable|bill\s*amount|invoice\s*(total|value)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
   if (amount == null) for (const l of lines) if (/total|grand|net\s*(amt|amount|payable)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
   if (amount == null) for (const l of lines) if (/amount|amt|fare|paid|payable|rs\.?|inr|₹/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
   if (amount == null) {
     const paise = [...text.matchAll(/(\d{1,6})\.(\d{2})(?!\d)/g)].map(m => Number(m[1] + '.' + m[2])).filter(n => n > 0 && n < 200000)
     if (paise.length) amount = Math.max(...paise)
+  }
+  /*
+    The amount in words ("Rupees one hundred and seventy five only"), which every tax invoice prints, settles it: the
+    figure the words say, with its paise when a figure on the bill agrees, even where the total's own line was missed
+    or another figure looked bigger. Words read are words written, so it counts as read surely.
+  */
+  const said = upi == null ? amountInWords(text) : null
+  if (said != null) {
+    const near = [...text.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => Math.abs(n - said) < 1)
+    amount = near.length ? near.sort((a, b) => Math.abs(a - said) - Math.abs(b - said))[0] : said
   }
   // A UPI payment's own number (its UPI transaction ID or UTR, 12 digits), else the bill's.
   const um = PAYMENT_SCREEN.test(raw) ? text.match(/(?:UPI\s*(?:transaction|txn|ref(?:erence)?)\s*(?:id|no\.?|number)?|UTR(?:\s*no\.?)?)\s*[:.-]?\s*(\d{12})(?!\d)/i) : null
@@ -932,7 +945,33 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
     return hits.length > 0 && Math.max(...hits.map(w => (/^\d+$/.test(want) ? digitsSure(w) : w.confidence))) >= SURE
   }
   const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null)
-  return { amount: sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay }
+  return { amount: said != null || sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay }
+}
+/*
+  A bill's amount written in words, Indian style: "Rupees One Lakh Twenty Thousand Five Hundred and Seventy Five Only".
+  The number words after "rupees" are added up; a word the reader ran into the next one ("FIVEO!" for "FIVE ONLY") still
+  counts by its start, and the first word that is not a number ends it. Paise are left to the figures.
+*/
+const ONES: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 }
+const SCALES: Record<string, number> = { hundred: 100, thousand: 1000, lakh: 100000, lakhs: 100000, lac: 100000, lacs: 100000, crore: 10000000, crores: 10000000 }
+const NUMBER_WORDS = Object.keys({ ...ONES, ...SCALES }).sort((a, b) => b.length - a.length)
+export function amountInWords(text: string): number | null {
+  const m = text.match(/\b(?:rupees|rupee|rs\.?|inr)\s+((?:[a-z]+[\s,-]*){1,16})/i)
+  if (!m) return null
+  let total = 0, part = 0, seen = false
+  for (const raw of m[1].toLowerCase().split(/[\s,-]+/).filter(Boolean)) {
+    if (raw === 'and') continue
+    const w = NUMBER_WORDS.find(n => raw === n || (raw.startsWith(n) && raw.length - n.length <= 2))
+    if (!w) break
+    seen = true
+    if (w in ONES) part += ONES[w]
+    else if (SCALES[w] === 100) part = (part || 1) * 100
+    else { total += (part || 1) * SCALES[w]; part = 0 }
+  }
+  const n = total + part
+  return seen && n > 0 && n < 200000 ? n : null
 }
 /** How sure the reader must be of a photo's figure (0–100) for it to be used. */
 const SURE = 80
