@@ -17,7 +17,9 @@ import { useAsk } from '@/components/Ask'
   attaching a bill fills it in). On a phone the paperclip offers the camera as well as a file ("on click attachment in
   mobile they should have option to scan bill also").
 */
-export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onMode, onSameTicket, onChange, compact = false, large = false, claimed, part = 'both', accent, fills = false }: {
+export default function BillButton({ claimId, kind, ownerId, bills, needed, editable, onRead, onTicket, onStay, onMode, onSameTicket, onChange, compact = false, large = false, claimed, part = 'both', accent, fills = false, empty = false }: {
+  /** The line has no amount yet: a bill that cannot be read asks for it, and that fills it (the user, 7 Nov). */
+  empty?: boolean
   /** A bill attached here fills the amount: a fare, a hotel night or an expense — not a bike or car ride's km. */
   fills?: boolean
   /** Where a ticket goes, and a voucher's hotel, read off it (the user, 21 Oct). */
@@ -77,9 +79,9 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
   const mine = bills.filter(b => b.owner_id === ownerId)
   const sparked = fills && !mine.length && !busy
   /*
-    A bill whose amount stands against the line's: a fare, a room night or an expense, not a bike's km or a service
-    report. One the reader could not read: the person types its amount there and then (te_0133; the user, 6 Nov), kept
-    as typed for the approvers. Cancel leaves it to the day's Save, which asks for it again.
+    A bill the reader could not read, on a line with no amount yet: the amount is asked for there and then and fills the
+    line (te_0133). Where an amount is already typed it is not asked again (the user, 7 Nov: "already amount is written
+    isnt?"); the approvers see the bill was not read.
   */
   const typable = kind !== 'report' && (fills || claimed !== undefined)
   const typeIn = async (billId: string, mode: ModeCode | null) => {
@@ -125,7 +127,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       if (read.route && onTicket) onTicket(read.route, mode, read.refs)
       if (read.stay && onStay) onStay(read.stay)
       onChange()
-      if (read.amount == null && typable) { setBusy(null); await typeIn(id, mode) }
+      if (read.amount == null && typable && empty) { setBusy(null); await typeIn(id, mode) }
     } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Bill not attached', (e as Error).message, 'warn') } finally { setBusy(null) }
   }
   // Opened in the app, never in another tab (the user, 17 Oct).
@@ -195,12 +197,6 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
           {editable && (
             <button type="button" onClick={() => void remove(b)} title="Remove this bill" aria-label="Remove this bill"
               className={`btn-press -ml-1 grid ${large ? 'h-10 w-8' : 'h-7 w-6'} place-items-center rounded-r-md text-ink-400 hover:bg-cyrixRed-100 hover:text-cyrixRed-700`}><X className="h-3.5 w-3.5" /></button>
-          )}
-          {editable && typable && read == null && b.owner_kind !== 'report' && (
-            <button type="button" onClick={() => { setErr(null); void typeIn(b.id, null) }}
-              className={`btn-lift ml-1 inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} bg-amber-100 text-amber-900 ring-1 ring-amber-400 hover:bg-amber-200`}>
-              <PencilLine className="h-3.5 w-3.5" /> Type amount
-            </button>
           )}
           </span>
         )

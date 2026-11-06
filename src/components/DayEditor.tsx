@@ -553,8 +553,6 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     what to do to save it"). Save is greyed while any is left; the first is said beside it, a press goes there.
   */
   const billed = new Set(data.bills.map(b => b.owner_id))
-  // Bills on a line none of which says an amount, read or typed: typed before the day saves (te_0133; the user, 6 Nov).
-  const noAmount = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner && b.owner_kind !== 'report'); return mine.length > 0 && mine.every(b => b.ocr_amount == null && b.typed_amount == null) }
   const blockers: Array<{ text: string; to: string }> = []
   if (!d.day) blockers.push({ text: 'Choose the date', to: 'day-date' })
   else if (d.day > lastDay) blockers.push({ text: 'A future date cannot be claimed', to: 'day-date' })
@@ -578,20 +576,17 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : d.day === today || lateHere ? `Take the visit photo of ${n}, or write why not` : `Write why there is no visit photo for ${n}`, to })
     }
     if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(paid(r))}`, to })
-    else if (!m.perKm && paid(r) > 0 && noAmount(r.id)) blockers.push({ text: `Type the amount on the bill of ${n}`, to })
     if (order && orderText && order.late.ride.id === r.id) blockers.push({ text: `Rides out of order: the ${orderText.late} photo is ${orderText.lateAt}, before ${orderText.early} at ${orderText.earlyAt}`, to })
   }
   if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {
     const to = 'hotel-' + d.hotel.id
     if (!d.hotel.note?.trim()) blockers.push({ text: 'Write the remarks of the room stay', to })
     if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) blockers.push({ text: `Attach the room bill · ${money(d.hotel.amount)}`, to })
-    else if (d.hotel.amount > 0 && noAmount(d.hotel.id)) blockers.push({ text: 'Type the amount on the room bill', to })
   }
   for (const x of d.expenses) {
     const to = 'exp-' + x.id
     if (!x.amount) { blockers.push({ text: `Type the amount of the ${x.category.toLowerCase()} expense`, to }); continue }
     if (needsBill('expense', x, over) && !billed.has(x.id)) blockers.push({ text: `Attach the bill for ${x.category} · ${money(x.amount)}`, to })
-    else if (noAmount(x.id)) blockers.push({ text: `Type the amount on the bill for ${x.category}`, to })
   }
   const goTo = (id: string) => {
     const el = document.getElementById(id)
@@ -785,7 +780,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                           <BillHint value={r.fare} read={read} />
                         </span>
                       )}
-                      <BillButton compact large part="attach" accent={m} fills={!m.perKm} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
+                      <BillButton compact large part="attach" accent={m} fills={!m.perKm} empty={r.fare == null} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={(a, mode) => { const r1 = latest.current.rides.find(x => x.id === r.id); if (!MODES[mode ?? r1?.mode ?? r.mode].perKm && r1?.fare == null) setRide(r.id, { fare: a }) }}
                         onMode={mode => { if (mode !== r.mode) setMode(r.id, mode) }}
                         onSameTicket={refs => linkReturn(r.id, refs)}
@@ -985,7 +980,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
                         <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
                         <span className="col-span-3 sm:col-span-1">
-                          <BillButton compact large fills claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
+                          <BillButton compact large fills empty={!x.amount} claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
                             onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
                         </span>
                       </div>
@@ -1054,7 +1049,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     <span className={`text-xs ${limit != null && h.amount > limit ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
                       {limit == null ? '' : h.amount > limit ? `Over the ${money(limit)} limit — needs approval` : `Limit ${money(limit)}`}
                     </span>
-                    <BillButton compact large fills claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed={needsBill('hotel', h, over)} claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
+                    <BillButton compact large fills empty={!h.amount} claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed={needsBill('hotel', h, over)} claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
                   </div>
                 </div>
               )
