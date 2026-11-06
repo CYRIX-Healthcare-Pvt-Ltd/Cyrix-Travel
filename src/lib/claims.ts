@@ -187,6 +187,15 @@ export interface Bill {
   /** What was read off it (booking ids, PNRs), and the company booking it is (te_0042). */
   refs?: string[]; company?: CompanyBooking | null
 }
+/**
+  The same trip on another person's claim (te_0134): who, on which claim (none while a draft), what they claimed for it,
+  and the two people's visit photos together at its start or end, which is the proof it is said on.
+*/
+export interface SharedRide {
+  ride: string; kind: 'vehicle' | 'ticket'; name: string; ecode: string; number: string | null; status: string
+  mode: ModeCode; from: string | null; to: string | null; amount: number; note: string | null; bill: boolean
+  mine_at: string; other_at: string; place: string | null; at: 'start' | 'end'
+}
 /** A booking the company made (MakeMyTrip myBiz), from the Travel Desk's monthly report (te_0042). */
 export interface CompanyBooking {
   booking_id: string; mode: string; pnr: string | null; travel_date: string | null; end_date: string | null
@@ -252,6 +261,8 @@ export interface ClaimData {
   photo_setup?: VisitSetup; visit_photos?: VisitPhoto[]; photo_skips_other?: number
   /** The phone most of the person's visit photos came from (te_0086). */
   usual_device?: { device_id: string; device: string | null } | null
+  /** The same trip on another person's claim, with both people's photos together at its start or end (te_0134). */
+  shared?: SharedRide[]
   history: HistoryStep[]
   /** Figures an approver changed (te_0027), oldest first. */
   adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>

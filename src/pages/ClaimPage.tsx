@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon } from 'lucide-react'
+import { type LucideIcon, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
@@ -19,7 +19,7 @@ import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
   DA_KINDS, DA_RANK, isAurum, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
-  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode,
+  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide,
 } from '@/lib/claims'
 
 /*
@@ -719,6 +719,9 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
 */
 type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string; sub?: string }
 export const OBS = {
+  // The same trip claimed by two people travelling together (te_0134; the user, 6 Nov: "it is critical findings").
+  shared:   { title: 'Same trip on another claim', level: 'approve', icon: Users, group: 'shared' },
+  sharedticket: { title: 'Same ticket on another claim', level: 'approve', icon: Users, group: 'shared' },
   policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert, group: 'policy' },
   nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip, group: 'bills' },
   twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy, group: 'bills' },
@@ -760,6 +763,7 @@ export const OBS = {
 } as const
 /** The topics observations sit under, in this order when they weigh alike. */
 const GROUPS = {
+  shared:  { title: 'Travelled together', icon: Users },
   photos:  { title: 'Visit photos', icon: Camera },
   bills:   { title: 'Bills', icon: ReceiptText },
   km:      { title: 'Km and fares', icon: Gauge },
@@ -880,6 +884,13 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
       // A bill whose amount the reader was not sure of (a dark GPay screenshot, a handwritten bill): said, so it is opened (the user, 22 Oct: typed 650, GPay showed 500).
       if (unread(r.id) && (r.fare ?? 0) > 0) items.push({ kind: 'unread', day, to: r.id, detail: `${leg} · ${money(r.fare)} claimed — the bill's amount could not be read; open it and compare` })
+      /*
+        The same trip on another person's claim (te_0134; the user, 6 Nov: "for 3, whoever done it, show as observation, it
+        is critical findings"), said only where both people's visit photos put them together at its start or end ("check
+        the correct from to location, time matching, or else we are giving false allegation"), naming who ("shared auto
+        likely with the partner name also").
+      */
+      for (const s of (data.shared ?? []).filter(x => x.ride === r.id)) items.push({ kind: s.kind === 'ticket' ? 'sharedticket' : 'shared', day, to: r.id, detail: sharedLine(s, r, leg, data.claim.name) })
     }
     if (d.hotel && !d.room_by) {
       const lim = hotelLimit(rule, d.hotel, d.da_kind === 'out_state_stay', metro)
@@ -1086,5 +1097,15 @@ function missingBills(data: ClaimData, over: number): Array<{ id: string; label:
 }
 
 const short = (s: string | null) => (s ? s.split(',')[0] : '—')
+/** The same trip on another claim, as it stands: who, on which claim, for how much, and when their photos were together. */
+function sharedLine(s: SharedRide, r: Ride, leg: string, name: string) {
+  const first = (n: string) => { const w = n.trim().split(/\s+/)[0] ?? ''; return w.charAt(0).toUpperCase() + w.slice(1) }
+  const on = s.number ? `on ${s.number}` : 'on a claim not sent yet'
+  const here = `${money(Number(r.amount ?? r.fare ?? 0))} here`
+  const seen = `photos together at ${short(s.at === 'end' ? r.to_name : r.from_name)}: ${first(name)} ${clock(s.mine_at)}, ${first(s.name)} ${clock(s.other_at)}`
+  return s.kind === 'ticket'
+    ? `${leg} · One ticket for both likely, with ${s.name} (${s.ecode}): ${on} for ${money(Number(s.amount))}${s.note ? ` (“${s.note}”)` : ''}, ${here} · ${seen}`
+    : `${leg} · Shared ${MODES[s.mode].label.toLowerCase()} likely with ${s.name} (${s.ecode}): the same trip ${on} for ${money(Number(s.amount))}${s.bill ? ' with a bill' : ', no bill'}, ${here} · ${seen}`
+}
 const span = (min: number) => { const m = Math.round(min); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` }
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`
