@@ -106,9 +106,9 @@ function form(wb: Workbook, name: string, claims: ClaimData[], line3: string, se
     cell.font = { name: 'Calibri', size: 10, bold: rn <= 5 || /^(TOTAL|ADVANCES|NET|LATE)/.test(String(row.getCell(1).value ?? '')) }
     cell.alignment = { vertical: 'middle', wrapText: rn === 2 || rn === 4 || rn === 5, horizontal: rn === 1 ? 'center' : rn === 4 || rn === 5 ? 'center' : undefined }
     cell.border = { top: THIN, left: THIN, bottom: THIN, right: THIN }
-    if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF1E293B') }
-    if (rn === 4 || rn === 5) cell.fill = fill('FFDBEAFE')
-    if (String(row.getCell(1).value ?? '').startsWith('NET PAYABLE')) cell.fill = fill('FFDCFCE7')
+    if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF111111') }
+    if (rn === 4 || rn === 5) cell.fill = fill('FFF3F4F6')
+    if (String(row.getCell(1).value ?? '').startsWith('NET PAYABLE')) cell.fill = fill('FFF3F4F6')
   }))
   // Each column as wide as what it holds; a heading may take up to three lines, and its row is as tall as the longest needs.
   const min = several ? [12, ...MIN] : MIN
@@ -186,9 +186,9 @@ export async function exportClaims(list: ClaimData[], period: string) {
     cell.alignment = { vertical: 'middle', wrapText: false, horizontal: rn > 3 && cn > 4 ? 'right' : undefined }
     if (rn >= 3) cell.border = { top: THIN, left: THIN, bottom: THIN, right: THIN }
     if (rn > 3 && cn > 4 && typeof cell.value === 'number') cell.numFmt = cn === 6 ? '#,##0.0' : '#,##0'
-    if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF1E293B') }
-    if (rn === 3) cell.fill = fill('FFDBEAFE')
-    if (row === total) cell.fill = fill('FFDCFCE7')
+    if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF111111') }
+    if (rn === 3) cell.fill = fill('FFF3F4F6')
+    if (row === total) cell.fill = fill('FFF3F4F6')
   }))
   ws.getRow(1).height = 24
   ws.columns = head.map((h, i) => ({ width: Math.min(40, Math.max(h.length + 3, ...body.map(r => String(r[i] ?? '').length + 3), String(total.getCell(i + 1).value ?? '').length + 4)) }))

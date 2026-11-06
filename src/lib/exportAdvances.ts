@@ -13,7 +13,7 @@ const by = (name: string | null, iso: string | null) => (iso ? `${name ?? ''} ·
 export async function exportAdvances({ file, heading, rows }: { file: string; heading: string; rows: Array<Advance & { own_centre?: string | null }> }) {
   const { default: ExcelJS } = await import('exceljs')
   const wb = new ExcelJS.Workbook()
-  const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } }
+  const thin = { style: 'thin' as const, color: { argb: 'FFD1D5DB' } }
   const grid = { top: thin, left: thin, bottom: thin, right: thin }
   const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
 
@@ -35,9 +35,9 @@ export async function exportAdvances({ file, heading, rows }: { file: string; he
     cell.alignment = { vertical: 'middle', wrapText: false, horizontal: rn > 3 && cn > sumFrom ? 'right' : undefined }
     if (rn >= 3) cell.border = grid
     if (cn > sumFrom && typeof cell.value === 'number') cell.numFmt = '#,##0'
-    if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF1E293B') }
-    if (rn === 3) cell.fill = fill('FFDBEAFE')
-    if (row === total) cell.fill = fill('FFDCFCE7')
+    if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF111111') }
+    if (rn === 3) cell.fill = fill('FFF3F4F6')
+    if (row === total) cell.fill = fill('FFF3F4F6')
   }))
   ws.getRow(1).height = 24
   ws.columns = head.map((h, i) => ({ width: Math.min(60, Math.max(h.length + 3, ...body.map(r => String(r[i] ?? '').length + 2), 8)) }))

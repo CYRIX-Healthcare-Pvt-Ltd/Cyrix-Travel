@@ -341,7 +341,7 @@ function PersonPage({ row, from, to, label, onClose }: { row: Row; from: string;
 async function exportReport(label: string, people: Row[], rides: Ride[], signs: Sign[]) {
   const { default: ExcelJS } = await import('exceljs')
   const wb = new ExcelJS.Workbook()
-  const thin = { style: 'thin' as const, color: { argb: 'FF94A3B8' } }
+  const thin = { style: 'thin' as const, color: { argb: 'FFD1D5DB' } }
   const grid = { top: thin, left: thin, bottom: thin, right: thin }
   const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
   type Cell = string | number | null
@@ -363,9 +363,9 @@ async function exportReport(label: string, people: Row[], rides: Ride[], signs: 
       cell.alignment = { vertical: 'middle', wrapText: false, horizontal: rn > 3 && f !== 'text' ? 'right' : undefined }
       if (rn >= 3) cell.border = grid
       if (rn > 3 && typeof cell.value === 'number') cell.numFmt = f === 'km' ? '#,##0.0' : f === 'pct' ? '0.0"%"' : '#,##0'
-      if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF1E293B') }
-      if (rn === 3) cell.fill = fill('FFDBEAFE')
-      if (row === tot) cell.fill = fill('FFDCFCE7')
+      if (rn === 1) { cell.font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FFFFFFFF' } }; cell.fill = fill('FF111111') }
+      if (rn === 3) cell.fill = fill('FFF3F4F6')
+      if (row === tot) cell.fill = fill('FFF3F4F6')
     }))
     ws.getRow(1).height = 24
     ws.columns = cols.map(([h], i) => ({ width: Math.min(70, Math.max(8, h.length + 3, ...[...body, ...(total ? [total] : [])].map(r => String(r[i] ?? '').length + 2))) }))
