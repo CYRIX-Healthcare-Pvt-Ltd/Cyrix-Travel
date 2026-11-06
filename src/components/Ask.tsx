@@ -12,7 +12,7 @@ import Dialog from '@/components/Dialog'
 */
 type Tone = 'info' | 'success' | 'warn'
 type Confirm = { title: string; body?: string; yes?: string; no?: string; danger?: boolean; icon?: LucideIcon; go?: boolean }
-type Prompt = { title: string; body?: string; label?: string; placeholder?: string; yes?: string; required?: boolean }
+type Prompt = { title: string; body?: string; label?: string; placeholder?: string; yes?: string; required?: boolean; /** A rupee amount, on the number keys (te_0133). */ amount?: boolean }
 type Open =
   | { kind: 'confirm'; opts: Confirm; done: (v: boolean) => void }
   | { kind: 'prompt'; opts: Prompt; done: (v: string | null) => void }
@@ -24,6 +24,8 @@ interface AskApi {
   alert: (title: string, body?: string, tone?: Tone) => Promise<void>
 }
 const Ctx = createContext<AskApi | null>(null)
+/** An amount a bill can carry: above ₹0 and below ₹2 lakh. */
+const okAmount = (t: string) => { const n = Number(t); return t.trim() !== '' && Number.isFinite(n) && n > 0 && n < 200000 }
 
 const BADGE = {
   ask: 'bg-violet-100 text-violet-600 ring-violet-50',
@@ -80,7 +82,14 @@ export function AskProvider({ children }: { children: ReactNode }) {
           {open.kind === 'prompt' && (
             <label className="mt-4 block">
               {open.opts.label && <span className="label">{open.opts.label}</span>}
-              <textarea rows={3} className="input mt-1" autoFocus value={text} placeholder={open.opts.placeholder} onChange={e => setText(e.target.value)} />
+              {open.opts.amount ? (
+                <span className="relative mt-1 block">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg text-ink-500">₹</span>
+                  <input type="text" inputMode="decimal" autoComplete="off" className="input h-12 pl-8 text-lg font-semibold tabular-nums" autoFocus data-autofocus value={text} placeholder={open.opts.placeholder}
+                    onChange={e => setText(e.target.value.replace(/[^\d.]/g, ''))}
+                    onKeyDown={e => { if (e.key === 'Enter' && okAmount(text)) { open.done(text.trim()); finish() } }} />
+                </span>
+              ) : <textarea rows={3} className="input mt-1" autoFocus data-autofocus value={text} placeholder={open.opts.placeholder} onChange={e => setText(e.target.value)} />}
             </label>
           )}
           <div className={`mt-6 grid gap-3 ${open.kind === 'alert' ? '' : 'grid-cols-2'}`}>
@@ -88,7 +97,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
             <button
               type="button"
               className={`h-12 rounded-xl text-[15px] font-semibold ${danger ? 'btn-primary !bg-cyrixRed-600 !text-white hover:!bg-cyrixRed-700' : open.kind === 'confirm' && open.opts.go ? 'btn-primary btn-go' : 'btn-primary'}`}
-              disabled={open.kind === 'prompt' && open.opts.required !== false && !text.trim()}
+              disabled={open.kind === 'prompt' && (open.opts.amount ? !okAmount(text) : open.opts.required !== false && !text.trim())}
               onClick={() => {
                 if (open.kind === 'confirm') open.done(true)
                 else if (open.kind === 'prompt') open.done(text.trim())

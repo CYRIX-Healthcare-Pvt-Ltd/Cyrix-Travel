@@ -182,6 +182,8 @@ export interface Bill {
   /** A ticket's service report is kept with the bills (te_0037). */
   id: string; owner_kind: 'ride' | 'hotel' | 'expense' | 'report'; owner_id: string; path: string; name: string | null
   ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
+  /** Typed off the bill by the person when the reader could not read it (te_0133). */
+  typed_amount?: number | null
   /** The line and claim of the bill it looks like (te_0036). */
   twin_owner?: string | null; twin_claim?: string | null
   /** What was read off it (booking ids, PNRs), and the company booking it is (te_0042). */
@@ -901,10 +903,19 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
       words = ocrWords(data.words)
       if (PAYMENT_SCREEN.test(raw)) {
         upi = upiAmount(words)
-        // Read as one block of text, the screen's big amount is passed over; read again for text anywhere.
-        if (upi == null) {
+        /*
+          Read as one block of text, the screen's big amount is passed over; read again for text anywhere. Read again
+          too when the amount starts with a 2, 3 or 7 that may be its ₹ (the user, 6 Nov: Google Pay's ₹375 was read as
+          3375): it comes off when either reading has the smaller figure after a ₹.
+        */
+        if (upi == null || /^[237]\d{2}/.test(String(upi))) {
           await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT })
-          upi = upiAmount(ocrWords((await worker.recognize(img, {}, { text: true, blocks: true })).data.words))
+          const again = (await worker.recognize(img, {}, { text: true, blocks: true })).data
+          const two = upiAmount(ocrWords(again.words))
+          // The screen's big figure is the line's without its first digit ("Payment of 3375", a big 375): that digit was the ₹.
+          if (upi != null && two != null && rupeeAsDigit(upi, two)) upi = two
+          upi = upi ?? two
+          if (upi != null) upi = rupeeDigit(upi, [raw, again.text])
         }
       }
     } finally { void worker.terminate() }
@@ -926,6 +937,8 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
     const paise = [...text.matchAll(/(\d{1,6})\.(\d{2})(?!\d)/g)].map(m => Number(m[1] + '.' + m[2])).filter(n => n > 0 && n < 200000)
     if (paise.length) amount = Math.max(...paise)
   }
+  // A ₹ read as the amount's first digit (the user, 6 Nov: an app receipt's ₹371.00 read as 3371.00), off as the bill's ₹ figures show.
+  if (amount != null && upi == null) amount = rupeeDigit(amount, [text])
   /*
     The amount in words ("Rupees one hundred and seventy five only"), which every tax invoice prints, settles it: the
     figure the words say, with its paise when a figure on the bill agrees, even where the total's own line was missed
@@ -1011,8 +1024,8 @@ function figureOf(w: OcrWord): { value: number; h: number; sure: number; signed:
   sy = sy.slice(first)
   let signed = sign !== ''
   const digitH = (xs: typeof sy) => xs.filter(x => /\d/.test(x.text)).map(x => x.h)
-  // A ₹ read as a digit is a 2 or a 7 by its shape; a short 0 is a masked number's dot (PhonePe's "•3247").
-  if (digitH(sy).length >= 2 && /^[27]$/.test(sy[0].text) && sy[0].h < 0.8 * median(digitH(sy.slice(1)))) { sy = sy.slice(1); signed = true }
+  // A ₹ read as a digit is a 2, a 3 or a 7 by its shape; a short 0 is a masked number's dot (PhonePe's "•3247").
+  if (digitH(sy).length >= 2 && /^[237]$/.test(sy[0].text) && sy[0].h < 0.8 * median(digitH(sy.slice(1)))) { sy = sy.slice(1); signed = true }
   const body = sy.map(x => x.text).join('')
   if (!/^(?:\d{1,3}(?:,\d{2,3})+|\d{1,6})(?:\.\d{1,2})?$/.test(body)) return null
   const d = sy.filter(x => /\d/.test(x.text))
@@ -1032,11 +1045,26 @@ function upiAmount(words: OcrWord[]): number | null {
   const text = median(words.filter(w => w.text.length >= 2).map(w => w.h))
   const top = figs.reduce((a, b) => (b.h > a.h ? b : a))
   const isBig = top.h >= 1.8 * text
-  const signed = [...new Set(figs.filter(x => x.signed && x.sure >= SURE && !(isBig && x === top)).map(x => x.value))]
+  // The big figure with its ₹ read as a first 2, 3 or 7 ("Payment of ₹375" read as 3375) agrees with it.
+  const signed = [...new Set(figs.filter(x => x.signed && x.sure >= SURE && !(isBig && x === top)).map(x => (isBig && rupeeAsDigit(x.value, top.value) ? top.value : x.value)))]
   if (signed.length > 1) return null
   if (!isBig) return signed[0] ?? null
   const big = top.sure >= SURE && !figs.some(x => x.h >= 0.8 * top.h && x.value !== top.value) ? top.value : null
   return big != null && (signed.length === 0 || signed[0] === big) ? big : null
+}
+/*
+  A ₹ read as the amount's first digit (the user, 6 Nov: an app receipt's "Total Amount ₹371.00" read as 3371.00, Google
+  Pay's ₹375 as 3375). The ₹ stands before the figure, so only a first 2, 3 or 7 comes off, and only when the bill also
+  shows the smaller figure after a ₹ (its "₹371" read as "R371"), never the longer one, and the longer is on it once.
+*/
+const SIGNED = /(?:^|[^A-Za-z0-9])(?:₹|rs\.?|inr|[RZFXT¥](?=\d))\s?(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/gi
+function rupeeDigit(amount: number, texts: string[]): number {
+  const m = String(amount).match(/^[237]([1-9]\d+(?:\.\d{1,2})?)$/)
+  if (!m) return amount
+  const less = Number(m[1])
+  const signed = texts.flatMap(t => [...t.matchAll(SIGNED)].map(x => Number(x[1])))
+  const once = texts.every(t => [...t.replace(/(\d),(\d{3})(?!\d)/g, '$1$2').matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].filter(x => Number(x[1]) === amount).length <= 1)
+  return signed.includes(less) && !signed.includes(amount) && once ? less : amount
 }
 /** A phone photo made no wider than 2000px first: read as well, and many times faster. */
 async function shrink(file: Blob): Promise<Blob> {
@@ -1048,6 +1076,21 @@ async function shrink(file: Blob): Promise<Blob> {
     c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
     return await new Promise<Blob>(res => c.toBlob(b => res(b ?? file), 'image/jpeg', 0.92))
   } catch { return file }
+}
+/** What a bill says: the amount read off it, else the amount the person typed from it (te_0133), said as typed. */
+export function billSays(b: Bill): { amount: number | null; typed: boolean } {
+  if (b.ocr_amount != null) return { amount: Number(b.ocr_amount), typed: false }
+  if (b.typed_amount != null) return { amount: Number(b.typed_amount), typed: true }
+  return { amount: null, typed: false }
+}
+/** A reading that is the amount claimed with its ₹ read as a first 2, 3 or 7 (₹375 read as 3375, the user, 6 Nov). */
+export function rupeeAsDigit(read: number, claimed: number) {
+  const r = String(read), c = String(claimed)
+  return claimed >= 10 && r.length === c.length + 1 && /^[237]/.test(r) && r.slice(1) === c
+}
+/** A bill's amount that bears the amount claimed out: within a rupee, or the same with its ₹ read as a digit. */
+export function billMatches(amount: number | null | undefined, claimed: number | null | undefined) {
+  return amount != null && claimed != null && (Math.abs(amount - claimed) <= 1 || rupeeAsDigit(amount, claimed))
 }
 /** The amount read off the last bill of a ride, hotel night or expense that could be read. */
 export function billRead(bills: Bill[], ownerId: string): number | null {
@@ -1072,11 +1115,17 @@ export async function uploadBill(claimId: string, kind: Bill['owner_kind'], owne
   if (dupe) throw new Error(`Same bill as ${dupe}`)
   const { error: up } = await supabase.storage.from('te-bills').upload(path, file, { contentType: file.type || 'application/octet-stream' })
   if (up) throw new Error(friendlyError(up))
-  const { error } = await supabase.rpc('te_add_bill', {
+  const { data: id, error } = await supabase.rpc('te_add_bill', {
     p_claim: claimId, p_kind: kind, p_owner: ownerId, p_path: path, p_name: file.name, p_sha256: hash,
     p_phash: ph, p_phash2: ph2, p_amount: read.amount, p_date: read.date, p_billno: read.billno, p_refs: read.refs ?? [],
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
+  return id as string
+}
+/** The amount typed off a bill the reader could not read (te_0133); a bill read is never typed over. */
+export async function typeBillAmount(billId: string, amount: number) {
+  const { error } = await supabase.rpc('te_bill_typed', { p_bill: billId, p_amount: amount })
+  if (error) throw new Error(friendlyError(error))
 }
 /** A ticket's service report, a PDF or a photo (te_0037): kept like a bill, never read for an amount. */
 export async function uploadReport(claimId: string, ticketId: string, file: File) {

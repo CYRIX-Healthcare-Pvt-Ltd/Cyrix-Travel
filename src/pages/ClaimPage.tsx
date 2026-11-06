@@ -18,7 +18,7 @@ import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, isAurum, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
+  DA_KINDS, DA_RANK, isAurum, MODES, billMatches, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide,
 } from '@/lib/claims'
 
@@ -740,6 +740,7 @@ export const OBS = {
   endfar:   { title: 'Day ended away from home', level: 'check', icon: Sunset, group: 'start' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
+  typed:    { title: 'Bill amount typed in',     level: 'check',   icon: PencilLine, group: 'bills' },
   hotel:    { title: 'Over the room limit',      level: 'check',   icon: BedDouble, group: 'policy' },
   away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff, group: 'tickets' },
   home:     { title: 'Home moved',               level: 'check',   icon: House, group: 'home' },
@@ -802,7 +803,10 @@ export function claimObservations(data: ClaimData): Obs[] {
     detail: `${b.mode === 'hotel' ? `Room stay ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
   const billed = new Set(data.bills.map(b => b.owner_id))
   // Bills on a line, none of whose amounts could be read.
-  const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null) }
+  const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null && b.typed_amount == null) }
+  // The amount the person typed from a line's bill that could not be read (te_0133), said with what was claimed.
+  const keyed = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null) ? mine.map(b => b.typed_amount).filter((x): x is number => x != null).map(Number).pop() ?? null : null }
+  const keyedText = (claimed: number, t: number) => `${billMatches(t, claimed) ? `${money(t)} typed from the bill` : `claimed ${money(claimed)}, ${money(t)} typed from the bill`}, which could not be read — open it and compare`
   // "Photo not possible" this month, on this claim and the person's others (te_0082), against the monthly limit.
   const setup = data.photo_setup
   const skipped = (data.photo_skips_other ?? 0) + data.days.reduce((t, x) => t + x.rides.filter(r => r.photo_skip).length, 0)
@@ -877,13 +881,15 @@ export function claimObservations(data: ClaimData): Obs[] {
         An auto fare without a bill that bears it out, set against what autos usually cost here (te_0051; the
         user, 21 Oct): other people's fares a km nearby, or the policy's rate until there are enough.
       */
-      if (r.mode === 'auto' && r.auto_norm && r.map_km && r.fare && !(read != null && Math.abs(read - r.fare) <= 1)) {
+      if (r.mode === 'auto' && r.auto_norm && r.map_km && r.fare && !billMatches(read, r.fare)) {
         const usual = Math.max(Number(data.policy.auto_min_fare ?? 30), r.auto_norm.per_km * r.map_km)
         if (r.fare > usual * 1.4) items.push({ kind: 'autofare', day, to: r.id, detail: `${leg} · ${money(r.fare)} for ${km(r.map_km)} · ${r.auto_norm.from === 'nearby' ? 'around here' : 'the usual fare is'} about ${money(Math.round(usual / 5) * 5)}` })
       }
-      if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
+      if (read != null && !billMatches(read, r.fare ?? 0)) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
       // A bill whose amount the reader was not sure of (a dark GPay screenshot, a handwritten bill): said, so it is opened (the user, 22 Oct: typed 650, GPay showed 500).
       if (unread(r.id) && (r.fare ?? 0) > 0) items.push({ kind: 'unread', day, to: r.id, detail: `${leg} · ${money(r.fare)} claimed — the bill's amount could not be read; open it and compare` })
+      const rk = m.perKm ? null : keyed(r.id)
+      if (rk != null && (r.fare ?? 0) > 0) items.push({ kind: 'typed', day, to: r.id, detail: `${leg} · ${keyedText(r.fare ?? 0, rk)}` })
       /*
         The same trip on another person's claim (te_0134; the user, 6 Nov: "for 3, whoever done it, show as observation, it
         is critical findings"), said only where both people's visit photos put them together at its start or end ("check
@@ -903,8 +909,10 @@ export function claimObservations(data: ClaimData): Obs[] {
         if (from && (d.day < from || (to ? d.day >= to : d.day !== from))) items.push({ kind: 'cdate', day, to: d.hotel.id, detail: `Room stay · booked ${dn(from)}${to ? ' – ' + dn(to) : ''}, claimed on ${day}` })
       }
       const hr = billRead(data.bills, d.hotel.id)
-      if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Room stay · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
+      if (hr != null && !billMatches(hr, d.hotel.amount)) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Room stay · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
       if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Room stay · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
+      const hk = keyed(d.hotel.id)
+      if (hk != null && d.hotel.amount > 0) items.push({ kind: 'typed', day, to: d.hotel.id, detail: `Room stay · ${keyedText(d.hotel.amount, hk)}` })
     }
     /*
       Aurum (te_0123; Domestic Travel Policy A1/A4): per diem is for a trip over 24 hours, a day trip with no night away
@@ -961,8 +969,10 @@ export function claimObservations(data: ClaimData): Obs[] {
     if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ kind: 'da', day, to: d.id, detail: `Claimed ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
     for (const x of d.expenses) {
       const xr = billRead(data.bills, x.id)
-      if (xr != null && Math.abs(xr - x.amount) > 1) items.push({ kind: 'billdiff', day, to: x.id, detail: `${x.category} · claimed ${money(x.amount)}, the bill reads ${money(xr)}` })
+      if (xr != null && !billMatches(xr, x.amount)) items.push({ kind: 'billdiff', day, to: x.id, detail: `${x.category} · claimed ${money(x.amount)}, the bill reads ${money(xr)}` })
       if (unread(x.id) && x.amount > 0) items.push({ kind: 'unread', day, to: x.id, detail: `${x.category} · ${money(x.amount)} claimed — the bill's amount could not be read; open it and compare` })
+      const xk = keyed(x.id)
+      if (xk != null && x.amount > 0) items.push({ kind: 'typed', day, to: x.id, detail: `${x.category} · ${keyedText(x.amount, xk)}` })
       if (needsBill('expense', x, over) && !billed.has(x.id)) items.push({ kind: 'nobill', day, to: x.id, detail: `${x.category} · ${money(x.amount)}` })
     }
     for (const t of d.tickets) {

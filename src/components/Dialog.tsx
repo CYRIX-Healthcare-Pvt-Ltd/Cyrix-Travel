@@ -29,21 +29,24 @@ export default function Dialog({
   wide?: boolean
 }) {
   const panel = useRef<HTMLDivElement>(null)
+  const close = useRef(onClose)
+  close.current = onClose
 
+  // Once when it opens: run again on every redraw, it took the cursor out of a box after each key (7 Nov).
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
-    // The first field, so a date or an amount can be typed straight away.
-    panel.current?.querySelector<HTMLElement>('input, select, textarea, button')?.focus()
+    // The box marked for it, else the first field, so a date or an amount can be typed straight away.
+    ;(panel.current?.querySelector<HTMLElement>('[data-autofocus]') ?? panel.current?.querySelector<HTMLElement>('input, select, textarea, button'))?.focus()
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current() }
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = overflow
       opener?.focus?.()
     }
-  }, [onClose])
+  }, [])
 
   return createPortal(
     <div

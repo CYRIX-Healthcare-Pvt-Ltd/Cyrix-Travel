@@ -24,7 +24,7 @@ import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
-  areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
+  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
 } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
 
@@ -58,7 +58,7 @@ const withTickets = (day: Day): Day => ({ ...day, rides: day.rides.map(r => ({ .
 function BillHint({ value, read }: { value: number | null | undefined; read: number | null }) {
   const at = 'pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-700'
   if (!value) return <ScanLine className={`bill-scan ${at}`} aria-hidden />
-  return read != null && Math.abs(read - value) <= 1 ? <Sparkles className={`bill-spark ${at}`} aria-label="Read from the bill" /> : null
+  return billMatches(read, value) ? <Sparkles className={`bill-spark ${at}`} aria-label="Read from the bill" /> : null
 }
 
 /*
@@ -553,6 +553,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     what to do to save it"). Save is greyed while any is left; the first is said beside it, a press goes there.
   */
   const billed = new Set(data.bills.map(b => b.owner_id))
+  // Bills on a line none of which says an amount, read or typed: typed before the day saves (te_0133; the user, 6 Nov).
+  const noAmount = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner && b.owner_kind !== 'report'); return mine.length > 0 && mine.every(b => b.ocr_amount == null && b.typed_amount == null) }
   const blockers: Array<{ text: string; to: string }> = []
   if (!d.day) blockers.push({ text: 'Choose the date', to: 'day-date' })
   else if (d.day > lastDay) blockers.push({ text: 'A future date cannot be claimed', to: 'day-date' })
@@ -576,17 +578,20 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : d.day === today || lateHere ? `Take the visit photo of ${n}, or write why not` : `Write why there is no visit photo for ${n}`, to })
     }
     if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(paid(r))}`, to })
+    else if (!m.perKm && paid(r) > 0 && noAmount(r.id)) blockers.push({ text: `Type the amount on the bill of ${n}`, to })
     if (order && orderText && order.late.ride.id === r.id) blockers.push({ text: `Rides out of order: the ${orderText.late} photo is ${orderText.lateAt}, before ${orderText.early} at ${orderText.earlyAt}`, to })
   }
   if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {
     const to = 'hotel-' + d.hotel.id
     if (!d.hotel.note?.trim()) blockers.push({ text: 'Write the remarks of the room stay', to })
     if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) blockers.push({ text: `Attach the room bill · ${money(d.hotel.amount)}`, to })
+    else if (d.hotel.amount > 0 && noAmount(d.hotel.id)) blockers.push({ text: 'Type the amount on the room bill', to })
   }
   for (const x of d.expenses) {
     const to = 'exp-' + x.id
     if (!x.amount) { blockers.push({ text: `Type the amount of the ${x.category.toLowerCase()} expense`, to }); continue }
     if (needsBill('expense', x, over) && !billed.has(x.id)) blockers.push({ text: `Attach the bill for ${x.category} · ${money(x.amount)}`, to })
+    else if (noAmount(x.id)) blockers.push({ text: `Type the amount on the bill for ${x.category}`, to })
   }
   const goTo = (id: string) => {
     const el = document.getElementById(id)
@@ -871,7 +876,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {data.bills.some(b => b.owner_id === r.id) && (
                       <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
                         <BillButton compact part="bills" claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={false} claimed={m.perKm ? undefined : r.fare} onChange={refresh} />
-                        {read != null && r.fare != null && Math.abs(read - r.fare) > 1 && (
+                        {read != null && r.fare != null && !billMatches(read, r.fare) && (
                           <span className="text-xs font-semibold text-amber-800">Reads {money(read)} · <button type="button" className="underline" onClick={() => setRide(r.id, { fare: read })}>Use {money(read)}</button></span>
                         )}
                       </div>

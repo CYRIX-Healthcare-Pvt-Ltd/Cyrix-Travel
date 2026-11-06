@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Camera, Copy, FileText, Paperclip, Sparkles, TriangleAlert, X } from 'lucide-react'
+import { Camera, Copy, FileText, Paperclip, PencilLine, Sparkles, TriangleAlert, X } from 'lucide-react'
 import { Spinner } from '@/components/ui'
-import { billUrl, inkVars, readBill, uploadBill, money, type Bill, type ModeCode } from '@/lib/claims'
+import { billMatches, billSays, billUrl, inkVars, readBill, rupeeAsDigit, typeBillAmount, uploadBill, money, type Bill, type ModeCode } from '@/lib/claims'
 import type { HotelStay, TicketRoute } from '@/lib/ticket'
 import { supabase } from '@/lib/supabase'
 import BillView from '@/components/BillView'
@@ -76,6 +76,22 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
   const [err, setErr] = useState<string | null>(null)
   const mine = bills.filter(b => b.owner_id === ownerId)
   const sparked = fills && !mine.length && !busy
+  /*
+    A bill whose amount stands against the line's: a fare, a room night or an expense, not a bike's km or a service
+    report. One the reader could not read: the person types its amount there and then (te_0133; the user, 6 Nov), kept
+    as typed for the approvers. Cancel leaves it to the day's Save, which asks for it again.
+  */
+  const typable = kind !== 'report' && (fills || claimed !== undefined)
+  const typeIn = async (billId: string, mode: ModeCode | null) => {
+    try {
+      const v = await ask.prompt({ title: 'Could not read the amount', label: 'Amount on the bill', placeholder: '0', yes: 'Save', amount: true })
+      if (v == null) return
+      const n = Number(v)
+      await typeBillAmount(billId, n)
+      if (onRead) onRead(n, mode)
+      onChange()
+    } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Amount not saved', (e as Error).message, 'warn') }
+  }
 
   const pick = async (f: File | undefined) => {
     if (!f) return
@@ -101,7 +117,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
         }
       }
       setBusy('Attaching…')
-      await uploadBill(claimId, kind, ownerId, f, read)
+      const id = await uploadBill(claimId, kind, ownerId, f, read)
       // Filled only once the bill is in: one already added is refused, and fills nothing.
       const mode = modeOfBill(read.refs, read.route ?? null)
       if (mode && onMode) onMode(mode)
@@ -109,6 +125,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       if (read.route && onTicket) onTicket(read.route, mode, read.refs)
       if (read.stay && onStay) onStay(read.stay)
       onChange()
+      if (read.amount == null && typable) { setBusy(null); await typeIn(id, mode) }
     } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Bill not attached', (e as Error).message, 'warn') } finally { setBusy(null) }
   }
   // Opened in the app, never in another tab (the user, 17 Oct).
@@ -164,18 +181,26 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       {/* Each bill says what it reads (the user, 18 Oct: "the approver should see easily that this is the
           amount fetched"): green when it matches the claim, amber with a mark when it does not. */}
       {part !== 'attach' && mine.map(b => {
-        const read = b.ocr_amount != null ? Number(b.ocr_amount) : null
-        const off = read != null && claimed != null && Math.abs(read - claimed) > 1
+        // Read, or typed by the person (a pencil); a ₹ read as a first digit is the amount claimed.
+        const { amount: read, typed } = billSays(b)
+        const off = read != null && claimed != null && !billMatches(read, claimed)
+        const shown = read != null && claimed != null && !off && rupeeAsDigit(read, claimed) ? claimed : read
         return (
           <span key={b.id} className="inline-flex items-center">
           <button type="button" onClick={() => void open(b)}
-            title={b.twin ? `Looks like ${b.twin}` : off ? `The bill reads ${money(read)} · claimed ${money(claimed)}` : read != null ? `The bill reads ${money(read)}` : 'Bill · the amount could not be read'}
+            title={b.twin ? `Looks like ${b.twin}` : off ? `The bill ${typed ? 'is typed as' : 'reads'} ${money(read)} · claimed ${money(claimed)}` : typed ? `Typed from the bill: ${money(read)}` : read != null ? `The bill reads ${money(shown)}` : 'Bill · the amount could not be read'}
             className={`btn-lift inline-flex shrink-0 items-center gap-1 font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-800 hover:bg-cyrixRed-200' : off ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-400 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'}`}>
-            <FileText className="h-3.5 w-3.5" />{read != null ? money(read) : 'Bill'}{off && <TriangleAlert className="h-3.5 w-3.5" />}
+            {typed ? <PencilLine className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}{read != null ? money(shown) : 'Bill'}{off && <TriangleAlert className="h-3.5 w-3.5" />}
           </button>
           {editable && (
             <button type="button" onClick={() => void remove(b)} title="Remove this bill" aria-label="Remove this bill"
               className={`btn-press -ml-1 grid ${large ? 'h-10 w-8' : 'h-7 w-6'} place-items-center rounded-r-md text-ink-400 hover:bg-cyrixRed-100 hover:text-cyrixRed-700`}><X className="h-3.5 w-3.5" /></button>
+          )}
+          {editable && typable && read == null && b.owner_kind !== 'report' && (
+            <button type="button" onClick={() => { setErr(null); void typeIn(b.id, null) }}
+              className={`btn-lift ml-1 inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} bg-amber-100 text-amber-900 ring-1 ring-amber-400 hover:bg-amber-200`}>
+              <PencilLine className="h-3.5 w-3.5" /> Type amount
+            </button>
           )}
           </span>
         )
@@ -195,7 +220,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
       {mine.map(b => (
         <span key={b.id} className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-900' : 'bg-green-100 text-green-900'}`}>
           <button type="button" className="inline-flex items-center gap-1 hover:underline" onClick={() => void open(b)} title={b.name ?? 'Bill'}>
-            <FileText className="h-3.5 w-3.5" /> Bill{b.ocr_amount ? ` · ${money(b.ocr_amount)}` : ''}
+            <FileText className="h-3.5 w-3.5" /> Bill{(() => { const s = billSays(b); return s.amount ? ` · ${money(s.amount)}${s.typed ? ' typed' : ''}` : '' })()}
           </button>
           {b.twin && <span className="inline-flex items-center gap-0.5 font-semibold"><Copy className="h-3 w-3" /> Looks like {b.twin}</span>}
           {editable && <button type="button" onClick={() => void remove(b)} aria-label="Remove bill" className="ml-0.5 opacity-70 hover:opacity-100"><X className="h-3 w-3" /></button>}
