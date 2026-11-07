@@ -741,6 +741,7 @@ export const OBS = {
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
   typed:    { title: 'Bill amount typed in',     level: 'check',   icon: PencilLine, group: 'bills' },
+  paytime:  { title: 'Paid at another time',     level: 'approve', icon: Timer, group: 'bills' },
   hotel:    { title: 'Over the room limit',      level: 'check',   icon: BedDouble, group: 'policy' },
   away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff, group: 'tickets' },
   home:     { title: 'Home moved',               level: 'check',   icon: House, group: 'home' },
@@ -890,6 +891,24 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (unread(r.id) && (r.fare ?? 0) > 0) items.push({ kind: 'unread', day, to: r.id, detail: `${leg} · ${money(r.fare)} claimed — the bill's amount could not be read; open it and compare` })
       const rk = m.perKm ? null : keyed(r.id)
       if (rk != null && (r.fare ?? 0) > 0) items.push({ kind: 'typed', day, to: r.id, detail: `${leg} · ${keyedText(r.fare ?? 0, rk)}` })
+      /*
+        A payment screen's own time against the ride's (te_0135; the user, 7 Nov: Google Pay at 10:17 AM for a ride that
+        began about 5:15 PM): the ride runs from the photo where it starts (the ride before's, or Start my day) to its own
+        photo, with two hours either way for a photo taken late ("may be he reached there but clicked facility image after
+        2hrs"); or it was paid on another date than the ride's (or the night after).
+      */
+      const paidAt = m.perKm || !(r.fare ?? 0) ? null : data.bills.filter(b => b.owner_id === r.id && b.paid_at).map(b => b.paid_at as string).pop()
+      if (paidAt) {
+        const i = d.rides.indexOf(r)
+        const from = i > 0 ? shots.get(d.rides[i - 1].id)?.photo.shot_at : data.day_starts?.find(s => s.day === d.day)?.at
+        const to = shots.get(r.id)?.photo.shot_at
+        const istDay = (ms: number) => new Date(ms + 5.5 * 3600e3).toISOString().slice(0, 10)
+        const p = Date.parse(paidAt), slack = 2 * 3600e3
+        const onDay = [d.day, istDay(Date.parse(d.day + 'T12:00:00Z') + 86400e3)].includes(istDay(p))
+        const when = (iso: string) => `${dn(istDay(Date.parse(iso)))} ${clock(iso)}`
+        if (!onDay || (from && p < Date.parse(from) - slack) || (to && p > Date.parse(to) + slack))
+          items.push({ kind: 'paytime', day, to: r.id, detail: `${leg} · ${money(r.fare)} paid ${when(paidAt)}, the ride ${from || to ? `${from ? when(from) : ''}${from && to ? ' – ' : ''}${to ? when(to) : ''} by its photos` : `on ${day}`}` })
+      }
       /*
         The same trip on another person's claim (te_0134; the user, 6 Nov: "for 3, whoever done it, show as observation, it
         is critical findings"), said only where both people's visit photos put them together at its start or end ("check

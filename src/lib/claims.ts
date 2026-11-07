@@ -184,6 +184,8 @@ export interface Bill {
   ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
   /** Typed off the bill by the person when the reader could not read it (te_0133). */
   typed_amount?: number | null
+  /** When a payment screen says it was paid (te_0135). */
+  paid_at?: string | null
   /** The line and claim of the bill it looks like (te_0036). */
   twin_owner?: string | null; twin_claim?: string | null
   /** What was read off it (booking ids, PNRs), and the company booking it is (te_0042). */
@@ -887,7 +889,7 @@ async function pdfText(file: Blob): Promise<string> {
   }
   return text
 }
-export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null }> {
+export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null; paidAt?: string | null }> {
   let raw = ''
   if (file.type === 'application/pdf') raw = await pdfText(file).catch(() => '')
   // A photo is read word by word, each with how sure the reader is of it (0–100), letter by letter.
@@ -969,7 +971,9 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
     return hits.length > 0 && Math.max(...hits.map(w => (/^\d+$/.test(want) ? digitsSure(w) : w.confidence))) >= SURE
   }
   const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null)
-  return { amount: said != null || sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay }
+  // When a payment screen says it was paid (te_0135), to set against the ride's own times.
+  const paidAt = PAYMENT_SCREEN.test(raw) ? paidAtIn(raw) : null
+  return { amount: said != null || sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay, paidAt }
 }
 /*
   A bill's amount written in words, Indian style: "Rupees One Lakh Twenty Thousand Five Hundred and Seventy Five Only".
@@ -1011,7 +1015,7 @@ const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); retu
   "R30", "x30" and "230". What is not a number before the digits is dropped ("what if we can avoid the text that is
   not a number?"), and so is a first digit much shorter than the rest — the ₹ read as a 2.
 */
-const PAYMENT_SCREEN = /\bUPI\b|\bUTR\b|transaction\s*id|google\s*pay|\bG\s?Pay\b|phone\s*pe|paytm|\bBHIM\b|paid\s+(?:to|successfully)|payment\s+(?:of|successful)|money\s+sent/i
+const PAYMENT_SCREEN = /\bUPI\b|\bUTR\b|transaction\s*id|google\s*pay|\bG\s?Pay\b|phone\s*pe|paytm|\bBHIM\b|paid\s+(?:to|successfully|via)|\bCRED\b|payment\s+(?:of|successful)|money\s+sent/i
 // What the reader makes of a ₹ (or Rs, INR); a +91, a # or a masked account's XXXX before digits is not a sign.
 const RUPEE = /^(?:[₹RZFXT%¥&=<€£$]|rs\.?|inr)$/i
 function figureOf(w: OcrWord): { value: number; h: number; sure: number; signed: boolean } | null {
@@ -1066,6 +1070,27 @@ function rupeeDigit(amount: number, texts: string[]): number {
   const once = texts.every(t => [...t.replace(/(\d),(\d{3})(?!\d)/g, '$1$2').matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].filter(x => Number(x[1]) === amount).length <= 1)
   return signed.includes(less) && !signed.includes(amount) && once ? less : amount
 }
+/*
+  When a payment screen says it was paid, in India's time: a date ("4 Nov 2026", "04 Nov") and the time nearest it
+  ("10:17am", "10:17 PM") — Google Pay "4 Nov 2026, 10:17am", PhonePe "10:17 am on 04 Nov 2026", Paytm "10:17 AM, 04 Nov".
+*/
+const MONTH = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+export function paidAtIn(text: string): string | null {
+  const dates = [...text.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?[\s-]*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?[\s,'-]*(\d{4}|\d{2}(?!\d|[:.]\d))?/gi)]
+  const times = [...text.matchAll(/\b(\d{1,2})[:.](\d{2})\s?([ap])\.?\s?m\b/gi)]
+  let best: { d: RegExpMatchArray; t: RegExpMatchArray; gap: number } | null = null
+  for (const d of dates) for (const t of times) {
+    const gap = Math.abs((d.index ?? 0) - (t.index ?? 0))
+    if (gap <= 40 && (!best || gap < best.gap)) best = { d, t, gap }
+  }
+  if (!best) return null
+  const day = Number(best.d[1]), mon = MONTH.indexOf(best.d[2].toLowerCase().slice(0, 3)) + 1
+  const y = best.d[3] ? Number(best.d[3]) : new Date().getFullYear(), year = y < 100 ? 2000 + y : y
+  const h = Number(best.t[1]), min = Number(best.t[2]), pm = best.t[3].toLowerCase() === 'p'
+  if (day < 1 || day > 31 || h < 1 || h > 12 || min > 59 || year < 2020) return null
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  return `${year}-${p2(mon)}-${p2(day)}T${p2((h % 12) + (pm ? 12 : 0))}:${p2(min)}:00+05:30`
+}
 /** A phone photo made no wider than 2000px first: read as well, and many times faster. */
 async function shrink(file: Blob): Promise<Blob> {
   try {
@@ -1107,7 +1132,7 @@ export const policyNote = (mode: string, grade: string | null | undefined) =>
   `${mode} is not in ${grade ? `grade ${grade}'s` : 'this grade’s'} travel policy, so it needs the manager's prior approval.`
 
 /** A bill into the private bucket, then recorded; the same file twice is refused by the database. */
-export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null; refs?: string[] }) {
+export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null; refs?: string[]; paidAt?: string | null }) {
   const [hash, ph, ph2] = await Promise.all([sha256(file), dhash(file), dhash256(file)])
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/${newId()}.${ext}`
@@ -1120,6 +1145,7 @@ export async function uploadBill(claimId: string, kind: Bill['owner_kind'], owne
     p_phash: ph, p_phash2: ph2, p_amount: read.amount, p_date: read.date, p_billno: read.billno, p_refs: read.refs ?? [],
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
+  if (read.paidAt) await supabase.rpc('te_bill_paid', { p_bill: id, p_at: read.paidAt })
   return id as string
 }
 /** The amount typed off a bill the reader could not read (te_0133); a bill read is never typed over. */
