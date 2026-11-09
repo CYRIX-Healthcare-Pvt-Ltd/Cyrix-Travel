@@ -246,8 +246,18 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const shotOn = routeShotsOn(c.ecode)
   const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
   const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
+  // A ride whose screenshot is gone goes back to the map's km once the claim has reloaded without it; until then the
+  // old screenshot would put its km straight back (the user, 9 Nov: "after … deleting, in field that g map distance is
+  // still there").
+  const hadShot = useRef(new Set<string>())
   useEffect(() => {
-    for (const r of d.rides) { const k = lockedKm(r); if (k != null && r.claimed_km !== k) setRide(r.id, { claimed_km: k }) }
+    const now = new Set<string>()
+    for (const r of d.rides) {
+      const k = lockedKm(r)
+      if (k != null) { now.add(r.id); if (r.claimed_km !== k) setRide(r.id, { claimed_km: k }) }
+      else if (hadShot.current.has(r.id) && !shotOf(r) && r.map_km != null && r.claimed_km !== r.map_km) setRide(r.id, { claimed_km: r.map_km })
+    }
+    hadShot.current = now
   }, [data.routes, d.rides]) // eslint-disable-line react-hooks/exhaustive-deps
   // Another way of measuring (road, rail, air): the old km goes at once, so a bike never shows the track's km while the road's is fetched.
   const setMode = (id: string, mode: Ride['mode']) =>
