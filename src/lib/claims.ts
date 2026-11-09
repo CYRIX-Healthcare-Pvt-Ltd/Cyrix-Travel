@@ -620,10 +620,11 @@ async function photonNear(near: { lat: number; lng: number }, tag: string): Prom
 }
 /*
   The hospital or health centre at a spot, for a visit photo's stamp (the user, 30 Oct: "yes, prefer the hospital on the
-  stamp" — GH Ernakulam's photo read "GH Canteen", Lakeshore's "Lakeshore hospital Helipad"): within 150 m, a hospital
-  before a clinic or health centre, the nearest of each.
+  stamp" — GH Ernakulam's photo read "GH Canteen", Lakeshore's "Lakeshore hospital Helipad"): within 60 m, a hospital
+  before a clinic or health centre, the nearest of each. Not 150 m: a photo on the road named the hospital across it
+  (the user, 9 Nov: "i was not in maj hospital"); further off, the road or area's name.
 */
-export async function hospitalAt(at: { lat: number; lng: number }, m = 150): Promise<string | null> {
+export async function hospitalAt(at: { lat: number; lng: number }, m = 60): Promise<string | null> {
   try {
     const tags = ['amenity:hospital', 'amenity:clinic', 'healthcare:hospital', 'healthcare:centre', 'healthcare:clinic'].map(x => `&osm_tag=${x}`).join('')
     const r = await timed(`https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lng}&radius=${m / 1000}&limit=8&lang=en${tags}`)

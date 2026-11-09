@@ -90,8 +90,10 @@ export function placesOn(text: string, r: Pts): Places {
   if (!pts.length) return 'unread'
   const isFrom = (p: readonly [number, number]) => near(p[0], r.from_lat, 0.002) && near(p[1], r.from_lng, 0.002)
   const isTo = (p: readonly [number, number]) => near(p[0], r.to_lat, 0.002) && near(p[1], r.to_lng, 0.002)
-  if (pts.some(p => !isFrom(p) && !isTo(p))) return 'edited'
-  return pts.some(isFrom) && pts.some(isTo) ? 'match' : 'partial'
+  // Both of the ride's points found is enough: Google writes each again as a label on the map, where a digit read
+  // wrong would otherwise look like another place (the user, 9 Nov: a right one refused on the phone, kept on a computer).
+  if (pts.some(isFrom) && pts.some(isTo)) return 'match'
+  return pts.some(p => !isFrom(p) && !isTo(p)) ? 'edited' : 'partial'
 }
 
 /** The km claimed is borne out by the screenshot: no more than its km, give half a km for the rounding. */
