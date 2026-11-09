@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
-import { needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
+import { needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -243,7 +243,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   // A Google Maps screenshot sets its ride's km, and the km box is locked while it fits the ride (te_0141; the user,
   // 9 Nov: "when attached, change the input field to what google map location says and it shouldnt be editable, only
   // if deleted, then it will come default of our map").
-  const shotOn = routeShotsOn(c.ecode)
+  const shotOn = routeShotsOn(c.ecode) && shotDay(d.day, c.ecode)
   const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
   const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
   // A ride whose screenshot is gone goes back to the map's km once the claim has reloaded without it; until then the
@@ -1163,7 +1163,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info')
       }} />}
       {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)}
-        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} band={shotBand(data.policy)} claimId={c.id} onShots={refresh} />}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} ecode={c.ecode} band={shotBand(data.policy)} claimId={c.id} onShots={refresh} />}
       {picking && ride && (
         <PlacePicker
           title={picking.end === 'from' ? 'From' : 'To'}

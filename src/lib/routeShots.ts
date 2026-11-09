@@ -9,9 +9,13 @@
 import { supabase, friendlyError } from './supabase'
 import { newId, sha256 } from './claims'
 
-/** For the test accounts only until it is tried out (the user, 9 Nov: "ok show only for test accounts now"). */
-const TRY = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
-export const routeShotsOn = (ecode: string | null | undefined) => !!ecode && TRY.has(ecode)
+/** For everybody since the test accounts tried it out (the user, 9 Nov: "roll out g map screenshot to all users"). */
+export const routeShotsOn = (_ecode?: string | null) => true
+/** Asked for on rides from 10 Nov; a day before it goes as it did (the user, 9 Nov: "from 2mrws claim only needed"). */
+export const SHOT_FROM = '2026-11-10'
+const TEST = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
+/** The test accounts any day (the user, 9 Nov: "for test accounts there is not date or starting"). */
+export const shotDay = (day: string | null | undefined, ecode?: string | null) => (!!ecode && TEST.has(ecode.toUpperCase())) || (!!day && day >= SHOT_FROM)
 
 /** What the phone found of the ride's points on the screenshot (te_0141). */
 export type Places = 'match' | 'partial' | 'edited' | 'unread'

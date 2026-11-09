@@ -412,7 +412,7 @@ export default function ClaimPage() {
       <History data={data} />
 
       {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)}
-        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} band={shotBand(data.policy)} claimId={c.can_edit ? c.id : undefined} onShots={c.can_edit ? () => void refetch() : undefined} />}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} ecode={c.ecode} band={shotBand(data.policy)} claimId={c.can_edit ? c.id : undefined} onShots={c.can_edit ? () => void refetch() : undefined} />}
       {adjust && <AdjustDialog claimId={c.id} target={adjust} onClose={() => setAdjust(null)} />}
     </div>
   )

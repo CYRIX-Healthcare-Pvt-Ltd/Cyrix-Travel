@@ -14,7 +14,7 @@ import { useAuth } from '@/contexts/AuthContext'
 /** The buttons a message names, in bold (the user, 5 Nov: "is there option to highlight end my day?"). */
 const PRESS = /(Start my day|End my day)/
 const strong = (t: string) => t.split(PRESS).map((part, i) => i % 2 ? <strong key={i} className="font-semibold text-ink-900">{part}</strong> : part)
-interface Msg { id: string; title: string; body: string; url: string | null; created_at: string; unread: boolean }
+interface Msg { id: string; title: string; body: string; url: string | null; created_at: string; unread: boolean; image?: string | null }
 const KEY = ['bell', 'travel']
 
 export default function Bell() {
@@ -97,6 +97,8 @@ export default function Bell() {
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-medium text-ink-900">{m.title}</span>
                       {m.body && <span className="mt-0.5 block whitespace-pre-line text-xs leading-relaxed text-ink-600">{strong(m.body)}</span>}
+                      {/* A message's picture (KPI 0271): the Google Maps screenshot notice shows the box itself. */}
+                      {m.image && <img src={m.image} alt="" loading="lazy" className="mt-2 block w-full max-w-xs rounded-lg border border-ink-200" />}
                       <span className="mt-1 block text-[11px] text-ink-400">
                         {new Date(m.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       </span>

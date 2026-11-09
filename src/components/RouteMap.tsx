@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, type Day, type Rule } from '@/lib/claims'
 import RouteProof from '@/components/RouteProof'
-import type { Band, RouteShot } from '@/lib/routeShots'
+import { shotDay, type Band, type RouteShot } from '@/lib/routeShots'
 
 /*
   "See on map" (the user, 17 Oct): the day's rides on OpenStreetMap along the real roads, each in its
@@ -14,10 +14,10 @@ import type { Band, RouteShot } from '@/lib/routeShots'
 */
 const PIN = { home: '#1D9E75', change: '#888780', hospital: '#E24B4A', hotel: '#7F77DD' }
 
-export default function RouteMap({ days, rule, title, focus, onClose, shots, band = { every: 10, extra: 1 }, claimId, onShots }: {
+export default function RouteMap({ days, rule, title, focus, onClose, shots, band = { every: 10, extra: 1 }, claimId, ecode, onShots }: {
   days: Day[]; rule: Rule | undefined; title: string
   /** The claim's Google Maps screenshots, the km over the map that asks for one, and — while it can be changed — adding them (te_0140). */
-  shots?: RouteShot[]; band?: Band; claimId?: string; onShots?: () => void
+  shots?: RouteShot[]; band?: Band; ecode?: string | null; claimId?: string; onShots?: () => void
   /** One ride of the days shown alone, its stops keeping the numbers they have on the whole map. */
   focus?: string
   onClose: () => void
@@ -33,6 +33,8 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
     The stops are numbered over all the rides opened, so a ride seen alone keeps the numbers it has on its
     day's map (the user, 21 Oct: "when looking at one it shows 1 → 2, but it should be the number in the full map").
   */
+  // Rides of days from 10 Nov, where the screenshot is asked for; an earlier one shows only one already added.
+  const shotRides = new Set(days.filter(d => shotDay(d.day, ecode)).flatMap(d => d.rides.map(r => r.id)))
   const all = days.flatMap(d => d.rides).filter(r => r.from_lat != null && r.to_lat != null)
   const stops: Array<{ name: string; lat: number; lng: number }> = []
   const ends: Array<[number, number]> = []
@@ -163,7 +165,7 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
                 {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}
               </span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">{money(r.cost)}</span>
-              {rides[i] && shots && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}
+              {rides[i] && shots && (shotRides.has(rides[i].id) || shots.some(x => x.ride_id === rides[i].id)) && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}
             </div>
           ))}
         </div>
