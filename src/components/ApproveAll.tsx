@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { CheckCheck, CircleCheck, FolderOpen, type LucideIcon } from 'lucide-react'
+import { CheckCheck, CircleCheck, Eye, FolderOpen, type LucideIcon } from 'lucide-react'
 import Dialog from '@/components/Dialog'
 import { Spinner } from '@/components/ui'
 import { claimIssues } from '@/pages/ClaimPage'
@@ -20,6 +20,8 @@ export default function ApproveAll({ list, onClose }: { list: Row[]; onClose: ()
   const [read, setRead] = useState(0)
   const [ready, setReady] = useState<Row[]>([])
   const [reasons, setReasons] = useState<Reason[]>([])
+  const [checks, setChecks] = useState<Reason[]>([])
+  const [checked, setChecked] = useState(0)
   const [done, setDone] = useState(0)
   const [failed, setFailed] = useState<string[]>([])
   const [err, setErr] = useState<string | null>(null)
@@ -36,10 +38,20 @@ export default function ApproveAll({ list, onClose }: { list: Row[]; onClose: ()
           out.push(...await Promise.all(list.slice(i, i + 6).map(async c => ({ c, issues: claimIssues(await qc.fetchQuery({ queryKey: ['te_claim', c.id], queryFn: () => rpc<ClaimData>('te_claim', { p_claim: c.id }), staleTime: 60_000 })) }))))
           if (live) setRead(out.length)
         }
+        // Only red stops a claim (the user, 9 Nov: "can we approve all in yellow alerts also? only red need to stop"):
+        // a claim with yellow checks alone is approved with the rest.
+        const red = (x: (typeof out)[number]) => x.issues.filter(t => t.level === 'approve')
         const why = new Map<string, Reason>()
-        for (const x of out) for (const t of x.issues) why.set(t.title, { ...t, n: (why.get(t.title)?.n ?? 0) + 1 })
+        for (const x of out) for (const t of red(x)) why.set(t.title, { ...t, n: (why.get(t.title)?.n ?? 0) + 1 })
         if (!live) return
-        setReady(out.filter(x => !x.issues.length).map(x => x.c))
+        const ok = out.filter(x => !red(x).length)
+        setReady(ok.map(x => x.c))
+        // The yellow observations on the claims that go ahead: said by reason before Approve (the user, 9 Nov: "just tell
+        // them there are this much observation, confirm to proceed").
+        const look = new Map<string, Reason>()
+        for (const x of ok) for (const t of x.issues) look.set(t.title, { ...t, n: (look.get(t.title)?.n ?? 0) + 1 })
+        setChecks([...look.values()].sort((a, b) => b.n - a.n))
+        setChecked(ok.filter(x => x.issues.length).length)
         setReasons([...why.values()].sort((a, b) => (a.level === b.level ? b.n - a.n : a.level === 'approve' ? -1 : 1)))
         setStep('review')
       } catch (e) { if (live) setErr((e as Error).message) }
@@ -66,15 +78,32 @@ export default function ApproveAll({ list, onClose }: { list: Row[]; onClose: ()
   )
   // The claims left for the manager, and why: one row a reason, with how many claims have it.
   const heldCard = held > 0 && (
-    <div className="overflow-hidden rounded-xl border border-amber-300/70">
-      <div className="flex items-center gap-2.5 bg-amber-50 px-3 py-2.5">
-        <FolderOpen className="h-5 w-5 shrink-0 text-amber-600" />
-        <p className="text-sm font-semibold text-amber-900">{held} {held === 1 ? 'claim stays' : 'claims stay'} for you to open</p>
+    <div className="overflow-hidden rounded-xl border border-cyrixRed-300/70">
+      <div className="flex items-center gap-2.5 bg-cyrixRed-50 px-3 py-2.5">
+        <FolderOpen className="h-5 w-5 shrink-0 text-cyrixRed-600" />
+        <p className="text-sm font-semibold text-cyrixRed-900">{held} {held === 1 ? 'claim stays' : 'claims stay'} for you to open</p>
       </div>
       <ul className="divide-y divide-ink-100">
         {reasons.map(r => { const I = r.icon; return (
           <li key={r.title} className="flex items-center gap-2.5 px-3 py-2 text-sm">
             <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${r.level === 'approve' ? 'bg-cyrixRed-100 text-cyrixRed-700' : 'bg-amber-100 text-amber-700'}`}><I className="h-3.5 w-3.5" /></span>
+            <span className="min-w-0 flex-1 text-ink-800">{r.title}</span>
+            <span className="tabular-nums font-semibold text-ink-900">{r.n}</span>
+          </li>
+        ) })}
+      </ul>
+    </div>
+  )
+  const checksCard = checked > 0 && (
+    <div className="overflow-hidden rounded-xl border border-amber-300/70">
+      <div className="flex items-center gap-2.5 bg-amber-50 px-3 py-2.5">
+        <Eye className="h-5 w-5 shrink-0 text-amber-600" />
+        <p className="text-sm font-semibold text-amber-900">{checked} of the {ready.length} to approve {checked === 1 ? 'has' : 'have'} observations</p>
+      </div>
+      <ul className="divide-y divide-ink-100">
+        {checks.map(r => { const I = r.icon; return (
+          <li key={r.title} className="flex items-center gap-2.5 px-3 py-2 text-sm">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-amber-100 text-amber-700"><I className="h-3.5 w-3.5" /></span>
             <span className="min-w-0 flex-1 text-ink-800">{r.title}</span>
             <span className="tabular-nums font-semibold text-ink-900">{r.n}</span>
           </li>
@@ -104,12 +133,13 @@ export default function ApproveAll({ list, onClose }: { list: Row[]; onClose: ()
                 <p className="mt-0.5 text-2xl font-bold tabular-nums text-green-900">{ready.length}</p>
                 <p className="text-xs font-medium tabular-nums text-green-800">{money(total)}</p>
               </div>
-              <div className={`rounded-xl px-3 py-2.5 ring-1 ${held ? 'bg-amber-50 ring-amber-200' : 'bg-ink-50 ring-ink-200'}`}>
-                <p className={`text-[11px] font-semibold uppercase tracking-wide ${held ? 'text-amber-800' : 'text-ink-500'}`}>To open</p>
-                <p className={`mt-0.5 text-2xl font-bold tabular-nums ${held ? 'text-amber-900' : 'text-ink-700'}`}>{held}</p>
-                <p className={`text-xs font-medium ${held ? 'text-amber-800' : 'text-ink-500'}`}>out of policy or to check</p>
+              <div className={`rounded-xl px-3 py-2.5 ring-1 ${held ? 'bg-cyrixRed-50 ring-cyrixRed-200' : 'bg-ink-50 ring-ink-200'}`}>
+                <p className={`text-[11px] font-semibold uppercase tracking-wide ${held ? 'text-cyrixRed-800' : 'text-ink-500'}`}>To open</p>
+                <p className={`mt-0.5 text-2xl font-bold tabular-nums ${held ? 'text-cyrixRed-900' : 'text-ink-700'}`}>{held}</p>
+                <p className={`text-xs font-medium ${held ? 'text-cyrixRed-800' : 'text-ink-500'}`}>red alerts</p>
               </div>
             </div>
+            {checksCard}
             {heldCard}
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" className="btn-secondary" onClick={onClose}>{ready.length ? 'Cancel' : 'Close'}</button>
