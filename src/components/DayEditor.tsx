@@ -1097,7 +1097,17 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         if (at) void placed(id, 'to', { name: at.place ?? `${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`, lat: at.lat, lng: at.lng })
         if (q) void ask.alert('Kept on this phone', text, 'info')
       }} />}
-      {cameraFor && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraFor(null)} onDone={(text, q) => { setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info') }} />}
+      {cameraFor && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraFor(null)} onDone={(text, q, at) => {
+        /*
+          The ride's To takes the photo's place when the photo was taken away from the To on the map (the user, 9 Nov:
+          E1345's 7 photos at the hospital on 7 Nov stayed unlinked, the To pin being elsewhere — "add the location
+          which is there in photo"): its name and point, so the photo links and the map km is worked out again.
+        */
+        const r = d.rides.find(x => x.id === cameraFor)
+        if (r && at && setup && (r.to_lat == null || r.to_lng == null || distanceKm(at, { lat: r.to_lat, lng: r.to_lng }) * 1000 > setup.near_m))
+          void placed(r.id, 'to', { name: at.place ?? 'Photo place', lat: at.lat, lng: at.lng })
+        setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info')
+      }} />}
       {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
       {picking && ride && (
         <PlacePicker
