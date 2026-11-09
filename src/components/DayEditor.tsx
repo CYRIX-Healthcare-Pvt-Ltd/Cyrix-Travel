@@ -10,6 +10,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
+import { needsShot, overPct, routeShotsOn, shotPct } from '@/lib/routeShots'
+import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import ModePicker from '@/components/ModePicker'
@@ -565,6 +567,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     else if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
     // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
     else if (m.perKm && kmOutside(r, tol)) blockers.push({ text: `The km of ${n} does not match the map (${km(r.map_km)})`, to })
+    else if (routeShotsOn(c.ecode) && needsShot(r, shotPct(data.policy)) && !data.routes?.some(s => s.ride_id === r.id)) blockers.push({ text: `Add the Google Maps screenshot of ${n} · ${overPct(r)}% over the map`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
@@ -798,6 +801,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
                           <MapIcon className="h-3.5 w-3.5" /> View on map
                         </button>
+                      </div>
+                    )}
+                    {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
+                    {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
+                    {routeShotsOn(c.ecode) && typingKm !== r.id && (needsShot(r, shotPct(data.policy)) || data.routes?.some(s => s.ride_id === r.id)) && (
+                      <div className="pl-6">
+                        <RouteProof ride={r} shot={data.routes?.find(s => s.ride_id === r.id)} pct={shotPct(data.policy)} claimId={c.id} onChange={refresh} />
                       </div>
                     )}
                     {/* Why, and for which call centre — each ride its own (te_0060). */}
@@ -1108,7 +1118,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           void placed(r.id, 'to', { name: at.place ?? 'Photo place', lat: at.lat, lng: at.lng })
         setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info')
       }} />}
-      {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
+      {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} pct={shotPct(data.policy)} claimId={c.id} onShots={refresh} />}
       {picking && ride && (
         <PlacePicker
           title={picking.end === 'from' ? 'From' : 'To'}

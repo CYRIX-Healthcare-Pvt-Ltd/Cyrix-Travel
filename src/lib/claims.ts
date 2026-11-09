@@ -256,6 +256,8 @@ export interface ClaimData {
   rule: Rule
   days: Day[]
   bills: Bill[]
+  /** Google Maps screenshots of rides well over the map (te_0140). */
+  routes?: import('./routeShots').RouteShot[]
   km_month: { bike: number; car: number; auto: number; phone?: number }
   policy: Record<string, number | number[]>
   purposes: string[]

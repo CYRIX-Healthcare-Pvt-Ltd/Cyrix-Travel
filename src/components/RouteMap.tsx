@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, type Day, type Rule } from '@/lib/claims'
+import RouteProof from '@/components/RouteProof'
+import type { RouteShot } from '@/lib/routeShots'
 
 /*
   "See on map" (the user, 17 Oct): the day's rides on OpenStreetMap along the real roads, each in its
@@ -12,8 +14,10 @@ import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, type Day, type Rule }
 */
 const PIN = { home: '#1D9E75', change: '#888780', hospital: '#E24B4A', hotel: '#7F77DD' }
 
-export default function RouteMap({ days, rule, title, focus, onClose }: {
+export default function RouteMap({ days, rule, title, focus, onClose, shots, pct = 10, claimId, onShots }: {
   days: Day[]; rule: Rule | undefined; title: string
+  /** The claim's Google Maps screenshots, the km over the map that asks for one, and — while it can be changed — adding them (te_0140). */
+  shots?: RouteShot[]; pct?: number; claimId?: string; onShots?: () => void
   /** One ride of the days shown alone, its stops keeping the numbers they have on the whole map. */
   focus?: string
   onClose: () => void
@@ -159,6 +163,7 @@ export default function RouteMap({ days, rule, title, focus, onClose }: {
                 {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}
               </span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">{money(r.cost)}</span>
+              {rides[i] && shots && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} pct={pct} claimId={claimId} onChange={onShots} />}
             </div>
           ))}
         </div>

@@ -11,6 +11,7 @@ import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
 import { HOME_M, startName, stayMinutes, stayText } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
+import { routeShotsOn, shotPct } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import History from '@/components/History'
@@ -410,7 +411,8 @@ export default function ClaimPage() {
 
       <History data={data} />
 
-      {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)} />}
+      {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} pct={shotPct(data.policy)} claimId={c.can_edit ? c.id : undefined} onShots={c.can_edit ? () => void refetch() : undefined} />}
       {adjust && <AdjustDialog claimId={c.id} target={adjust} onClose={() => setAdjust(null)} />}
     </div>
   )
