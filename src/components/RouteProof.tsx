@@ -35,7 +35,7 @@ export default function RouteProof({ ride, shot, band, claimId, onChange, onKm }
   const need = needsShot(ride, band), edit = !!claimId && !!onChange
   const read = shot?.km != null ? Number(shot.km) : null, backs = shotBacks(read, ride.claimed_km)
   // Taken for other points than the ride has now, or showing a point that is neither of the ride's (te_0141).
-  const moved = !!shot && !shotFits(shot, ride), edited = shot?.places === 'edited'
+  const moved = !!shot && !shotFits(shot, ride), edited = shot?.places === 'partial' || shot?.places === 'edited'
   const tone = !shot ? 'amber' : moved || edited ? 'red' : read == null ? 'amber' : backs ? 'green' : 'red'
   // Waiting for the screenshot, the box takes the ride's own colour: blue for a car, amber for a bike (the user, 9 Nov).
   const mc = MODES[ride.mode as keyof typeof MODES], own = tone === 'amber'

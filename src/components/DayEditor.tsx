@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
-import { needsShot, overPct, routeShotsOn, shotBand, shotFits, shotSetsKm } from '@/lib/routeShots'
+import { needsShot, overPct, routeShotsOn, shotBand, shotOk, shotSetsKm } from '@/lib/routeShots'
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -586,7 +586,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     else if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
     // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
     else if (m.perKm && kmOutside(r, tol) && lockedKm(r) == null) blockers.push({ text: `The km of ${n} does not match the map (${km(r.map_km)})`, to })
-    else if (shotOn && needsShot(r, shotBand(data.policy)) && !shotFits(shotOf(r), r)) blockers.push({ text: `Add the Google Maps screenshot of ${n}`, to })
+    else if (shotOn && needsShot(r, shotBand(data.policy)) && !shotOk(shotOf(r), r)) blockers.push({ text: `Add the Google Maps screenshot of ${n}`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })

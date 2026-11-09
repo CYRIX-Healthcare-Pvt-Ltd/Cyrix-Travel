@@ -24,8 +24,15 @@ const near = (a: number | null | undefined, b: number | null | undefined, d = 0.
 /** The screenshot was taken for the ride as it is: its From and To have not moved since (te_0141). */
 export const shotFits = (shot: RouteShot | undefined, r: Pts) => !!shot && (shot.from_lat == null ||
   (near(shot.from_lat, r.from_lat) && near(shot.from_lng, r.from_lng) && near(shot.to_lat, r.to_lat) && near(shot.to_lng, r.to_lng)))
-/** The km the ride takes from its screenshot, while it fits and its km could be read. */
-export const shotSetsKm = (shot: RouteShot | undefined, r: Pts) => shotFits(shot, r) && shot!.km != null ? Number(shot!.km) : null
+/*
+  The screenshot is the ride's: its points have not moved since, and none it shows is another place. Both points as
+  numbers, match; both as addresses, unread — Google Maps on a computer writes the points it is given as street
+  addresses (the user, 9 Nov: a real one refused). One as numbers and the other a name means a place was searched
+  (a To shown as "Grand Mall", 2 km from the ride's: "it is wrong location"), so partial is refused like edited.
+*/
+export const shotOk = (shot: RouteShot | undefined, r: Pts) => shotFits(shot, r) && (shot!.places === 'match' || shot!.places === 'unread')
+/** The km the ride takes from its screenshot, while it is the ride's and its km could be read. */
+export const shotSetsKm = (shot: RouteShot | undefined, r: Pts) => shotOk(shot, r) && shot!.km != null ? Number(shot!.km) : null
 
 /** The band from Settings (te_0143): every started `every` km of map allows `extra` km more without a screenshot. */
 export type Band = { every: number; extra: number }
@@ -59,7 +66,8 @@ export const googleRoute = (r: { from_lat: number | null; from_lng: number | nul
 
 /** Every km figure on the screenshot: "65 km", "(65 km)", "58.4 km", "54,0km". */
 export function kmFigures(text: string): number[] {
-  const t = text.replace(/[Oo](?=\d)/g, '0')
+  // Not the map's scale bar, which Google writes on the line of "Map data ©2026 … Terms Privacy 2 km".
+  const t = text.replace(/[Oo](?=\d)/g, '0').split('\n').filter(l => !/map data|©|terms|privacy/i.test(l)).join('\n')
   const out = [...t.matchAll(/(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:km|kms|kilometres|kilometers)\b/gi)]
     .map(m => Number(m[1].replace(',', '.'))).filter(n => n > 0 && n < 3000)
   return [...new Set(out)]
@@ -100,13 +108,14 @@ async function readText(file: Blob): Promise<string> {
 export async function addRouteShot(claimId: string, ride: Pts & { id: string }, file: File, claimed: number | null): Promise<number | null> {
   const hash = await sha256(file)
   const text = await readText(file).catch(() => '')
-  const kms = kmFigures(text), km = shotKm(text, kms, claimed)
+  const kms = kmFigures(text), km = shotKm(text, kms, claimed), places = placesOn(text, ride)
+  if (places === 'partial' || places === 'edited') throw new Error("From or To on this screenshot is not the ride's")
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/route-${newId()}.${ext}`
   const { error: up } = await supabase.storage.from('te-bills').upload(path, file, { contentType: file.type || 'image/jpeg' })
   if (up) throw new Error(friendlyError(up))
   const { data: old, error } = await supabase.rpc('te_route_shot_add', {
-    p_claim: claimId, p_ride: ride.id, p_path: path, p_sha256: hash, p_kms: kms, p_km: km, p_places: placesOn(text, ride),
+    p_claim: claimId, p_ride: ride.id, p_path: path, p_sha256: hash, p_kms: kms, p_km: km, p_places: places,
     p_from_lat: ride.from_lat, p_from_lng: ride.from_lng, p_to_lat: ride.to_lat, p_to_lng: ride.to_lng,
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }

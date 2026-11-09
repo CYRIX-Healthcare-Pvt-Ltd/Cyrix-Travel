@@ -870,8 +870,8 @@ export function claimObservations(data: ClaimData): Obs[] {
       } else if (m.perKm && routeShotsOn(data.claim.ecode) && data.routes?.some(s => s.ride_id === r.id)) {
         const sh = data.routes.find(s => s.ride_id === r.id)!
         if (!shotFits(sh, r)) items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · From or To changed after the screenshot` })
-        else if (sh.places === 'edited') items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · the screenshot shows a From or To that is not the ride's` })
-        else items.push({ kind: 'routeshot', day, to: r.id, detail: `${leg} · map ${km(r.map_km)}, Google Maps ${km(sh.km)}${sh.places === 'match' ? ' · From and To checked' : ''}` })
+        else if (sh.places === 'partial' || sh.places === 'edited') items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · the screenshot shows a From or To that is not the ride's` })
+        else items.push({ kind: 'routeshot', day, to: r.id, detail: `${leg} · map ${km(r.map_km)}, Google Maps ${km(sh.km)}${sh.places === 'match' ? '' : ' · From and To shown as addresses'}` })
       } else if (m.perKm && !fixes.length && kmChanged(r)) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · typed ${km(r.claimed_km)}, the map gives ${km(r.map_km)}${k && k.over > 0 ? ` — ${km(k.over)} over the ${tol}%` : ''}` })
       // A ride the company booked: not claimed; its date set against the booking's (te_0042).
       const co = companyOf(data.bills, r)
