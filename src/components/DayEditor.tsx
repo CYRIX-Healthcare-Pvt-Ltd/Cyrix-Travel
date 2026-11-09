@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
-import { needsShot, overPct, routeShotsOn, shotBand, shotOk, shotSetsKm } from '@/lib/routeShots'
+import { needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -254,10 +254,29 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const now = new Set<string>()
     for (const r of d.rides) {
       const k = lockedKm(r)
-      if (k != null) { now.add(r.id); if (r.claimed_km !== k) setRide(r.id, { claimed_km: k }) }
-      else if (hadShot.current.has(r.id) && !shotOf(r) && r.map_km != null && r.claimed_km !== r.map_km) setRide(r.id, { claimed_km: r.map_km })
+      if (k != null) {
+        now.add(r.id)
+        // Counted as a km put in for the person, so a new From or To brings the new map's km in its place.
+        autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(k))
+        if (r.claimed_km !== k) setRide(r.id, { claimed_km: k })
+      }
+      else if (hadShot.current.has(r.id) && !shotOf(r) && r.map_km != null && r.claimed_km !== r.map_km) {
+        autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(r.map_km))
+        setRide(r.id, { claimed_km: r.map_km })
+      }
     }
     hadShot.current = now
+  }, [data.routes, d.rides]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A new From or To takes the old screenshot away (the user, 9 Nov: "whenever new to is added old should go and
+  // default new location should show"); the km box then has the new map's km.
+  const dropping = useRef(new Set<string>())
+  useEffect(() => {
+    for (const r of d.rides) {
+      const s = shotOf(r)
+      if (!s || s.from_lat == null || r.from_lat == null || r.to_lat == null || shotFits(s, r) || dropping.current.has(s.id)) continue
+      dropping.current.add(s.id)
+      void removeRouteShot(s.id).then(refresh, () => dropping.current.delete(s.id))
+    }
   }, [data.routes, d.rides]) // eslint-disable-line react-hooks/exhaustive-deps
   // Another way of measuring (road, rail, air): the old km goes at once, so a bike never shows the track's km while the road's is fetched.
   const setMode = (id: string, mode: Ride['mode']) =>
