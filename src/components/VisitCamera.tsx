@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, LocateFixed, RotateCcw, X } from 'lucide-react'
+import { Check, Loader2, LocateFixed, RotateCcw, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Spinner } from '@/components/ui'
 import type { Fix } from '@/lib/geo'
@@ -10,6 +10,9 @@ import { deviceId, deviceName, grab, newPending, queuePhoto, sendPhoto, stamp, s
   so nothing from the gallery can come in. The location is read all the while; the frame is taken at the press and
   stamped with the date, time, place, point and who before it is kept.
 */
+/** Within this many metres a photo can be taken, as Start my day (te_0107). */
+const CLOSE_M = 500
+
 /** `forDay`: the day before, for a visit of its trip after midnight (te_0108). */
 export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: string | null; onClose: () => void; onDone: (text: string, queued: boolean, at?: { lat: number; lng: number; place: string | null }) => void }) {
   const { employee } = useAuth()
@@ -48,8 +51,11 @@ export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: stri
     })
   }, [])
 
+  // The shutter waits for a close fix, as Start my day does (te_0139; the user, 9 Nov: a ±100 km network guess put a
+  // photo 8.8 km away and made a ride of it).
+  const exact = !!fix && fix.accuracy <= CLOSE_M
   const take = async () => {
-    if (!video.current || !fix || !employee) return
+    if (!video.current || !fix || !exact || !employee) return
     setBusy('taking'); setErr(null)
     const at = new Date(), here = fix, frame = grab(video.current)
     try {
@@ -76,8 +82,9 @@ export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: stri
     <div className="fixed inset-0 z-50 flex flex-col bg-black text-white">
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-white/10" aria-label="Close the camera" onClick={onClose}><X className="h-5 w-5" /></button>
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${fix ? (fix.accuracy <= 50 ? 'bg-emerald-600/90' : 'bg-amber-600/90') : 'bg-white/15'}`}>
-          <LocateFixed className="h-3.5 w-3.5" />{fix ? `Location ±${Math.round(fix.accuracy)} m` : 'Finding location…'}
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${fix ? (fix.accuracy <= 50 ? 'bg-emerald-600/90' : exact ? 'bg-amber-600/90' : 'bg-cyrixRed-600/90') : 'bg-white/15'}`}>
+          {exact ? <LocateFixed className="h-3.5 w-3.5" /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {fix ? (exact ? `Location ±${Math.round(fix.accuracy)} m` : `Finding exact location · ±${fix.accuracy >= 10_000 ? `${Math.round(fix.accuracy / 1000)} km` : `${Math.round(fix.accuracy)} m`}`) : 'Finding location…'}
         </span>
       </div>
       <div className="relative min-h-0 flex-1">
@@ -96,7 +103,7 @@ export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: stri
           </div>
         ) : (
           <div className="flex justify-center">
-            <button type="button" aria-label="Take the photo" disabled={!live || !fix || !!busy} onClick={() => void take()}
+            <button type="button" aria-label="Take the photo" disabled={!live || !exact || !!busy} onClick={() => void take()}
               className="grid h-[72px] w-[72px] place-items-center rounded-full border-4 border-white/80 disabled:opacity-40">
               <span className="grid h-14 w-14 place-items-center rounded-full bg-white">{busy === 'taking' && <Spinner />}</span>
             </button>
