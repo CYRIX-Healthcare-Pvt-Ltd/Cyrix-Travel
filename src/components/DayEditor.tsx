@@ -819,7 +819,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     )}
                     {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
                     {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
-                    {shotOn && m.perKm && typingKm !== r.id && (needsShot(r, shotBand(data.policy)) || !!shotOf(r)) && (
+                    {shotOn && m.perKm && (needsShot(r, shotBand(data.policy)) || !!shotOf(r)) && (
                       <div className="pl-6">
                         <RouteProof ride={r} shot={shotOf(r)} band={shotBand(data.policy)} claimId={c.id} onChange={refresh}
                           onKm={k => setRide(r.id, { claimed_km: k ?? r.map_km })} />
