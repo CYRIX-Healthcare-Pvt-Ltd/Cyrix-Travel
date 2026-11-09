@@ -11,7 +11,7 @@ import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
 import { HOME_M, startName, stayMinutes, stayText } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
-import { routeShotsOn, shotPct } from '@/lib/routeShots'
+import { routeShotsOn, shotBand, shotFits } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import History from '@/components/History'
@@ -412,7 +412,7 @@ export default function ClaimPage() {
       <History data={data} />
 
       {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)}
-        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} pct={shotPct(data.policy)} claimId={c.can_edit ? c.id : undefined} onShots={c.can_edit ? () => void refetch() : undefined} />}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} band={shotBand(data.policy)} claimId={c.can_edit ? c.id : undefined} onShots={c.can_edit ? () => void refetch() : undefined} />}
       {adjust && <AdjustDialog claimId={c.id} target={adjust} onClose={() => setAdjust(null)} />}
     </div>
   )
@@ -729,6 +729,10 @@ export const OBS = {
   twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy, group: 'bills' },
   km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge, group: 'km' },
   kmfixed:  { title: 'Km changed from the map · corrected', level: 'info', icon: Gauge, group: 'km' },
+  // The km set from a Google Maps screenshot of the ride's own points (te_0141; the user, 9 Nov: "in observation just
+  // add map location corrected with google map screenshot").
+  routeshot: { title: 'Map km corrected with Google Maps screenshot', level: 'info', icon: Gauge, group: 'km' },
+  routeedit: { title: 'Google Maps screenshot of other places', level: 'approve', icon: MapPinOff, group: 'km' },
   nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff, group: 'photos' },
   photoyet: { title: 'No visit photo', level: 'check', icon: CameraOff, group: 'photos' },
   photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera, group: 'photos' },
@@ -863,6 +867,11 @@ export function claimObservations(data: ClaimData): Obs[] {
         const under = items.find(i => i.kind === 'changed' && i.to === r.id)
         if (under) under.sub = `${who} typed ${km(typed)}, the map gives ${km(r.map_km)}`
         else items.push({ kind: 'kmfixed', day, to: r.id, detail: `${leg} · ${who} typed ${km(typed)}, the map gives ${km(r.map_km)} · corrected by ${(last.by ?? 'an approver').split(' ')[0]} to ${km(last.new_value)}` })
+      } else if (m.perKm && routeShotsOn(data.claim.ecode) && data.routes?.some(s => s.ride_id === r.id)) {
+        const sh = data.routes.find(s => s.ride_id === r.id)!
+        if (!shotFits(sh, r)) items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · From or To changed after the screenshot` })
+        else if (sh.places === 'edited') items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · the screenshot shows a From or To that is not the ride's` })
+        else items.push({ kind: 'routeshot', day, to: r.id, detail: `${leg} · map ${km(r.map_km)}, Google Maps ${km(sh.km)}${sh.places === 'match' ? ' · From and To checked' : ''}` })
       } else if (m.perKm && !fixes.length && kmChanged(r)) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · typed ${km(r.claimed_km)}, the map gives ${km(r.map_km)}${k && k.over > 0 ? ` — ${km(k.over)} over the ${tol}%` : ''}` })
       // A ride the company booked: not claimed; its date set against the booking's (te_0042).
       const co = companyOf(data.bills, r)

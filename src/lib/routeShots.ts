@@ -13,32 +13,49 @@ import { newId, sha256 } from './claims'
 const TRY = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
 export const routeShotsOn = (ecode: string | null | undefined) => !!ecode && TRY.has(ecode)
 
-export interface RouteShot { id: string; ride_id: string; path: string; km: number | null; kms: number[]; created_at: string }
+/** What the phone found of the ride's points on the screenshot (te_0141). */
+export type Places = 'match' | 'partial' | 'edited' | 'unread'
+export interface RouteShot {
+  id: string; ride_id: string; path: string; km: number | null; kms: number[]; created_at: string
+  places?: Places; from_lat?: number | null; from_lng?: number | null; to_lat?: number | null; to_lng?: number | null
+}
+type Pts = { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }
+const near = (a: number | null | undefined, b: number | null | undefined, d = 0.0006) => a != null && b != null && Math.abs(a - b) <= d
+/** The screenshot was taken for the ride as it is: its From and To have not moved since (te_0141). */
+export const shotFits = (shot: RouteShot | undefined, r: Pts) => !!shot && (shot.from_lat == null ||
+  (near(shot.from_lat, r.from_lat) && near(shot.from_lng, r.from_lng) && near(shot.to_lat, r.to_lat) && near(shot.to_lng, r.to_lng)))
+/** The km the ride takes from its screenshot, while it fits and its km could be read. */
+export const shotSetsKm = (shot: RouteShot | undefined, r: Pts) => shotFits(shot, r) && shot!.km != null ? Number(shot!.km) : null
 
-/** Over this much above the map, a bike or car ride needs its screenshot. */
-export const shotPct = (policy: Record<string, unknown> | undefined) => Number(policy?.route_shot_pct ?? 10)
+/** The band from Settings (te_0143): every started `every` km of map allows `extra` km more without a screenshot. */
+export type Band = { every: number; extra: number }
+export const shotBand = (policy: Record<string, unknown> | undefined): Band =>
+  ({ every: Number(policy?.km_band_km ?? 10) || 10, extra: Number(policy?.km_band_extra_km ?? 1) })
 
-export const needsShot = (r: { mode: string; claimed_km: number | null; map_km: number | null }, pct: number) =>
-  (r.mode === 'bike' || r.mode === 'car') && r.map_km != null && r.map_km > 0 && r.claimed_km != null && r.claimed_km > r.map_km * (1 + pct / 100) + 1e-9
+/*
+  The km a ride may claim without a screenshot: the map's km and 1 km for every started 10 km of it — up to 9.9 km
+  of map 1 km more, 10 to 19.9 km 2 km, 20 to 29.9 km 3 km (the user, 9 Nov: "0-9 km max 1 km, 10-19 2 km, 20-29 3
+  km, 30-39 4 km"). Always by the map's km, which the person cannot change, so a map of 9.9 km allows 10.9 km and
+  typing 10.9 does not reach the next band (the user, 9 Nov: "that doesnt allow user to add 2 again isnt?").
+*/
+export const kmAllowed = (mapKm: number, b: Band = { every: 10, extra: 1 }) =>
+  Math.round((mapKm + (Math.floor(mapKm / b.every + 1e-9) + 1) * b.extra) * 10) / 10
+
+export const needsShot = (r: { mode: string; claimed_km: number | null; map_km: number | null }, b?: Band) =>
+  (r.mode === 'bike' || r.mode === 'car') && r.map_km != null && r.map_km > 0 && r.claimed_km != null && r.claimed_km > kmAllowed(Number(r.map_km), b) + 1e-9
 
 /** How far over the map the km typed is, in whole percent. */
 export const overPct = (r: { claimed_km: number | null; map_km: number | null }) =>
   r.map_km && r.claimed_km != null ? Math.round(((r.claimed_km - r.map_km) / r.map_km) * 100) : 0
 
 /*
-  Google Maps with the ride's From and To filled in: free, no key; the app on a phone, the site on a computer. A named
-  place goes by its name, so Google finds its door and says its name (the user, 9 Nov: "to is wrong" — the airport's
-  point, the middle of its grounds, came up as the hotel beside it); home, the day's start or a photo's place, which
-  Google has no name for, by the point itself.
+  Google Maps with the ride's From and To filled in: free, no key; the app on a phone, the site on a computer. Always
+  the ride's own points, never its names (the user, 9 Nov: a To named "Salem - Kochi - Kanyakumari Hwy…" was searched
+  by Google as another place, "on our map it is correct … we already have location"), so Google measures the same
+  road ends as our map.
 */
-const UNNAMED = /^(home|work|office|start of day|starts? here|photo place|visit photo|my location|current location)\b/i
-const COORDS = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/
-const end = (name: string | null | undefined, lat: number | null, lng: number | null) => {
-  const n = name?.trim() ?? ''
-  return n.length > 2 && !UNNAMED.test(n) && !COORDS.test(n) ? encodeURIComponent(n) : `${lat},${lng}`
-}
-export const googleRoute = (r: { from_name?: string | null; from_lat: number | null; from_lng: number | null; to_name?: string | null; to_lat: number | null; to_lng: number | null }) =>
-  `https://www.google.com/maps/dir/?api=1&origin=${end(r.from_name, r.from_lat, r.from_lng)}&destination=${end(r.to_name, r.to_lat, r.to_lng)}&travelmode=driving`
+export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }) =>
+  `https://www.google.com/maps/dir/?api=1&origin=${r.from_lat},${r.from_lng}&destination=${r.to_lat},${r.to_lng}&travelmode=driving`
 
 /** Every km figure on the screenshot: "65 km", "(65 km)", "58.4 km", "54,0km". */
 export function kmFigures(text: string): number[] {
@@ -48,31 +65,53 @@ export function kmFigures(text: string): number[] {
   return [...new Set(out)]
 }
 
-/** The route's km: of the figures read, the one nearest the km claimed. */
-export const shotKm = (kms: number[], claimed: number | null) =>
-  !kms.length ? null : claimed == null ? Math.max(...kms) : kms.reduce((a, b) => (Math.abs(b - claimed) < Math.abs(a - claimed) ? b : a))
+/** The route's km: Google's own "(9.6 km)" beside its time first, else of the figures read the one nearest the km claimed. */
+export function shotKm(text: string, kms: number[], claimed: number | null) {
+  const own = [...text.replace(/[Oo](?=\d)/g, '0').matchAll(/\(\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*km\s*\)/gi)].map(m => Number(m[1].replace(',', '.'))).filter(n => n > 0)
+  if (own.length) return own[0]
+  return !kms.length ? null : claimed == null ? Math.max(...kms) : kms.reduce((a, b) => (Math.abs(b - claimed) < Math.abs(a - claimed) ? b : a))
+}
+
+/**
+  The ride's points as Google shows them: Google Maps writes a point it was given as "9.9475136, 76.3333099". Both
+  found, match; one found and the other shown by a name, partial; a point that is neither, edited (the user, 9 Nov:
+  "on scnshot we should check the from n to is edited or not"); none read, unread.
+*/
+export function placesOn(text: string, r: Pts): Places {
+  const pts = [...text.replace(/[Oo](?=\d)/g, '0').matchAll(/(-?\d{1,2}\.\d{3,})\s*[,，]\s*(-?\d{1,3}\.\d{3,})/g)].map(m => [Number(m[1]), Number(m[2])] as const)
+  if (!pts.length) return 'unread'
+  const isFrom = (p: readonly [number, number]) => near(p[0], r.from_lat, 0.002) && near(p[1], r.from_lng, 0.002)
+  const isTo = (p: readonly [number, number]) => near(p[0], r.to_lat, 0.002) && near(p[1], r.to_lng, 0.002)
+  if (pts.some(p => !isFrom(p) && !isTo(p))) return 'edited'
+  return pts.some(isFrom) && pts.some(isTo) ? 'match' : 'partial'
+}
 
 /** The km claimed is borne out by the screenshot: no more than its km, give half a km for the rounding. */
 export const shotBacks = (shotKmRead: number | null, claimed: number | null) =>
   shotKmRead != null && claimed != null && claimed <= shotKmRead + 0.5
 
-async function readKms(file: Blob): Promise<number[]> {
+async function readText(file: Blob): Promise<string> {
   const { createWorker } = await import('tesseract.js')
   const worker = await createWorker('eng')
-  try { return kmFigures((await worker.recognize(file)).data.text) } finally { void worker.terminate() }
+  try { return (await worker.recognize(file)).data.text } finally { void worker.terminate() }
 }
 
 /** Into the claim's folder of bills, read, then recorded; one a ride, a new one taking the old one's place. */
-export async function addRouteShot(claimId: string, rideId: string, file: File, claimed: number | null) {
+export async function addRouteShot(claimId: string, ride: Pts & { id: string }, file: File, claimed: number | null): Promise<number | null> {
   const hash = await sha256(file)
-  const kms = await readKms(file).catch(() => [] as number[])
+  const text = await readText(file).catch(() => '')
+  const kms = kmFigures(text), km = shotKm(text, kms, claimed)
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/route-${newId()}.${ext}`
   const { error: up } = await supabase.storage.from('te-bills').upload(path, file, { contentType: file.type || 'image/jpeg' })
   if (up) throw new Error(friendlyError(up))
-  const { data: old, error } = await supabase.rpc('te_route_shot_add', { p_claim: claimId, p_ride: rideId, p_path: path, p_sha256: hash, p_kms: kms, p_km: shotKm(kms, claimed) })
+  const { data: old, error } = await supabase.rpc('te_route_shot_add', {
+    p_claim: claimId, p_ride: ride.id, p_path: path, p_sha256: hash, p_kms: kms, p_km: km, p_places: placesOn(text, ride),
+    p_from_lat: ride.from_lat, p_from_lng: ride.from_lng, p_to_lat: ride.to_lat, p_to_lng: ride.to_lng,
+  })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
   if (old) await supabase.storage.from('te-bills').remove([old as string])
+  return km
 }
 
 export async function removeRouteShot(id: string) {
@@ -81,9 +120,8 @@ export async function removeRouteShot(id: string) {
   if (path) await supabase.storage.from('te-bills').remove([path as string])
 }
 
-export async function openRouteShot(path: string) {
-  const w = window.open('', '_blank')
-  const { data } = await supabase.storage.from('te-bills').createSignedUrl(path, 600)
-  if (data?.signedUrl && w) w.location.href = data.signedUrl
-  else w?.close()
+/** The screenshot's address for a while, shown inside the app, never in a tab of its own (the user, 9 Nov). */
+export async function routeShotUrl(path: string) {
+  const { data } = await supabase.storage.from('te-bills').createSignedUrl(path, 3600)
+  return data?.signedUrl ?? null
 }

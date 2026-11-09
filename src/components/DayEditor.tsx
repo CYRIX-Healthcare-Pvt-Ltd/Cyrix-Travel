@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
-import { needsShot, overPct, routeShotsOn, shotPct } from '@/lib/routeShots'
+import { needsShot, overPct, routeShotsOn, shotBand, shotFits, shotSetsKm } from '@/lib/routeShots'
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -240,6 +240,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   }, [kmKey])
   const set = (p: Partial<Day>) => setD(x => ({ ...x, ...p }))
   const setRide = (id: string, p: Partial<Ride>) => setD(x => ({ ...x, rides: x.rides.map(r => (r.id === id ? { ...r, ...p } : r)) }))
+  // A Google Maps screenshot sets its ride's km, and the km box is locked while it fits the ride (te_0141; the user,
+  // 9 Nov: "when attached, change the input field to what google map location says and it shouldnt be editable, only
+  // if deleted, then it will come default of our map").
+  const shotOn = routeShotsOn(c.ecode)
+  const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
+  const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
+  useEffect(() => {
+    for (const r of d.rides) { const k = lockedKm(r); if (k != null && r.claimed_km !== k) setRide(r.id, { claimed_km: k }) }
+  }, [data.routes, d.rides]) // eslint-disable-line react-hooks/exhaustive-deps
   // Another way of measuring (road, rail, air): the old km goes at once, so a bike never shows the track's km while the road's is fetched.
   const setMode = (id: string, mode: Ride['mode']) =>
     setD(x => ({ ...x, rides: x.rides.map(r => (r.id !== id ? r : { ...r, mode, ...(kmWay(mode) !== kmWay(r.mode) ? { map_km: null } : {}) })) }))
@@ -566,8 +575,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (stays) blockers.push({ text: `${n[0].toUpperCase() + n.slice(1)} starts and ends at ${(r.to_name ?? '').split(',')[0]}: change its To`, to })
     else if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
     // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
-    else if (m.perKm && kmOutside(r, tol)) blockers.push({ text: `The km of ${n} does not match the map (${km(r.map_km)})`, to })
-    else if (routeShotsOn(c.ecode) && needsShot(r, shotPct(data.policy)) && !data.routes?.some(s => s.ride_id === r.id)) blockers.push({ text: `Add the Google Maps screenshot of ${n} · ${overPct(r)}% over the map`, to })
+    else if (m.perKm && kmOutside(r, tol) && lockedKm(r) == null) blockers.push({ text: `The km of ${n} does not match the map (${km(r.map_km)})`, to })
+    else if (shotOn && needsShot(r, shotBand(data.policy)) && !shotFits(shotOf(r), r)) blockers.push({ text: `Add the Google Maps screenshot of ${n}`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
@@ -763,16 +772,19 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       <ModePicker value={r.mode} onChange={code => setMode(r.id, code)} blocked={code => outOfPolicy(code, rule, data.vehicles, d.day ?? undefined)} />
                       {m.perKm ? (
                         <span className="relative min-w-[4.75rem] max-w-[8rem] flex-1">
-                          <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full !pl-2.5 !pr-7" value={r.claimed_km ?? ''} placeholder="0"
+                          <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" value={r.claimed_km ?? ''} placeholder="0"
+                            readOnly={lockedKm(r) != null} title={lockedKm(r) != null ? 'From the Google Maps screenshot' : undefined}
+                            className={`input h-10 w-full !pl-2.5 !pr-7 ${lockedKm(r) != null ? 'cursor-not-allowed !border-emerald-400 !bg-emerald-50 font-semibold text-emerald-900' : ''}`}
                             onChange={e => {
+                              if (lockedKm(r) != null) return
                               const v = e.target.value === '' ? null : Number(e.target.value)
                               // A key that cannot end in the band is not taken: map 10, "12" stays "1"; map 8.8, "7" is not taken (the user, 26–27 Oct).
                               if (v != null && r.map_km != null && !kmCanReach(e.target.value, kmRange(r.map_km, tol))) return
                               setRide(r.id, { claimed_km: v })
                             }}
                             // Emptied, or under the map's km, and left: the map's km again (the user, 26–27 Oct: "he shouldnt be able to type less than map km").
-                            onFocus={() => setTypingKm(r.id)}
-                            onBlur={() => { setTypingKm(null); if (r.map_km != null && (r.claimed_km == null || r.claimed_km < kmRange(r.map_km, tol).lo)) setRide(r.id, { claimed_km: r.map_km }) }} />
+                            onFocus={() => { if (lockedKm(r) == null) setTypingKm(r.id) }}
+                            onBlur={() => { setTypingKm(null); if (lockedKm(r) != null) return; if (r.map_km != null && (r.claimed_km == null || r.claimed_km < kmRange(r.map_km, tol).lo)) setRide(r.id, { claimed_km: r.map_km }) }} />
                           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
                         </span>
                       ) : (
@@ -796,7 +808,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {r.map_km != null && (
                       <div className="mt-1.5 flex items-center gap-3 pl-6">
                         <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match' : m.perKm && kmChanged(r) ? ' · changed' : ''}
+                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
+                            : m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match'
+                            : m.perKm && kmChanged(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
                         </p>
                         <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
                           <MapIcon className="h-3.5 w-3.5" /> View on map
@@ -805,9 +819,10 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     )}
                     {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
                     {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
-                    {routeShotsOn(c.ecode) && typingKm !== r.id && (needsShot(r, shotPct(data.policy)) || data.routes?.some(s => s.ride_id === r.id)) && (
+                    {shotOn && m.perKm && typingKm !== r.id && (needsShot(r, shotBand(data.policy)) || !!shotOf(r)) && (
                       <div className="pl-6">
-                        <RouteProof ride={r} shot={data.routes?.find(s => s.ride_id === r.id)} pct={shotPct(data.policy)} claimId={c.id} onChange={refresh} />
+                        <RouteProof ride={r} shot={shotOf(r)} band={shotBand(data.policy)} claimId={c.id} onChange={refresh}
+                          onKm={k => setRide(r.id, { claimed_km: k ?? r.map_km })} />
                       </div>
                     )}
                     {/* Why, and for which call centre — each ride its own (te_0060). */}
@@ -1119,7 +1134,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info')
       }} />}
       {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)}
-        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} pct={shotPct(data.policy)} claimId={c.id} onShots={refresh} />}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} band={shotBand(data.policy)} claimId={c.id} onShots={refresh} />}
       {picking && ride && (
         <PlacePicker
           title={picking.end === 'from' ? 'From' : 'To'}

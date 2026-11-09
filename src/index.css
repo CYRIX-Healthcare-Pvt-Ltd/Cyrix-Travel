@@ -1928,3 +1928,9 @@
 .ride-add > span:first-child { transition: transform 0.3s ease; }
 .ride-add:active > span:first-child { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .ride-add::before { animation: none; } }
+
+/* The amber Add screenshot button reads in black on the dark theme (the user, 9 Nov: "make black font in darkmode"). */
+:root[data-theme='dark'] .shot-need { color: #000; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .shot-need { color: #000; }
+}

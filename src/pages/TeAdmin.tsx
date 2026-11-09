@@ -41,6 +41,7 @@ const POLICY: Array<[string, string]> = [
   ['phone_month', 'Phone allowance a month ₹'], ['tool_max', 'Tools above ₹ go to petty cash'], ['metro_extra_pct', 'Metro city room extra %'], ['deputation_da', 'Deputation DA a day ₹'],
   ['bike_two_way_km', 'Bike two-way limit km'], ['car_two_way_km', 'Car two-way limit km'], ['submit_by_day', 'Submit by day of next month'], ['claim_within_days', 'Claim a day within (days)'],
   ['late_pct', 'Late deduction % (1, 2, 3 months)'], ['auto_per_km', 'Auto fare ₹ a km'], ['auto_min_fare', 'Auto minimum fare ₹'], ['auto_min_km', 'Auto minimum fare covers km'],
+  ['km_band_km', 'Km band for Google Maps screenshot'], ['km_band_extra_km', 'Km allowed over the map a band'],
 ]
 
 export default function TeAdmin() {
