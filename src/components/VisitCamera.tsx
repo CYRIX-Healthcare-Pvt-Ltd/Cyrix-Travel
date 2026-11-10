@@ -3,7 +3,7 @@ import { Check, Loader2, LocateFixed, RotateCcw, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Spinner } from '@/components/ui'
 import type { Fix } from '@/lib/geo'
-import { deviceId, deviceName, grab, newPending, queuePhoto, sendPhoto, stamp, stampPlace } from '@/lib/visits'
+import { deviceId, deviceName, grab, onComputer, newPending, queuePhoto, sendPhoto, stamp, stampPlace } from '@/lib/visits'
 
 /*
   The app's own camera (the user, 28 Oct: "no upload option only camera"): a live view and a shutter, no file picker,
@@ -54,6 +54,8 @@ export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: stri
   // The shutter waits for a close fix, as Start my day does (te_0139; the user, 9 Nov: a ±100 km network guess put a
   // photo 8.8 km away and made a ride of it).
   const exact = !!fix && fix.accuracy <= CLOSE_M
+  // A phone or tablet only (te_0147; the user, 10 Nov); the test accounts may try the camera at a desk.
+  const desk = onComputer() && !['E6666', 'E7777', 'E8888', 'E9999'].includes((employee?.ecode ?? '').toUpperCase())
   const take = async () => {
     if (!video.current || !fix || !exact || !employee) return
     setBusy('taking'); setErr(null)
@@ -90,6 +92,7 @@ export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: stri
       <div className="relative min-h-0 flex-1">
         <video ref={video} playsInline muted className={`absolute inset-0 h-full w-full object-cover ${shot ? 'invisible' : ''}`} />
         {shot && <img src={shot.url} alt="The visit photo" className="absolute inset-0 h-full w-full object-contain" />}
+        {desk && <p role="alert" className="absolute inset-x-4 top-4 rounded-xl bg-cyrixRed-600 px-4 py-3 text-center text-sm font-semibold">Visit photos are taken on a phone. Open Cyra on your phone</p>}
         {!live && !err && !shot && <div className="absolute inset-0 grid place-items-center"><Spinner /></div>}
       </div>
       <div className="space-y-3 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
@@ -103,7 +106,7 @@ export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: stri
           </div>
         ) : (
           <div className="flex justify-center">
-            <button type="button" aria-label="Take the photo" disabled={!live || !exact || !!busy} onClick={() => void take()}
+            <button type="button" aria-label="Take the photo" disabled={!live || !exact || desk || !!busy} onClick={() => void take()}
               className="grid h-[72px] w-[72px] place-items-center rounded-full border-4 border-white/80 disabled:opacity-40">
               <span className="grid h-14 w-14 place-items-center rounded-full bg-white">{busy === 'taking' && <Spinner />}</span>
             </button>

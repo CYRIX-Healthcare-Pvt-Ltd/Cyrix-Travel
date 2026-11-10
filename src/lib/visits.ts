@@ -241,8 +241,15 @@ export function deviceId() {
     return id
   } catch { return null }
 }
+/** A computer, not a phone or tablet: its place is a guess from its network, so it takes no visit photos (te_0147). */
+export const onComputer = () => {
+  const ua = navigator.userAgent
+  return !/Android|iPhone|iPad|iPod/i.test(ua) && !(/Mac OS/.test(ua) && navigator.maxTouchPoints > 1)
+}
 export async function deviceName() {
   const ua = navigator.userAgent
+  // An iPad that calls itself a Mac has a touch screen.
+  if (/Mac OS/.test(ua) && !/iPhone|iPad/.test(ua) && navigator.maxTouchPoints > 1) return 'iPad'
   type Hints = { getHighEntropyValues?: (h: string[]) => Promise<{ model?: string; platform?: string; platformVersion?: string }> }
   try {
     const hints = await (navigator as Navigator & { userAgentData?: Hints }).userAgentData?.getHighEntropyValues?.(['model', 'platform', 'platformVersion'])
@@ -267,6 +274,8 @@ export async function sendPhoto(p: Pending) {
   const { error } = await supabase.rpc('te_photo_add', {
     p_path: path, p_lat: p.fix.lat, p_lng: p.fix.lng, p_acc: Math.round(p.fix.accuracy), p_shot_at: p.shot_at, p_place: p.place, p_sha256: hash,
     p_device_id: deviceId(), p_device: await deviceName(), ...(p.for_day ? { p_day: p.for_day } : {}),
+    // The phone's own time as it sends, set against ours: a wrong clock is found out, a date set back refused (te_0147).
+    p_sent_at: new Date().toISOString(),
   })
   if (error) {
     await supabase.storage.from('te-visits').remove([path])

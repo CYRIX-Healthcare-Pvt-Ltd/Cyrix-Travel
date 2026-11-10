@@ -743,6 +743,8 @@ export const OBS = {
   startoff: { title: 'First ride not from where the day started', level: 'approve', icon: Sunrise, group: 'start' },
   latenight: { title: 'Late night work', level: 'check', icon: Moon, group: 'start' },
   noend:    { title: 'Day not ended in the app', level: 'check', icon: Sunset, group: 'start' },
+  // Red from 10 Nov (te_0147; the user, 10 Nov: "add the red mark only"); days before it stay to check.
+  noendred: { title: 'Day not ended in the app', level: 'approve', icon: Sunset, group: 'start' },
   endfar:   { title: 'Day ended away from home', level: 'check', icon: Sunset, group: 'start' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
@@ -972,8 +974,11 @@ export function claimObservations(data: ClaimData): Obs[] {
     }
     // End my day (te_0109): a past day with rides and no end; an end more than 500 m from home (a room stay that night, said so).
     const en = data.day_ends?.find(s => s.day === d.day), lastR = d.rides[d.rides.length - 1]
-    if (lastR && data.day_end_from && d.day >= data.day_end_from && !en && d.day < new Date().toLocaleDateString('en-CA'))
-      items.push({ kind: 'noend', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)}` })
+    // The manager's to judge: once the manager has approved, it is not shown to the Travel Desk (the user, 10 Nov:
+    // "it is not travel desk headache").
+    const managers = ['draft', 'with_manager', 'recalled'].includes(data.claim.status)
+    if (managers && lastR && data.day_end_from && d.day >= data.day_end_from && !en && d.day < new Date().toLocaleDateString('en-CA'))
+      items.push({ kind: d.day >= '2026-11-10' ? 'noendred' : 'noend', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)}` })
     if (en && en.home_m != null && en.home_m > HOME_M)
       items.push({ kind: 'endfar', day, to: lastR?.id, detail: `${short(startName(en))} at ${clockOf({ day: d.day, shot_at: en.at })} · ${km(en.home_m / 1000)} from home${d.hotel || d.room_by ? ' · a room stay that night' : ''}` })
     // Photos of the day's trip taken after its midnight (te_0108; the user, 4 Nov: "in observation also it should say late night work").
