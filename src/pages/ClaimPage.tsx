@@ -29,6 +29,18 @@ import {
   with its drawn route and "See on map", and the totals as the Excel's foot has them: claimed,
   advances, net payable. Whoever it waits on approves or sends it back from here.
 */
+/*
+  Another phone is another phone's name. The phone's ID lives in the app's storage, so reinstalling, clearing the
+  app's data, or the installed app and Chrome on the same phone give it a new one: Sunil Kumar (E7), TE-83, all on
+  "RMX3940 (Android 16)" with a new ID from 10 Nov, showed "taken on RMX3940, usually RMX3940" (the user, 10 Nov).
+  Only when a name is not known does the ID decide.
+*/
+function otherPhone(p: { device_id?: string | null; device?: string | null }, usual: { device_id: string; device: string | null } | null | undefined) {
+  if (!usual || !p.device_id || p.device_id === usual.device_id) return false
+  const a = (p.device ?? '').trim().toLowerCase(), b = (usual.device ?? '').trim().toLowerCase()
+  return !a || !b || a !== b
+}
+
 export default function ClaimPage() {
   const { id } = useParams()
   const { data, isLoading, error, refetch } = useClaim(id)
@@ -453,8 +465,10 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const dep = depOn(data.deputations, d.day)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const shots = matchPhotos(d.rides, d.day, data.visit_photos, data.photo_setup)
-  const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
-  const dayEnd = data.day_ends?.find(s => s.day === d.day) ?? null
+  // The Travel Desk does not see where the day started and ended, nor time at a place: the manager's (the user, 10 Nov).
+  const desk = deskOnly(data.claim)
+  const dayStart = desk ? null : data.day_starts?.find(s => s.day === d.day) ?? null
+  const dayEnd = desk ? null : data.day_ends?.find(s => s.day === d.day) ?? null
   // Each line its own raised card (the user, 30 Oct: "it looks very plain", "like each ride 3d? div?"); red while its bill is still needed.
   const tile = ' rounded-lg border px-3 shadow-[0_1px_2px_rgb(15_23_42/0.07),0_3px_8px_-2px_rgb(15_23_42/0.08)]'
   const mark = (id: string) => tile + (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' border-cyrixRed-300 bg-cyrixRed-50' : ' border-ink-200 bg-surface')
@@ -606,7 +620,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
                       <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? short(r.to_name)} · ${clock(hit.photo.shot_at)}`} className="h-9 w-9" />
-                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{(() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{data.usual_device && hit.photo.device_id && hit.photo.device_id !== data.usual_device.device_id && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
+                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{!desk && (() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{otherPhone(hit.photo, data.usual_device) && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
                     </span>
                   )
                   return r.photo_skip
@@ -861,7 +875,7 @@ export function claimObservations(data: ClaimData): Obs[] {
         if (late) items.push({ kind: 'photolate', day, to: r.id, detail: `${leg} · ${late}` })
         // Taken on a phone other than the one most of the person's photos come from (te_0086; the user, 30 Oct: observation first).
         const usual = data.usual_device
-        if (hit && usual && hit.photo.device_id && hit.photo.device_id !== usual.device_id)
+        if (hit && usual && otherPhone(hit.photo, usual))
           items.push({ kind: 'photophone', day, to: r.id, detail: `${leg} · taken on ${hit.photo.device ?? 'another phone'}${usual.device ? `, usually ${usual.device}` : ''}` })
       }
       if (outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
@@ -1059,8 +1073,11 @@ export function claimObservations(data: ClaimData): Obs[] {
   if (rule.car_km_month && data.km_month.car > rule.car_km_month) items.push({ kind: 'month', detail: `Car ${km(data.km_month.car)} this month, over ${rule.car_km_month} km` })
   const autoCap = Number(data.policy.auto_month ?? 1000)
   if (data.km_month.auto > autoCap) items.push({ kind: 'month', detail: `Auto ${money(data.km_month.auto)} this month, over ${money(autoCap)}` })
-  return items
+  // Day started and ended, away from home, late night: the manager's, not the Travel Desk's (the user, 10 Nov).
+  return deskOnly(data.claim) ? items.filter(i => OBS[i.kind].group !== 'start') : items
 }
+/** The Travel Desk looking at somebody else's claim, not as that person's manager. */
+export const deskOnly = (c: { is_desk: boolean; is_manager: boolean; mine: boolean }) => c.is_desk && !c.is_manager && !c.mine
 /** What keeps a claim out of Approve all: each kind to approve or check, once ("Not in grade policy", "Bill missing"). */
 export const claimIssues = (data: ClaimData) => {
   const seen = new Map<string, { title: string; level: 'approve' | 'check'; icon: LucideIcon }>()
