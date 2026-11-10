@@ -14,6 +14,7 @@ import RouteMap from '@/components/RouteMap'
 import { routeShotsOn, shotBand, shotFits } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
+import TicketLookup, { TICKET_TEST, AP_TICKET, copyTicketReports } from '@/components/TicketLookup'
 import History from '@/components/History'
 import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
@@ -118,9 +119,14 @@ export default function ClaimPage() {
     (the user, 19 Oct: "don't know in which is having error"; 21 Oct: show problems as soon as a day is saved).
   */
   const need = c.mine && c.can_edit ? missingBills(data, over) : []
+  /** A test account's claim: its AP tickets come from BEMP (the user, 10 Nov). */
+  const bemp = TICKET_TEST.has((c.ecode ?? '').toUpperCase())
   const send = async () => {
     if (need.length) { setMsg(null); setFail(null); showBill(need[0].id); return }
-    if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send', icon: Send, go: true })) void run('te_submit', { p_claim: c.id }, 'Sent.')
+    if (!(await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send', icon: Send, go: true }))) return
+    // The BEMP service reports saved with the claim first (test accounts; the user, 10 Nov).
+    if (bemp) await copyTicketReports(c.id, data.days.flatMap(d => d.tickets), data.bills)
+    void run('te_submit', { p_claim: c.id }, 'Sent.')
   }
   /*
     Recall and deletion go by whether the manager has approved it (te_0094; the user, 31 Oct): not yet (waiting on the
@@ -440,6 +446,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 }) {
   const c = data.claim, rule = data.rule
   const ask = useAsk()
+  /** An AP ticket on a test account's claim comes from BEMP (the user, 10 Nov). */
+  const fromBemp = (no: string | null | undefined) => TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && AP_TICKET.test((no ?? '').trim())
   const outOfState = d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const dep = depOn(data.deputations, d.day)
@@ -621,7 +629,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     <span key={t.id} className="col-span-full flex flex-wrap items-center gap-1.5 pl-1 text-xs text-sky-700">
                       <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
                       {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
-                      <ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit} onChange={onBills} />
+                      <ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit && !fromBemp(t.ticket_no)} onChange={onBills} />
+                      {fromBemp(t.ticket_no) && <span className="basis-full -ml-6"><TicketLookup ticket={t.ticket_no} day={d.day} claimId={c.id} /></span>}
                     </span>
                   )
                 })}
@@ -637,7 +646,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 {earlier.length > 0 && <span className="text-xs font-semibold text-sky-700">{ordinal(earlier.length + 1)} visit</span>}
                 {/* A hospital none of the day's rides went to (the user, 21 Oct). */}
                 {ticketVisited(t, d.rides) === false && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not visited on this day's rides</span>}
-                <span className="ml-auto"><ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit} onChange={onBills} /></span>
+                <span className="ml-auto"><ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit && !fromBemp(t.ticket_no)} onChange={onBills} /></span>
+                {fromBemp(t.ticket_no) && <span className="basis-full -ml-6"><TicketLookup ticket={t.ticket_no} day={d.day} claimId={c.id} /></span>}
               </div>
             )
           })}

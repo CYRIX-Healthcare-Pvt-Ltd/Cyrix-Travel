@@ -14,6 +14,7 @@ import { needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, s
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
+import TicketLookup, { TICKET_TEST, AP_TICKET } from '@/components/TicketLookup'
 import ModePicker from '@/components/ModePicker'
 import PickList from '@/components/PickList'
 import { useAsk } from '@/components/Ask'
@@ -870,8 +871,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                           <TicketIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-600" />
                           <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })} />
                         </span>
-                        <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable onChange={refresh} />
+                        {/* An AP ticket's report comes from BEMP, so no upload for it (test accounts; the user, 10 Nov). */}
+                        <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable={!(TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && AP_TICKET.test((r.ticket_no ?? '').trim()))} onChange={refresh} />
                       </div>
+                    )}
+                    {/* The ticket found in Cyrix BEMP, its service report attached by itself (test accounts; the user, 10 Nov). */}
+                    {isBreakdown(r.purpose) && TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && (
+                      <TicketLookup ticket={r.ticket_no} day={d.day} />
                     )}
                     {/* A round trip: where its return will be added (te_0058). */}
                     {r.return_leg?.date && !returnAdded(r.return_leg) && r.return_leg.date !== d.day && (
