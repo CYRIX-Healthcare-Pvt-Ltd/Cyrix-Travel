@@ -906,7 +906,7 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
       const { data } = await worker.recognize(img, {}, { text: true, blocks: true })
       raw = data.text
       words = ocrWords(data.words)
-      if (PAYMENT_SCREEN.test(raw)) {
+      if (isPayment(raw)) {
         upi = upiAmount(words)
         /*
           Read as one block of text, the screen's big amount is passed over; read again for text anywhere. Read again
@@ -955,7 +955,7 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
     amount = near.length ? near.sort((a, b) => Math.abs(a - said) - Math.abs(b - said))[0] : said
   }
   // A UPI payment's own number (its UPI transaction ID or UTR, 12 digits), else the bill's.
-  const um = PAYMENT_SCREEN.test(raw) ? text.match(/(?:UPI\s*(?:transaction|txn|ref(?:erence)?)\s*(?:id|no\.?|number)?|UTR(?:\s*no\.?)?)\s*[:.-]?\s*(\d{12})(?!\d)/i) : null
+  const um = isPayment(raw) ? text.match(/(?:UPI\s*(?:transaction|txn|ref(?:erence)?)\s*(?:id|no\.?|number)?|UTR(?:\s*no\.?)?)\s*[:.-]?\s*(\d{12})(?!\d)/i) : null
   const bm = um ?? text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
   // No date: the person enters the day, and the bill's own date is not needed (the user, 19 Oct).
   /*
@@ -973,9 +973,10 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
     // A figure is judged by its own digits: a ₹ read as R or ¥ beside it does not make it unsure.
     return hits.length > 0 && Math.max(...hits.map(w => (/^\d+$/.test(want) ? digitsSure(w) : w.confidence))) >= SURE
   }
-  const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null)
+  // A bill number has a digit in it: "Ticket Details" gave the word Details (TE-71).
+  const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm && /\d/.test(bm[1]) ? bm[1] : null)
   // When a payment screen says it was paid (te_0135), to set against the ride's own times.
-  const paidAt = PAYMENT_SCREEN.test(raw) ? paidAtIn(raw) : null
+  const paidAt = isPayment(raw) ? paidAtIn(raw) : null
   return { amount: said != null || sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay, paidAt }
 }
 /*
@@ -1019,6 +1020,12 @@ const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); retu
   not a number?"), and so is a first digit much shorter than the rest — the ₹ read as a 2.
 */
 const PAYMENT_SCREEN = /\bUPI\b|\bUTR\b|transaction\s*id|google\s*pay|\bG\s?Pay\b|phone\s*pe|paytm|\bBHIM\b|paid\s+(?:to|successfully|via)|\bCRED\b|payment\s+(?:of|successful)|money\s+sent/i
+/*
+  A ticket or bill with its own fare lines is not a payment screen, though it names a Transaction ID (the user, 10 Nov:
+  TE-71's IRCTC ticket page, "Total Fare ₹358.60", was read as ₹8 — the payment screen's big figure looked for on it).
+*/
+const OWN_TOTAL = /\b(?:total|base)\s*fare\b|\bIRCTC\b|\bPNR\b/i
+const isPayment = (raw: string) => PAYMENT_SCREEN.test(raw) && !OWN_TOTAL.test(raw)
 // What the reader makes of a ₹ (or Rs, INR); a +91, a # or a masked account's XXXX before digits is not a sign.
 const RUPEE = /^(?:[₹RZFXT%¥&=<€£$]|rs\.?|inr)$/i
 function figureOf(w: OcrWord): { value: number; h: number; sure: number; signed: boolean } | null {
