@@ -30,11 +30,12 @@ export const shotFits = (shot: RouteShot | undefined, r: Pts) => !!shot && (shot
   (near(shot.from_lat, r.from_lat) && near(shot.from_lng, r.from_lng) && near(shot.to_lat, r.to_lat) && near(shot.to_lng, r.to_lng)))
 /*
   The screenshot is the ride's: its points have not moved since, and none it shows is another place. Both points as
-  numbers, match; both as addresses, unread — Google Maps on a computer writes the points it is given as street
-  addresses (the user, 9 Nov: a real one refused). One as numbers and the other a name means a place was searched
+  numbers, match. None as numbers, unread: the From and To were changed to names such as "Your location" and
+  "Home" (E481, 10 Nov), so it is refused too — it was let through for Google Maps on a computer, which writes
+  addresses, and nobody uses a computer for it (the user, 10 Nov: "from computer no one will use it"). One as numbers and the other a name means a place was searched
   (a To shown as "Grand Mall", 2 km from the ride's: "it is wrong location"), so partial is refused like edited.
 */
-export const shotOk = (shot: RouteShot | undefined, r: Pts) => shotFits(shot, r) && (shot!.places === 'match' || shot!.places === 'unread')
+export const shotOk = (shot: RouteShot | undefined, r: Pts) => shotFits(shot, r) && shot!.places === 'match'
 /** The km the ride takes from its screenshot, while it is the ride's and its km could be read. */
 export const shotSetsKm = (shot: RouteShot | undefined, r: Pts) => shotOk(shot, r) && shot!.km != null ? Number(shot!.km) : null
 
@@ -115,6 +116,7 @@ export async function addRouteShot(claimId: string, ride: Pts & { id: string }, 
   const hash = await sha256(file)
   const text = await readText(file).catch(() => '')
   const kms = kmFigures(text), km = shotKm(text, kms, claimed), places = placesOn(text, ride)
+  if (places === 'unread') throw new Error("From and To on this screenshot are not the ride's. Press Google Maps under the ride and don't change From or To.")
   if (places === 'partial' || places === 'edited') throw new Error("From or To on this screenshot is not the ride's")
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/route-${newId()}.${ext}`
