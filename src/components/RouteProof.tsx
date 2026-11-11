@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Check, ImagePlus, Loader2, Navigation, RefreshCw, Trash2, TriangleAlert, X } from 'lucide-react'
 import { inkVars, km, MODES } from '@/lib/claims'
 import { useBackCloses } from '@/lib/useBackCloses'
+import { useAuth } from '@/contexts/AuthContext'
 import { addRouteShot, googleRoute, needsShot, removeRouteShot, routeShotUrl, shotBacks, shotFits, type Band, type RouteShot } from '@/lib/routeShots'
 
 type R = { id: string; mode: string; claimed_km: number | null; map_km: number | null; from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }
@@ -19,6 +20,7 @@ export default function RouteProof({ ride, shot, band, claimId, onChange, onKm }
   /** The km the screenshot gives the ride, or null when it is removed (te_0141: the km box takes it, locked). */
   onKm?: (km: number | null) => void
 }) {
+  const { employee } = useAuth()
   const file = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -75,7 +77,7 @@ export default function RouteProof({ ride, shot, band, claimId, onChange, onKm }
           </button>
         )}
         <div className={`grid min-w-0 flex-1 gap-2 ${shot ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
-          <a href={googleRoute(ride)} target="_blank" rel="noreferrer" className={`${btn} border border-ink-200 bg-surface text-ink-900`}>
+          <a href={googleRoute(ride, employee?.ecode)} target="_blank" rel="noreferrer" className={`${btn} border border-ink-200 bg-surface text-ink-900`}>
             <Navigation className="h-4 w-4 text-teal-700" /> Google Maps
           </a>
           {edit && (shot ? (

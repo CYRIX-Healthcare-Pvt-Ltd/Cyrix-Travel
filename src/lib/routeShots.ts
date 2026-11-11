@@ -14,6 +14,7 @@ export const routeShotsOn = (_ecode?: string | null) => true
 /** Asked for on rides from 10 Nov; a day before it goes as it did (the user, 9 Nov: "from 2mrws claim only needed"). */
 export const SHOT_FROM = '2026-11-10'
 const TEST = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
+export const isTestLogin = (ecode?: string | null) => !!ecode && TEST.has(ecode.toUpperCase())
 /** The test accounts any day (the user, 9 Nov: "for test accounts there is not date or starting"). */
 export const shotDay = (day: string | null | undefined, ecode?: string | null) => (!!ecode && TEST.has(ecode.toUpperCase())) || (!!day && day >= SHOT_FROM)
 
@@ -66,8 +67,13 @@ export const overPct = (r: { claimed_km: number | null; map_km: number | null })
   by Google as another place, "on our map it is correct … we already have location"), so Google measures the same
   road ends as our map.
 */
-export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }) =>
-  `https://www.google.com/maps/dir/?api=1&origin=${r.from_lat},${r.from_lng}&destination=${r.to_lat},${r.to_lng}&travelmode=driving`
+export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }, ecode?: string | null) =>
+  isTestLogin(ecode)
+    // On trial for the test accounts (the user, 11 Nov): the points in the link's path rather than as origin and
+    // destination, to see whether the phone's Google Maps app then keeps them as numbers instead of turning each
+    // into the nearest business's name (Jestin Jose: "DOXA Child Development Cli…" → "Vinil Marketing…").
+    ? `https://www.google.com/maps/dir/${r.from_lat},${r.from_lng}/${r.to_lat},${r.to_lng}/data=!4m2!4m1!3e0`
+    : `https://www.google.com/maps/dir/?api=1&origin=${r.from_lat},${r.from_lng}&destination=${r.to_lat},${r.to_lng}&travelmode=driving`
 
 /** Every km figure on the screenshot: "65 km", "(65 km)", "58.4 km", "54,0km". */
 export function kmFigures(text: string): number[] {
