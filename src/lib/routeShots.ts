@@ -72,8 +72,18 @@ export const googleRoute = (r: { from_lat: number | null; from_lng: number | nul
     // On trial for the test accounts (the user, 11 Nov): the points in the link's path rather than as origin and
     // destination, to see whether the phone's Google Maps app then keeps them as numbers instead of turning each
     // into the nearest business's name (Jestin Jose: "DOXA Child Development Cli…" → "Vinil Marketing…").
-    ? `https://www.google.com/maps/dir/${r.from_lat},${r.from_lng}/${r.to_lat},${r.to_lng}/data=!4m2!4m1!3e0`
+    ? inBrowser(`https://www.google.com/maps/dir/${r.from_lat},${r.from_lng}/${r.to_lat},${r.to_lng}/data=!4m2!4m1!3e0`)
     : `https://www.google.com/maps/dir/?api=1&origin=${r.from_lat},${r.from_lng}&destination=${r.to_lat},${r.to_lng}&travelmode=driving`
+
+/*
+  On an Android phone the Google Maps website in Chrome rather than the Maps app (test logins, the user, 11 Nov): the app
+  turns the ride's points into the nearest business's name, the website keeps them as numbers, so the screenshot
+  can be matched. Chrome missing: the same page in whatever browser opens it.
+*/
+const inBrowser = (url: string) =>
+  /Android/i.test(navigator.userAgent)
+    ? `intent://${url.replace(/^https:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`
+    : url
 
 /** Every km figure on the screenshot: "65 km", "(65 km)", "58.4 km", "54,0km". */
 export function kmFigures(text: string): number[] {
