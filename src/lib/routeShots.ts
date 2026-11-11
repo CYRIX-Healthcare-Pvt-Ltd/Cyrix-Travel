@@ -74,14 +74,12 @@ export const googleRoute = (r: { from_lat: number | null; from_lng: number | nul
   inBrowser(`https://www.google.com/maps/dir/${r.from_lat},${r.from_lng}/${r.to_lat},${r.to_lng}/data=!4m2!4m1!3e0`)
 
 /*
-  On an Android phone the Google Maps website in Chrome rather than the Maps app (the user, 11 Nov): the app
-  turns the ride's points into the nearest business's name, the website keeps them as numbers, so the screenshot
-  can be matched. Chrome missing: the same page in whatever browser opens it.
+  Through Travel's own gmaps.html, which loads the Google Maps website a moment later without a press (the user, 11 Nov:
+  "still opening in map app for android"): Android's Chrome hands a google.com/maps link opened by a press to the Maps
+  app, even when sent to Chrome by name, and the app turns the ride's points into the nearest business's name. Loaded
+  without a press it stays in the browser, where the points stay as numbers and the screenshot can be matched.
 */
-const inBrowser = (url: string) =>
-  /Android/i.test(navigator.userAgent)
-    ? `intent://${url.replace(/^https:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`
-    : url
+const inBrowser = (url: string) => `${import.meta.env.BASE_URL}gmaps.html#${encodeURIComponent(url)}`
 
 /** Every km figure on the screenshot: "65 km", "(65 km)", "58.4 km", "54,0km". */
 export function kmFigures(text: string): number[] {
