@@ -62,21 +62,19 @@ export const overPct = (r: { claimed_km: number | null; map_km: number | null })
   r.map_km && r.claimed_km != null ? Math.round(((r.claimed_km - r.map_km) / r.map_km) * 100) : 0
 
 /*
-  Google Maps with the ride's From and To filled in: free, no key; the app on a phone, the site on a computer. Always
+  Google Maps with the ride's From and To filled in: free, no key; the website, never the app (below). Always
   the ride's own points, never its names (the user, 9 Nov: a To named "Salem - Kochi - Kanyakumari Hwy…" was searched
   by Google as another place, "on our map it is correct … we already have location"), so Google measures the same
   road ends as our map.
 */
-export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }, ecode?: string | null) =>
-  isTestLogin(ecode)
-    // On trial for the test accounts (the user, 11 Nov): the points in the link's path rather than as origin and
-    // destination, to see whether the phone's Google Maps app then keeps them as numbers instead of turning each
-    // into the nearest business's name (Jestin Jose: "DOXA Child Development Cli…" → "Vinil Marketing…").
-    ? inBrowser(`https://www.google.com/maps/dir/${r.from_lat},${r.from_lng}/${r.to_lat},${r.to_lng}/data=!4m2!4m1!3e0`)
-    : `https://www.google.com/maps/dir/?api=1&origin=${r.from_lat},${r.from_lng}&destination=${r.to_lat},${r.to_lng}&travelmode=driving`
+export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }, _ecode?: string | null) =>
+  // The points in the link's path, opened in the browser for everybody (the user, 11 Nov: "ya browser only"): the
+  // Maps app turns each point into the nearest business's name (Jestin Jose: "DOXA Child Development Cli…"), the
+  // website keeps them as numbers, so the screenshot can be matched.
+  inBrowser(`https://www.google.com/maps/dir/${r.from_lat},${r.from_lng}/${r.to_lat},${r.to_lng}/data=!4m2!4m1!3e0`)
 
 /*
-  On an Android phone the Google Maps website in Chrome rather than the Maps app (test logins, the user, 11 Nov): the app
+  On an Android phone the Google Maps website in Chrome rather than the Maps app (the user, 11 Nov): the app
   turns the ride's points into the nearest business's name, the website keeps them as numbers, so the screenshot
   can be matched. Chrome missing: the same page in whatever browser opens it.
 */
