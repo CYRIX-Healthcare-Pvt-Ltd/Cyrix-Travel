@@ -62,24 +62,16 @@ export const overPct = (r: { claimed_km: number | null; map_km: number | null })
   r.map_km && r.claimed_km != null ? Math.round(((r.claimed_km - r.map_km) / r.map_km) * 100) : 0
 
 /*
-  Google Maps with the ride's From and To filled in: free, no key; the website, never the app (below). Always
+  Google Maps with the ride's From and To filled in: free, no key; inside Travel's own page, never the app. Always
   the ride's own points, never its names (the user, 9 Nov: a To named "Salem - Kochi - Kanyakumari Hwy…" was searched
   by Google as another place, "on our map it is correct … we already have location"), so Google measures the same
   road ends as our map.
 */
 export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }, _ecode?: string | null) =>
-  // The points in the link's path, opened in the browser for everybody (the user, 11 Nov: "ya browser only"): the
-  // Maps app turns each point into the nearest business's name (Jestin Jose: "DOXA Child Development Cli…"), the
-  // website keeps them as numbers, so the screenshot can be matched.
-  inBrowser(`https://www.google.com/maps/dir/${r.from_lat},${r.from_lng}/${r.to_lat},${r.to_lng}/data=!4m2!4m1!3e0`)
-
-/*
-  Through Travel's own gmaps.html, which loads the Google Maps website a moment later without a press (the user, 11 Nov:
-  "still opening in map app for android"): Android's Chrome hands a google.com/maps link opened by a press to the Maps
-  app, even when sent to Chrome by name, and the app turns the ride's points into the nearest business's name. Loaded
-  without a press it stays in the browser, where the points stay as numbers and the screenshot can be matched.
-*/
-const inBrowser = (url: string) => `${import.meta.env.BASE_URL}gmaps.html#${encodeURIComponent(url)}`
+  // Travel's own gmaps.html for everybody (the user, 11 Nov: "new browser loading then going to map app"): Google's map
+  // inside our page, which the Maps app cannot take over, with the ride's From and To written above it as numbers,
+  // so the screenshot has the points and Google's route km together and matches.
+  `${import.meta.env.BASE_URL}gmaps.html#from=${r.from_lat},${r.from_lng}&to=${r.to_lat},${r.to_lng}`
 
 /** Every km figure on the screenshot: "65 km", "(65 km)", "58.4 km", "54,0km". */
 export function kmFigures(text: string): number[] {
