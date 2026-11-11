@@ -19,10 +19,10 @@ export const isTestLogin = (ecode?: string | null) => !!ecode && TEST.has(ecode.
 export const shotDay = (day: string | null | undefined, ecode?: string | null) => (!!ecode && TEST.has(ecode.toUpperCase())) || (!!day && day >= SHOT_FROM)
 
 /** What the phone found of the ride's points on the screenshot (te_0141). */
-export type Places = 'match' | 'partial' | 'edited' | 'unread'
+export type Places = 'match' | 'named' | 'partial' | 'edited' | 'unread'
 export interface RouteShot {
   id: string; ride_id: string; path: string; km: number | null; kms: number[]; created_at: string
-  places?: Places; from_lat?: number | null; from_lng?: number | null; to_lat?: number | null; to_lng?: number | null
+  places?: Places; read_from?: string | null; read_to?: string | null; from_lat?: number | null; from_lng?: number | null; to_lat?: number | null; to_lng?: number | null
 }
 type Pts = { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }
 const near = (a: number | null | undefined, b: number | null | undefined, d = 0.0006) => a != null && b != null && Math.abs(a - b) <= d
@@ -30,13 +30,12 @@ const near = (a: number | null | undefined, b: number | null | undefined, d = 0.
 export const shotFits = (shot: RouteShot | undefined, r: Pts) => !!shot && (shot.from_lat == null ||
   (near(shot.from_lat, r.from_lat) && near(shot.from_lng, r.from_lng) && near(shot.to_lat, r.to_lat) && near(shot.to_lng, r.to_lng)))
 /*
-  The screenshot is the ride's: its points have not moved since, and none it shows is another place. Both points as
-  numbers, match. None as numbers, unread: the From and To were changed to names such as "Your location" and
-  "Home" (E481, 10 Nov), so it is refused too — it was let through for Google Maps on a computer, which writes
-  addresses, and nobody uses a computer for it (the user, 10 Nov: "from computer no one will use it"). One as numbers and the other a name means a place was searched
-  (a To shown as "Grand Mall", 2 km from the ride's: "it is wrong location"), so partial is refused like edited.
+  The screenshot is the ride's: its points have not moved since, and it shows them as numbers (match) or as the names
+  Google Maps gives them (named: found near the ride's points; unread: names that could not be looked up). Names are
+  accepted (the user, 11 Nov: "better accept the names, dont need complications"); "Your location", or a name found
+  far from the ride's point, is refused when it is added (te_0149).
 */
-export const shotOk = (shot: RouteShot | undefined, r: Pts) => shotFits(shot, r) && shot!.places === 'match'
+export const shotOk = (shot: RouteShot | undefined, r: Pts) => shotFits(shot, r) && (shot!.places === 'match' || shot!.places === 'named' || shot!.places === 'unread')
 /** The km the ride takes from its screenshot, while it is the ride's and its km could be read. */
 export const shotSetsKm = (shot: RouteShot | undefined, r: Pts) => shotOk(shot, r) && shot!.km != null ? Number(shot!.km) : null
 
@@ -62,16 +61,13 @@ export const overPct = (r: { claimed_km: number | null; map_km: number | null })
   r.map_km && r.claimed_km != null ? Math.round(((r.claimed_km - r.map_km) / r.map_km) * 100) : 0
 
 /*
-  Google Maps with the ride's From and To filled in: free, no key; inside Travel's own page, never the app. Always
-  the ride's own points, never its names (the user, 9 Nov: a To named "Salem - Kochi - Kanyakumari Hwy…" was searched
-  by Google as another place, "on our map it is correct … we already have location"), so Google measures the same
-  road ends as our map.
+  Google Maps with the ride's From and To filled in: free, no key, the phone's Maps app as before (the user, 11 Nov).
+  Always the ride's own points, never its names (the user, 9 Nov: a To named "Salem - Kochi - Kanyakumari Hwy…" was
+  searched by Google as another place), so Google measures the same road ends as our map; the app shows them by the
+  nearest place's name, which is looked up near the ride's points when the screenshot is added.
 */
-export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }, _ecode?: string | null) =>
-  // Travel's own gmaps.html for everybody (the user, 11 Nov: "new browser loading then going to map app"): Google's map
-  // inside our page, which the Maps app cannot take over, with the ride's From and To written above it as numbers,
-  // so the screenshot has the points and Google's route km together and matches.
-  `${import.meta.env.BASE_URL}gmaps.html#from=${r.from_lat},${r.from_lng}&to=${r.to_lat},${r.to_lng}`
+export const googleRoute = (r: { from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null }) =>
+  `https://www.google.com/maps/dir/?api=1&origin=${r.from_lat},${r.from_lng}&destination=${r.to_lat},${r.to_lng}&travelmode=driving`
 
 /** Every km figure on the screenshot: "65 km", "(65 km)", "58.4 km", "54,0km". */
 export function kmFigures(text: string): number[] {
@@ -109,6 +105,57 @@ export function placesOn(text: string, r: Pts): Places {
 export const shotBacks = (shotKmRead: number | null, claimed: number | null) =>
   shotKmRead != null && claimed != null && claimed <= shotKmRead + 0.5
 
+/** "Your location" on the screenshot: From or To was changed to where the phone was (the user, 11 Nov: "reject bcz he clicked it"). */
+export const showsYourLocation = (text: string) => /your\s*loca/i.test(text)
+
+/**
+  The From and To names as the Maps app writes them at the top, each after its round mark: "© Amala Hospital
+  Thrissur", "® Your location", "O Home". Cut at "…" and at the reader's noise after them.
+*/
+export function namesOn(text: string): string[] {
+  const out: string[] = []
+  for (const line of text.split('\n').slice(0, 16)) {
+    const m = line.match(/^[^A-Za-z]{0,8}[©®@◎◉●○0O]\s+([A-Z][A-Za-z0-9&'.,\- ]{2,})/)
+    if (!m || /^O\s*$/.test(m[1])) continue
+    const name = m[1].split(/\.\.\.|…|\s{2,}|\s[:;|]/)[0].replace(/(\s+[a-z]{1,3})+\s*$/, '').replace(/[\s.,\-]+$/, '').trim()
+    if (name.length >= 3 && !/^\d/.test(name)) out.push(name)
+    if (out.length === 2) break
+  }
+  return out
+}
+
+const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 4))
+const kmBetween = (a: number, b: number, c: number, d: number) => {
+  const r = Math.PI / 180, x = Math.sin(((c - a) * r) / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin(((d - b) * r) / 2) ** 2
+  return 12742 * Math.asin(Math.sqrt(x))
+}
+const pause = (ms: number) => new Promise(res => setTimeout(res, ms))
+async function lookUp(name: string, lat: number, lng: number, d: number) {
+  const box = [lng - d, lat + d, lng + d, lat - d].join(',')
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=in&bounded=1&viewbox=${box}&q=${encodeURIComponent(name)}`)
+  if (!res.ok) throw new Error('lookup')
+  return ((await res.json()) as { lat: string; lon: string }[]).map(p => kmBetween(lat, lng, Number(p.lat), Number(p.lon)))
+}
+
+/**
+  Whether a name the screenshot shows is at the ride's point: the ride's own place name shares it (two words, or the
+  whole of a one-word name such as "Home"), or the map finds it within about 2 km (near). Found only farther off,
+  within 60 km and nowhere near, it is another place (far, with its km); not found at all, unknown.
+*/
+export async function nameNear(name: string, ownName: string | null | undefined, lat: number, lng: number): Promise<{ at: 'near' | 'far' | 'unknown'; km?: number }> {
+  const read = words(name), own = words(ownName ?? '')
+  const shared = [...read].filter(w => own.has(w)).length
+  if (shared >= 2 || (read.size === 1 && shared === 1)) return { at: 'near' }
+  try {
+    if ((await lookUp(name, lat, lng, 0.02)).some(k => k <= 2.5)) return { at: 'near' }
+    await pause(1100)
+    const far = await lookUp(name, lat, lng, 0.5)
+    // A name of two words or more, every place of that name 5 km off or more: another place.
+    if (far.length && read.size >= 2 && Math.min(...far) >= 5) return { at: 'far', km: Math.round(Math.min(...far)) }
+  } catch { /* the map not reached: left to the approver */ }
+  return { at: 'unknown' }
+}
+
 async function readText(file: Blob): Promise<string> {
   const { createWorker } = await import('tesseract.js')
   const worker = await createWorker('eng')
@@ -116,12 +163,36 @@ async function readText(file: Blob): Promise<string> {
 }
 
 /** Into the claim's folder of bills, read, then recorded; one a ride, a new one taking the old one's place. */
-export async function addRouteShot(claimId: string, ride: Pts & { id: string }, file: File, claimed: number | null): Promise<number | null> {
+export async function addRouteShot(claimId: string, ride: Pts & { id: string; from_name?: string | null; to_name?: string | null }, file: File, claimed: number | null): Promise<number | null> {
   const hash = await sha256(file)
   const text = await readText(file).catch(() => '')
-  const kms = kmFigures(text), km = shotKm(text, kms, claimed), places = placesOn(text, ride)
-  if (places === 'unread') throw new Error("From and To on this screenshot are not the ride's. Press Google Maps under the ride and don't change From or To.")
-  if (places === 'partial' || places === 'edited') throw new Error("From or To on this screenshot is not the ride's")
+  const kms = kmFigures(text), km = shotKm(text, kms, claimed)
+  let places = placesOn(text, ride)
+  if (places === 'edited') throw new Error("From or To on this screenshot is not the ride's")
+  if (showsYourLocation(text)) throw new Error('From or To on this screenshot is "Your location". Press Google Maps under the ride and don\'t change From or To.')
+  // The names Google shows in place of the ride's points, each looked for near its point.
+  let readFrom: string | null = null, readTo: string | null = null
+  if (places !== 'match') {
+    const names = namesOn(text)
+    const pts = [...text.replace(/[Oo](?=\d)/g, '0').matchAll(/(-?\d{1,2}\.\d{3,})\s*[,，]\s*(-?\d{1,3}\.\d{3,})/g)]
+    const fromIsNumber = pts.some(m => near(Number(m[1]), ride.from_lat, 0.002) && near(Number(m[2]), ride.from_lng, 0.002))
+    const toIsNumber = pts.some(m => near(Number(m[1]), ride.to_lat, 0.002) && near(Number(m[2]), ride.to_lng, 0.002))
+    if (places === 'partial') { if (fromIsNumber) readTo = names[0] ?? null; else if (toIsNumber) readFrom = names[0] ?? null }
+    else { readFrom = names[0] ?? null; readTo = names[1] ?? null }
+    const sides = [
+      { label: 'From', name: readFrom, own: ride.from_name, lat: ride.from_lat, lng: ride.from_lng, num: fromIsNumber },
+      { label: 'To', name: readTo, own: ride.to_name, lat: ride.to_lat, lng: ride.to_lng, num: toIsNumber },
+    ]
+    let sure = true
+    for (const sd of sides) {
+      if (sd.num) continue
+      if (!sd.name || sd.lat == null || sd.lng == null) { sure = false; continue }
+      const at = await nameNear(sd.name, sd.own, sd.lat, sd.lng)
+      if (at.at === 'far') throw new Error(`${sd.label} on this screenshot, ${sd.name}, is ${at.km} km from the ride's ${sd.label}. Press Google Maps under the ride and don't change From or To.`)
+      if (at.at !== 'near') sure = false
+    }
+    places = sure ? 'named' : 'unread'
+  }
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/route-${newId()}.${ext}`
   const { error: up } = await supabase.storage.from('te-bills').upload(path, file, { contentType: file.type || 'image/jpeg' })
@@ -129,6 +200,7 @@ export async function addRouteShot(claimId: string, ride: Pts & { id: string }, 
   const { data: old, error } = await supabase.rpc('te_route_shot_add', {
     p_claim: claimId, p_ride: ride.id, p_path: path, p_sha256: hash, p_kms: kms, p_km: km, p_places: places,
     p_from_lat: ride.from_lat, p_from_lng: ride.from_lng, p_to_lat: ride.to_lat, p_to_lng: ride.to_lng,
+    p_read_from: readFrom, p_read_to: readTo,
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
   if (old) await supabase.storage.from('te-bills').remove([old as string])
