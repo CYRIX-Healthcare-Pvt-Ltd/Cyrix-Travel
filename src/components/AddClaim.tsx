@@ -86,12 +86,13 @@ export default function AddClaim() {
             {late?.pct ? <p className="text-sm text-amber-800">{monthName(late.month)} is late: {late.pct}% comes off that month's claim.</p> : null}
             {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
             {openDay && pickDay > openDay && !claimedIn ? (
+              // Continue first, End beside it, as Visit of <day> | End <day> on the Photo tab (the user, 12 Nov: "swap buttons").
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" className="h-11 rounded-xl border border-orange-300 bg-orange-50 px-3 text-sm font-semibold text-orange-800 hover:bg-orange-100" disabled={busy} onClick={() => setEnding(true)}>
-                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Sunset className="h-4 w-4" /> End {shortDay(openDay)}</span>
-                </button>
                 <button type="button" className="h-11 rounded-xl bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-700" disabled={busy} onClick={() => void add(openDay)}>
                   <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">{busy ? <Spinner className="h-4 w-4" /> : <Moon className="h-4 w-4" />} Continue {shortDay(openDay)}</span>
+                </button>
+                <button type="button" className="h-11 rounded-xl border border-orange-300 bg-orange-50 px-3 text-sm font-semibold text-orange-800 hover:bg-orange-100" disabled={busy} onClick={() => setEnding(true)}>
+                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Sunset className="h-4 w-4" /> End {shortDay(openDay)}</span>
                 </button>
               </div>
             ) : (
