@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lastGoing, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
-import { HOME_M, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
+import { HOME_M, endedNextMorning, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
 import { StartConfirm } from '@/components/StartDay'
 import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
@@ -327,7 +327,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     and that To is not changed here; a ride added after it goes before it.
   */
   const dayEnd = data.day_ends?.find(s => s.day === d.day) ?? null
-  const endPlace: Place | null = dayEnd ? (startName(dayEnd) === 'Home' && home ? home : { name: startName(dayEnd), lat: dayEnd.lat, lng: dayEnd.lng }) : null
+  // Ended the next morning (te_0150): the last ride is the day's end; how far the phone was is only an observation.
+  const endPlace: Place | null = dayEnd && !endedNextMorning(dayEnd) ? (startName(dayEnd) === 'Home' && home ? home : { name: startName(dayEnd), lat: dayEnd.lat, lng: dayEnd.lng }) : null
   const lastRide = d.rides[d.rides.length - 1]
   const endRideId = endPlace && lastRide?.to_lat != null && lastRide.to_name === endPlace.name && distanceKm(endPlace, { lat: lastRide.to_lat, lng: lastRide.to_lng! }) <= 0.05 ? lastRide.id : null
   useEffect(() => {
@@ -630,6 +631,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (!x.amount) { blockers.push({ text: `Type the amount of the ${x.category.toLowerCase()} expense`, to }); continue }
     if (needsBill('expense', x, over) && !billed.has(x.id)) blockers.push({ text: `Attach the bill for ${x.category} · ${money(x.amount)}`, to })
   }
+  // An empty day is not saved: a ride, an expense, a room stay or a DA (the user, 12 Nov: "atleast any other expense should be there").
+  if (d.day && !d.rides.length && !d.expenses.length && !d.hotel && !d.room_by && (!d.da_kind || d.da_kind === 'none'))
+    blockers.push({ text: 'Add a ride or an expense', to: 'ride-add' })
   const goTo = (id: string) => {
     const el = document.getElementById(id)
     if (!el) return
@@ -946,7 +950,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   </div>
                 )
               })}
-              <button type="button" className="ride-add btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
+              <button type="button" id="ride-add" className="ride-add btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
                 const miss = !last ? null : last.to_lat == null ? 'to' : !last.purpose ? 'purpose' : null
                 if (last && miss) {

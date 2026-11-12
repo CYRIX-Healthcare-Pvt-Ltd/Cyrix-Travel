@@ -9,7 +9,7 @@ import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
-import { HOME_M, startName, stayMinutes, stayText } from '@/lib/dayStart'
+import { HOME_M, endedNextMorning, startName, stayMinutes, stayText } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
 import { routeShotsOn, shotBand, shotFits } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
@@ -770,6 +770,8 @@ export const OBS = {
   // Red from 10 Nov (te_0147; the user, 10 Nov: "add the red mark only"); days before it stay to check.
   noendred: { title: 'Day not ended in the app', level: 'approve', icon: Sunset, group: 'start' },
   endfar:   { title: 'Day ended away from home', level: 'check', icon: Sunset, group: 'start' },
+  // Ended the next morning far from the day's last ride (te_0150; the user, 12 Nov: "just observation").
+  endnext:  { title: 'Ended next morning, away from last ride', level: 'check', icon: Sunset, group: 'start' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
   typed:    { title: 'Bill amount typed in',     level: 'check',   icon: PencilLine, group: 'bills' },
@@ -1005,7 +1007,10 @@ export function claimObservations(data: ClaimData): Obs[] {
     const managers = ['draft', 'with_manager', 'recalled'].includes(data.claim.status)
     if (managers && lastR && data.day_end_from && d.day >= data.day_end_from && !en && d.day < new Date().toLocaleDateString('en-CA'))
       items.push({ kind: d.day >= '2026-11-10' ? 'noendred' : 'noend', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)}` })
-    if (en && en.home_m != null && en.home_m > HOME_M)
+    const morning = !!en && endedNextMorning(en)
+    if (en && morning && lastR?.to_lat != null && distanceKm(en, { lat: lastR.to_lat, lng: lastR.to_lng! }) * 1000 > HOME_M)
+      items.push({ kind: 'endnext', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)} · End pressed ${new Date(en.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })} ${clockOf({ day: d.day, shot_at: en.at })} at ${short(startName(en))}, ${km(distanceKm(en, { lat: lastR.to_lat, lng: lastR.to_lng! }))} away` })
+    if (en && !morning && en.home_m != null && en.home_m > HOME_M)
       items.push({ kind: 'endfar', day, to: lastR?.id, detail: `${short(startName(en))} at ${clockOf({ day: d.day, shot_at: en.at })} · ${km(en.home_m / 1000)} from home${d.hotel || d.room_by ? ' · a room stay that night' : ''}` })
     // Photos of the day's trip taken after its midnight (te_0108; the user, 4 Nov: "in observation also it should say late night work").
     const night = (data.visit_photos ?? []).filter(p => p.day === d.day && nightOf(p))

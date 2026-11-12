@@ -29,6 +29,22 @@ export const endPreview = (() => {
     return sessionStorage.getItem('end-preview') === '1'
   } catch { return false }
 })()
+export const openPreview = (() => {
+  if (!import.meta.env.DEV) return false
+  try {
+    if (new URLSearchParams(window.location.search).has('open-preview')) sessionStorage.setItem('open-preview', '1')
+    return sessionStorage.getItem('open-preview') === '1'
+  } catch { return false }
+})()
+/*
+  Ended the next morning (te_0150; the user, 12 Nov): pressed at 5 am or later on a later day. The claim then keeps the
+  day's last ride as its end and only says how far the phone was from it.
+*/
+export const endedNextMorning = (e: { day?: string; at: string }) => {
+  if (!e.day) return false
+  const ist = new Date(new Date(e.at).getTime() + 330 * 60_000).toISOString()
+  return ist.slice(0, 10) > e.day && Number(ist.slice(11, 13)) >= 5
+}
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toLocaleDateString('en-CA') }
 
 export const useMyDay = () => useQuery({
@@ -37,8 +53,10 @@ export const useMyDay = () => useQuery({
   queryFn: async () => {
     const { data, error } = await supabase.rpc('te_my_day')
     if (error) throw new Error(friendlyError(error))
-    const day = data as { required: boolean; start: DayStart | null; end?: DayEnd | null; late_day?: string | null }
+    const day = data as { required: boolean; start: DayStart | null; end?: DayEnd | null; late_day?: string | null; open_day?: string | null }
     if (latePreview) return { ...day, required: true, start: null, end: null, late_day: yesterday() }
+    // ?open-preview: the day before worked and not ended, to see End <day> in place of Start my day (te_0150).
+    if (openPreview) return { ...day, required: true, start: null, end: null, late_day: yesterday(), open_day: yesterday() }
     // ?end-preview: today started at a sample spot and not ended, to see End my day.
     if (endPreview) return { ...day, required: true, start: { at: new Date().toISOString(), lat: 9.9667, lng: 76.3186, place: 'Vyttila', home_m: 0 }, end: null, late_day: null }
     return day

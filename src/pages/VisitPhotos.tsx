@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Camera, CloudUpload, LayoutGrid, MapPin, Moon, Trash2, X } from 'lucide-react'
 import VisitCamera from '@/components/VisitCamera'
 import { EndDayButton, StartArt, StartDayButton, startPreview, startTitle, useMyEnds, useMyStarts } from '@/components/StartDay'
-import { shortDay, startName, useMyDay, type DayStart } from '@/lib/dayStart'
+import { openPreview, shortDay, startName, useMyDay, type DayStart } from '@/lib/dayStart'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader } from '@/components/ui'
 import { useAuth } from '@/contexts/AuthContext'
@@ -43,10 +43,13 @@ export default function VisitPhotos() {
   const { data: ends } = useMyEnds(from, to)
   const [tried, setTried] = useState<DayStart | null>(null)
   const starts = [...(savedStarts ?? []), ...(tried && !(savedStarts ?? []).some(s => s.day === tried.day) ? [tried] : [])]
-  const mustStart = (startPreview || !!myDay?.required) && !starts.some(s => s.day === today) && !myDay?.start
+  const mustStart = (!!myDay?.open_day && openPreview) || ((startPreview || !!myDay?.required) && !starts.some(s => s.day === today) && !myDay?.start)
   // false, true (today), or the day before for a visit of its trip after midnight (te_0108).
   const [camera, setCamera] = useState<boolean | string>(false)
   const lateDay = mustStart ? myDay?.late_day ?? null : null
+  // The last day worked, not ended: ended before Start my day shows (te_0150; the user, 12 Nov: "dont show start my day if not ended 11 nov").
+  const openDay = mustStart ? myDay?.open_day ?? null : null
+  const tripDay = lateDay ?? openDay
   // Today started and not ended: End my day (te_0109). Ended: no more photos today.
   const ended = !!myDay?.end || (ends ?? []).some(e => e.day === today)
   const [note, setNote] = useState<{ kind: 'success' | 'info' | 'error'; text: string } | null>(null)
@@ -84,18 +87,20 @@ export default function VisitPhotos() {
     <div className="space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Camera className="h-5 w-5 text-rose-600" /> Visit photos</h1>
       {/* After midnight, the day before's trip, if not ended: a visit of it, or its end (the user, 4 Nov). */}
-      {lateDay && (
+      {tripDay && (
         <div className="rounded-2xl bg-indigo-50 p-2 ring-1 ring-indigo-200 sm:inline-block">
-          <p className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-wide text-indigo-800">{shortDay(lateDay)} trip</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" className="h-12 rounded-xl bg-indigo-600 px-3 text-base font-semibold text-white shadow-sm hover:bg-indigo-700" onClick={() => { setNote(null); setCamera(lateDay) }}>
-              <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Moon className="h-5 w-5" /> Visit of {shortDay(lateDay)}</span>
-            </button>
-            <EndDayButton day={lateDay} />
+          <p className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-wide text-indigo-800">{shortDay(tripDay)} trip</p>
+          <div className={lateDay === tripDay ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
+            {lateDay === tripDay && (
+              <button type="button" className="h-12 rounded-xl bg-indigo-600 px-3 text-base font-semibold text-white shadow-sm hover:bg-indigo-700" onClick={() => { setNote(null); setCamera(tripDay) }}>
+                <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Moon className="h-5 w-5" /> Visit of {shortDay(tripDay)}</span>
+              </button>
+            )}
+            <EndDayButton day={tripDay} />
           </div>
         </div>
       )}
-      {mustStart ? <StartDayButton onStarted={s => setTried(s)} /> : !ended && (
+      {mustStart ? !openDay && <StartDayButton onStarted={s => setTried(s)} /> : !ended && (
         <div className="flex flex-col gap-2 sm:flex-row">
           <button type="button" className="btn-primary btn-go h-12 w-full text-base sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(true) }}>
             <Camera className="h-5 w-5" /> Take visit photo
