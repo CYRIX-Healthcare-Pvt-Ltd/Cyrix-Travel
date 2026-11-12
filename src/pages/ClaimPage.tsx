@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users } from 'lucide-react'
+import { type LucideIcon, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users, ChevronRight } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
@@ -320,7 +320,18 @@ export default function ClaimPage() {
         </div>
       )}
       {msg && <Alert kind="success">{msg}</Alert>}
-      {fail && <Alert kind="error">{fail}</Alert>}
+      {/* "End my day for 12 Nov first": one press to the Photo tab's End button (the user, 12 Nov: "add onclick that
+          error so it goes to photo tab end button"). */}
+      {fail && /^End my day for .+ first$/.test(fail) ? (
+        <button type="button" onClick={() => nav('/photos?end=1')}
+          className="btn-lift flex w-full items-center gap-3 rounded-xl border-2 border-cyrixRed-300 bg-cyrixRed-50 px-4 py-3 text-left hover:bg-cyrixRed-100">
+          <TriangleAlert className="h-5 w-5 shrink-0 text-cyrixRed-700" />
+          <span className="min-w-0 flex-1 text-sm font-medium text-cyrixRed-800">{fail}</span>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-cyrixRed-600 px-3 py-1.5 text-sm font-semibold text-white">
+            End now <ChevronRight className="h-4 w-4" />
+          </span>
+        </button>
+      ) : fail && <Alert kind="error">{fail}</Alert>}
       {(() => {
         // Gone as each is attached.
         const billedNow = new Set(data.bills.map(b => b.owner_id))

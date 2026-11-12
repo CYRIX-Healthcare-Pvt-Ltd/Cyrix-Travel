@@ -171,7 +171,7 @@ export function EndDayButton({ day }: { day?: string | null }) {
   }
   return (
     <>
-      <button type="button" className="h-12 w-full rounded-xl border border-orange-300 bg-orange-50 px-4 text-base font-semibold text-orange-800 hover:bg-orange-100 sm:w-auto sm:px-6" onClick={() => setOpen(true)}>
+      <button type="button" data-end-day className="h-12 w-full rounded-xl border border-orange-300 bg-orange-50 px-4 text-base font-semibold text-orange-800 hover:bg-orange-100 sm:w-auto sm:px-6" onClick={() => setOpen(true)}>
         <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Sunset className="h-5 w-5" /> {day ? `End ${shortDay(day)}` : 'End my day'}</span>
       </button>
       {open && <StartConfirm end day={day} onStarted={said} onClose={() => setOpen(false)} />}

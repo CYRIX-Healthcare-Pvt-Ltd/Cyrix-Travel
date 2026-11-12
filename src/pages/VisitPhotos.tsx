@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Camera, CloudUpload, LayoutGrid, MapPin, Moon, Trash2, X } from 'lucide-react'
 import VisitCamera from '@/components/VisitCamera'
@@ -85,6 +85,7 @@ export default function VisitPhotos() {
 
   return (
     <div className="space-y-4">
+      <EndDayCue />
       <h1 className="flex items-center gap-2 text-xl font-semibold text-ink-900"><Camera className="h-5 w-5 text-rose-600" /> Visit photos</h1>
       {/* After midnight, the day before's trip, if not ended: a visit of it, or its end (the user, 4 Nov). */}
       {tripDay && (
@@ -218,4 +219,31 @@ export default function VisitPhotos() {
       {camera && <VisitCamera forDay={typeof camera === 'string' ? camera : null} onClose={() => setCamera(false)} onDone={(text, q) => { setCamera(false); setNote({ kind: q ? 'info' : 'success', text }); void refresh(); if (q && employee) void queued(employee.id).then(l => setWaiting(l.length)) }} />}
     </div>
   )
+}
+
+/**
+ * Came from a claim's "End my day for 12 Nov first" (?end=1): the End button scrolled into view and pulsed twice
+ * (the user, 12 Nov). The person still presses it and confirms.
+ */
+function EndDayCue() {
+  const [params, setParams] = useSearchParams()
+  const want = params.get('end') === '1'
+  useEffect(() => {
+    if (!want) return
+    let tries = 0
+    const t = setInterval(() => {
+      const el = document.querySelector<HTMLElement>('[data-end-day]')
+      if (!el && ++tries < 20) return
+      clearInterval(t)
+      setParams(p => { p.delete('end'); return p }, { replace: true })
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.animate(
+        [{ boxShadow: '0 0 0 0 rgba(249,115,22,0.7)' }, { boxShadow: '0 0 0 12px rgba(249,115,22,0)' }],
+        { duration: 900, iterations: 2, delay: 300 },
+      )
+    }, 150)
+    return () => clearInterval(t)
+  }, [want, setParams])
+  return null
 }
