@@ -9,7 +9,7 @@ import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
-import { HOME_M, endedNextMorning, startName, stayMinutes, stayText } from '@/lib/dayStart'
+import { HOME_M, endedNextMorning, startName, stayMinutes, stayText, shortDay } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
 import { routeShotsOn, shotBand, shotFits } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
@@ -71,6 +71,8 @@ export default function ClaimPage() {
   }
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
+  /** A send that was refused, said in the Send bar beside the button (the user, 12 Nov: "it should be near submit button"). */
+  const [sendFail, setSendFail] = useState<string | null>(null)
   // An approver changing one figure (te_0027).
   const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
@@ -133,9 +135,26 @@ export default function ClaimPage() {
   const need = c.mine && c.can_edit ? missingBills(data, over) : []
   /** A test account's claim: its AP tickets come from BEMP (the user, 10 Nov). */
   const bemp = TICKET_TEST.has((c.ecode ?? '').toUpperCase())
+  // "7th Aug-26 claim", "7th–9th Aug-26 claim": the days, then the month once (a claim is one month).
+  // A draft with no saved day yet: the date it was started with (te_0069; the user, 24 Oct).
+  const claimDays = (() => {
+    const n = (iso: string) => Number(iso.slice(8, 10)), d0 = data.days[0]?.day ?? c.picked_day, d1 = data.days[data.days.length - 1]?.day ?? c.picked_day
+    return d0 ? (d0 === d1 ? `${ordinal(n(d0))} ` : `${ordinal(n(d0))}–${ordinal(n(d1!))} `) : ''
+  })()
   const send = async () => {
-    if (need.length) { setMsg(null); setFail(null); showBill(need[0].id); return }
-    if (!(await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send', icon: Send, go: true }))) return
+    if (need.length) { setMsg(null); setFail(null); setSendFail(null); showBill(need[0].id); return }
+    // A day started or photographed and not ended is said in the Send bar before the confirm, as the server would refuse
+    // it after (te_0150; the user, 12 Nov: "if not ended that error should show before this pop up").
+    const from = data.end_first_from
+    const open = from ? data.days.map(d => d.day).filter(day => day >= from
+      && ((data.day_starts ?? []).some(s => s.day === day) || (data.visit_photos ?? []).some(v => v.day === day))
+      && !(data.day_ends ?? []).some(e => e.day === day)) : []
+    if (open.length) {
+      setMsg(null); setFail(null)
+      setSendFail(`End my day for ${[...new Set(open)].sort().map(shortDay).join(', ')} first`)
+      return
+    }
+    if (!(await ask.confirm({ title: c.number ? `Send ${c.number} · ${claimDays}${monthName(c.month)}?` : `Send the ${claimDays}${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send', icon: Send, go: true }))) return
     // The BEMP service reports saved with the claim first (test accounts; the user, 10 Nov).
     if (bemp) await copyTicketReports(c.id, data.days.flatMap(d => d.tickets), data.bills)
     void run('te_submit', { p_claim: c.id }, 'Sent.')
@@ -184,7 +203,7 @@ export default function ClaimPage() {
   const tail = excel ? <div className="flex">{excel}</div> : null
 
   const run = async (fn: string, args: Record<string, unknown>, done: string) => {
-    setMsg(null); setFail(null)
+    setMsg(null); setFail(null); setSendFail(null)
     try {
       const r = await act.mutateAsync({ fn, args })
       const text = typeof r === 'string' && fn === 'te_submit' ? `Sent to your manager as ${r}.` : done
@@ -192,7 +211,7 @@ export default function ClaimPage() {
       if (fn === 'te_submit') nav('/claims')
       void ask.alert(fn === 'te_submit' ? 'Claim sent' : 'Done', text, 'success')
     }
-    catch (e) { setFail((e as Error).message) }
+    catch (e) { if (fn === 'te_submit') setSendFail((e as Error).message); else setFail((e as Error).message) }
   }
   const decide = async (approve: boolean) => {
     setPanel(null)
@@ -225,13 +244,7 @@ export default function ClaimPage() {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {/* The days it covers in its name (the user, 22 Oct: "show as 7 Aug · Aug-26 claim"). */}
-            <h1 className="text-lg font-semibold text-ink-900">{(() => {
-              // "7th Aug-26 claim", "7th–9th Aug-26 claim": the days, then the month once (a claim is one month).
-              // A draft with no saved day yet: the date it was started with (te_0069; the user, 24 Oct).
-              const n = (iso: string) => Number(iso.slice(8, 10)), d0 = data.days[0]?.day ?? c.picked_day, d1 = data.days[data.days.length - 1]?.day ?? c.picked_day
-              const days = d0 ? (d0 === d1 ? `${ordinal(n(d0))} ` : `${ordinal(n(d0))}–${ordinal(n(d1!))} `) : ''
-              return c.number ? `${c.number} · ${days}${monthName(c.month)}` : `${days}${monthName(c.month)} claim`
-            })()}</h1>
+            <h1 className="text-lg font-semibold text-ink-900">{c.number ? `${c.number} · ${claimDays}${monthName(c.month)}` : `${claimDays}${monthName(c.month)} claim`}</h1>
             <span className={`badge ${status.tone}`}>{status.label}</span>
             {/* On deputation (te_0075; the user, 26 Oct: "for their each claim a tag should show deputation"). */}
             {(() => {
@@ -320,18 +333,7 @@ export default function ClaimPage() {
         </div>
       )}
       {msg && <Alert kind="success">{msg}</Alert>}
-      {/* "End my day for 12 Nov first": one press to the Photo tab's End button (the user, 12 Nov: "add onclick that
-          error so it goes to photo tab end button"). */}
-      {fail && /^End my day for .+ first$/.test(fail) ? (
-        <button type="button" onClick={() => nav('/photos?end=1')}
-          className="btn-lift flex w-full items-center gap-3 rounded-xl border-2 border-cyrixRed-300 bg-cyrixRed-50 px-4 py-3 text-left hover:bg-cyrixRed-100">
-          <TriangleAlert className="h-5 w-5 shrink-0 text-cyrixRed-700" />
-          <span className="min-w-0 flex-1 text-sm font-medium text-cyrixRed-800">{fail}</span>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-cyrixRed-600 px-3 py-1.5 text-sm font-semibold text-white">
-            End now <ChevronRight className="h-4 w-4" />
-          </span>
-        </button>
-      ) : fail && <Alert kind="error">{fail}</Alert>}
+      {fail && <Alert kind="error">{fail}</Alert>}
       {(() => {
         // Gone as each is attached.
         const billedNow = new Set(data.bills.map(b => b.owner_id))
@@ -375,7 +377,24 @@ export default function ClaimPage() {
         "on the claim page show one clear Send to manager bar"); the bills still needed said on it.
       */}
       {c.can_edit && data.days.length > 0 && (
-        <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-teal-300 bg-teal-50 px-4 py-3 shadow-lg lg:bottom-4">
+        <div className="sticky bottom-16 z-10 rounded-2xl border border-teal-300 bg-teal-50 px-4 py-3 shadow-lg lg:bottom-4">
+          {/* Why it did not go, above the button pressed. "End my day for 12 Nov first" is one press to the Photo
+              tab's End button (the user, 12 Nov). */}
+          {sendFail && (/^End my day for .+ first$/.test(sendFail) ? (
+            <button type="button" onClick={() => nav('/photos?end=1')}
+              className="mb-3 flex w-full items-center gap-2 rounded-xl border-2 border-cyrixRed-300 bg-cyrixRed-50 px-3 py-2 text-left hover:bg-cyrixRed-100">
+              <TriangleAlert className="h-4 w-4 shrink-0 text-cyrixRed-700" />
+              <span className="min-w-0 flex-1 text-sm font-medium text-cyrixRed-800">{sendFail}</span>
+              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-cyrixRed-600 px-2.5 py-1 text-xs font-semibold text-white">
+                End now <ChevronRight className="h-3.5 w-3.5" />
+              </span>
+            </button>
+          ) : (
+            <p className="mb-3 flex items-start gap-2 rounded-xl border border-cyrixRed-300 bg-cyrixRed-50 px-3 py-2 text-sm font-medium text-cyrixRed-800">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-cyrixRed-700" /> {sendFail}
+            </p>
+          ))}
+          <div className="flex items-center justify-between gap-3">
           <span className="min-w-0 leading-tight">
             <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Claim total</span>
             <span className="block text-2xl font-bold tabular-nums text-ink-900">{money(total)}</span>
@@ -386,6 +405,7 @@ export default function ClaimPage() {
           <button type="button" className="btn-primary btn-go h-11 shrink-0 px-5 text-base" disabled={act.isPending} onClick={() => void send()}>
             {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Send to manager
           </button>
+          </div>
         </div>
       )}
 
