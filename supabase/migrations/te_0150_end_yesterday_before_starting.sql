@@ -85,5 +85,5 @@ $q$;
 $q$);
 end $$;
 
--- Pushed 12 Nov: for everybody from 13 Nov (12 Nov and before never block a claim).
-update public.te_policy set value = to_jsonb('2026-11-13'::text) where key = 'end_first_from';
+-- Pushed 12 Nov: for everybody from 12 Nov (the user: "make changes to all"; 11 Nov and before never block a claim).
+update public.te_policy set value = to_jsonb('2026-11-12'::text) where key = 'end_first_from';
