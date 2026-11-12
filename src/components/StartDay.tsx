@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Sunrise, Sunset } from 'lucide-react'
 import Dialog from '@/components/Dialog'
+import { useAsk } from '@/components/Ask'
 import { Alert, Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { placeName, whereAmI, type Fix } from '@/lib/geo'
@@ -161,12 +162,19 @@ export function StartDayButton({ onStarted }: { onStarted?: (s: DayStart) => voi
 /** The drawn picture a day's start carries among the photos: sunrise over a road leaving home. */
 export function EndDayButton({ day }: { day?: string | null }) {
   const [open, setOpen] = useState(false)
+  const ask = useAsk()
+  // An earlier day ended: said, and today's Start my day is next (the user, 12 Nov).
+  const said = () => {
+    if (!day) return
+    const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10)
+    void ask.alert(`${shortDay(day)} ended`, `Start my day for ${shortDay(today)}`, 'success')
+  }
   return (
     <>
       <button type="button" className="h-12 w-full rounded-xl border border-orange-300 bg-orange-50 px-4 text-base font-semibold text-orange-800 hover:bg-orange-100 sm:w-auto sm:px-6" onClick={() => setOpen(true)}>
         <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><Sunset className="h-5 w-5" /> {day ? `End ${shortDay(day)}` : 'End my day'}</span>
       </button>
-      {open && <StartConfirm end day={day} onClose={() => setOpen(false)} />}
+      {open && <StartConfirm end day={day} onStarted={said} onClose={() => setOpen(false)} />}
     </>
   )
 }

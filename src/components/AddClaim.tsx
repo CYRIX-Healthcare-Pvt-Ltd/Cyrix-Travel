@@ -6,6 +6,7 @@ import MonthCalendar from '@/components/MonthCalendar'
 import { Spinner } from '@/components/ui'
 import { monthName, rpc, todayIso } from '@/lib/claims'
 import { StartConfirm } from '@/components/StartDay'
+import { useAsk } from '@/components/Ask'
 import { shortDay, useMyDay } from '@/lib/dayStart'
 
 /*
@@ -25,6 +26,7 @@ export default function AddClaim() {
   const [err, setErr] = useState<string | null>(null)
   // The last day worked, not ended (te_0150; the user, 12 Nov): orange; a later day offers End <day> or Continue <day>.
   const { data: myDay } = useMyDay()
+  const ask = useAsk()
   const openDay = myDay?.open_day ?? null
   const [ending, setEnding] = useState(false)
   // The dates already claimed, which a new claim cannot take (te_0060; the user, 23 Oct: one claim a day), and those
@@ -101,7 +103,11 @@ export default function AddClaim() {
                 <button type="button" className="btn-primary" disabled={!pickDay || pickDay > todayIso() || pickDay < minDay || !!claimedIn || busy} onClick={() => void add()}>{busy && <Spinner className="h-4 w-4" />} Continue</button>
               </div>
             )}
-            {ending && openDay && <StartConfirm end day={openDay} onClose={() => setEnding(false)} onStarted={() => void add(pickDay)} />}
+            {ending && openDay && <StartConfirm end day={openDay} onClose={() => setEnding(false)} onStarted={() => {
+              // Said, then the picked day opens (the user, 12 Nov: "a popup … that 11 nov ended, 12th is open").
+              const ended = openDay, next = pickDay
+              void ask.alert(`${shortDay(ended)} ended`, `${shortDay(next)} opens now`, 'success').then(() => add(next))
+            }} />}
           </div>
         </Dialog>
       )}
