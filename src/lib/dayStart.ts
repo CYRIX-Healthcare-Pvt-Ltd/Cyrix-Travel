@@ -40,6 +40,13 @@ export const openPreview = (() => {
   Ended the next morning (te_0150; the user, 12 Nov): pressed at 5 am or later on a later day. The claim then keeps the
   day's last ride as its end and only says how far the phone was from it.
 */
+/** Ending `day` now is ending it the next morning (te_0150): not after its midnight up to 5 am, when the trip may go on. */
+export const endingNextMorning = (day: string) => {
+  const ist = new Date(Date.now() + 330 * 60_000).toISOString()
+  const today = ist.slice(0, 10)
+  const y = new Date(today + 'T00:00:00Z'); y.setUTCDate(y.getUTCDate() - 1)
+  return day < today && !(day === y.toISOString().slice(0, 10) && Number(ist.slice(11, 13)) < 5)
+}
 export const endedNextMorning = (e: { day?: string; at: string }) => {
   if (!e.day) return false
   const ist = new Date(new Date(e.at).getTime() + 330 * 60_000).toISOString()
@@ -53,7 +60,7 @@ export const useMyDay = () => useQuery({
   queryFn: async () => {
     const { data, error } = await supabase.rpc('te_my_day')
     if (error) throw new Error(friendlyError(error))
-    const day = data as { required: boolean; start: DayStart | null; end?: DayEnd | null; late_day?: string | null; open_day?: string | null }
+    const day = data as { required: boolean; start: DayStart | null; end?: DayEnd | null; late_day?: string | null; open_day?: string | null; open_last?: string | null }
     if (latePreview) return { ...day, required: true, start: null, end: null, late_day: yesterday() }
     // ?open-preview: the day before worked and not ended, to see End <day> in place of Start my day (te_0150).
     if (openPreview) return { ...day, required: true, start: null, end: null, late_day: yesterday(), open_day: yesterday() }

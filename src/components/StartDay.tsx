@@ -6,7 +6,7 @@ import Dialog from '@/components/Dialog'
 import { Alert, Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { placeName, whereAmI, type Fix } from '@/lib/geo'
-import { endPreview, latePreview, shortDay, startName, type DayStart } from '@/lib/dayStart'
+import { endPreview, endingNextMorning, latePreview, openPreview, shortDay, startName, useMyDay, type DayStart } from '@/lib/dayStart'
 
 /*
   Start my day (te_0104; the user, 3 Nov: "instead of take visit photo, make it as start my day, so save that location
@@ -34,11 +34,11 @@ export const useMyStarts = (from: string, to: string) => useQuery({
 })
 
 // The local preview, with location off, starts at a sample spot (Vyttila).
-const findMe = () => whereAmI().catch(e => { if (startPreview || endPreview || latePreview) return { lat: 9.9667, lng: 76.3186, accuracy: 10 }; throw e })
+const findMe = () => whereAmI().catch(e => { if (startPreview || endPreview || latePreview || openPreview) return { lat: 9.9667, lng: 76.3186, accuracy: 10 }; throw e })
 
 /** Saves the spot as the day's start (te_0104) or end (te_0109), and says it. */
 async function saveStart(fix: Fix, place: string | null, end: boolean): Promise<DayStart> {
-  if (!(startPreview || endPreview || latePreview)) {
+  if (!(startPreview || endPreview || latePreview || openPreview)) {
     const { error } = await supabase.rpc(end ? 'te_end_day' : 'te_start_day', { p_lat: fix.lat, p_lng: fix.lng, p_accuracy: fix.accuracy, p_place: place })
     if (error) throw new Error(friendlyError(error))
   }
@@ -60,6 +60,11 @@ export function StartConfirm({ onStarted, onClose, end = false, day }: { onStart
   const [round, setRound] = useState(0)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The next morning (te_0150; the user, 12 Nov): the day ends at its last ride, so no map; the phone's place is kept
+  // only to compare with it, and the sheet does not say how far it is ("dont show here").
+  const morning = end && !!day && endingNextMorning(day)
+  const { data: myDay } = useMyDay()
+  const lastTo = morning ? myDay?.open_last ?? null : null
 
   useEffect(() => {
     let alive = true
@@ -74,7 +79,7 @@ export function StartConfirm({ onStarted, onClose, end = false, day }: { onStart
   }, [round])
 
   useEffect(() => {
-    if (!fix) return
+    if (!fix || morning) return
     let alive = true
     void (async () => {
       const L = (await import('leaflet')).default
@@ -108,22 +113,32 @@ export function StartConfirm({ onStarted, onClose, end = false, day }: { onStart
   return (
     <Dialog title={end ? (day ? `End ${shortDay(day)}` : 'End my day') : 'Start my day'} icon={end ? <Sunset className="h-5 w-5 text-orange-500" /> : <Sunrise className="h-5 w-5 text-amber-500" />} onClose={onClose}>
       <div className="space-y-3">
-        <div className="relative h-64 overflow-hidden rounded-xl border border-ink-200 bg-ink-100">
-          <div ref={box} className="absolute inset-0" />
-          {!fix && !err && <div className="absolute inset-0 grid place-items-center"><Spinner className="h-6 w-6" /></div>}
-        </div>
-        {fix && (
-          <p className="text-base font-semibold text-ink-900">{place ?? '…'} <span className="text-sm font-normal text-ink-500">± {Math.round(fix.accuracy)} m</span></p>
+        {morning ? (
+          lastTo && <p className="text-base text-ink-700">Last ride to <span className="font-semibold text-ink-900">{lastTo}</span></p>
+        ) : (
+          <>
+            <div className="relative h-64 overflow-hidden rounded-xl border border-ink-200 bg-ink-100">
+              <div ref={box} className="absolute inset-0" />
+              {!fix && !err && <div className="absolute inset-0 grid place-items-center"><Spinner className="h-6 w-6" /></div>}
+            </div>
+            {fix && (
+              <p className="text-base font-semibold text-ink-900">{place ?? '…'} <span className="text-sm font-normal text-ink-500">± {Math.round(fix.accuracy)} m</span></p>
+            )}
+          </>
         )}
         {tooRough ? <Alert kind="error">Location is not exact enough. Press Try again</Alert>
           : rough && <Alert kind="warning">Location is rough. Try again</Alert>}
         {err && <Alert kind="error">{err}</Alert>}
         <div className="flex gap-2">
-          <button type="button" className="btn-secondary h-12 flex-1 justify-center whitespace-nowrap" disabled={busy} onClick={() => setRound(r => r + 1)}>
-            <RefreshCw className="h-5 w-5" /> Try again
-          </button>
+          {morning && !tooRough && !err ? (
+            <button type="button" className="btn-secondary h-12 flex-1 justify-center whitespace-nowrap" disabled={busy} onClick={onClose}>Cancel</button>
+          ) : (
+            <button type="button" className="btn-secondary h-12 flex-1 justify-center whitespace-nowrap" disabled={busy} onClick={() => setRound(r => r + 1)}>
+              <RefreshCw className="h-5 w-5" /> Try again
+            </button>
+          )}
           <button type="button" className="btn-primary btn-go h-12 flex-[2] justify-center text-base" disabled={!fix || tooRough || busy} onClick={() => void start()}>
-            {busy ? <Spinner className="h-5 w-5" /> : end ? <Sunset className="h-5 w-5" /> : <Sunrise className="h-5 w-5" />} {end ? (day ? `End ${shortDay(day)} here` : 'End my day here') : 'Start my day here'}
+            {busy ? <Spinner className="h-5 w-5" /> : end ? <Sunset className="h-5 w-5" /> : <Sunrise className="h-5 w-5" />} {end ? (day ? (morning ? `End ${shortDay(day)}` : `End ${shortDay(day)} here`) : 'End my day here') : 'Start my day here'}
           </button>
         </div>
       </div>
