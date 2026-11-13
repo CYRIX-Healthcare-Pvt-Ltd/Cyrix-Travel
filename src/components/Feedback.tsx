@@ -14,7 +14,6 @@ import { newId } from '@/lib/claims'
   min", no AI). The 🎙️ in the top bar opens a sheet: press to record, press to stop, listen back, Send. A typed note
   is the other way. The page it was pressed on goes with it. Test accounts first, as every new Travel piece.
 */
-export const FEEDBACK_TEST = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
 const MAX = 60
 
 /** What this phone records in: Chrome and Android webm, iPhone mp4. */
@@ -26,9 +25,8 @@ function pickType() {
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
 export default function FeedbackButton() {
-  const { employee } = useAuth()
+  // Everybody with Travel since 13 Nov (the user: "enable feedback for everyone").
   const [open, setOpen] = useState(false)
-  if (!FEEDBACK_TEST.has((employee?.ecode ?? '').toUpperCase())) return null
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="btn-icon" aria-label="Feedback" title="Feedback">
