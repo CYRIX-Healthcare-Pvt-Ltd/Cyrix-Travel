@@ -101,7 +101,8 @@ export default function VisitPhotos() {
           </div>
         </div>
       )}
-      {mustStart ? !openDay && <StartDayButton onStarted={s => setTried(s)} /> : !ended && (
+      {/* Nothing until te_my_day has answered: a slow or failed answer showed the camera before Start my day (te_0156). */}
+      {!myDay ? null : mustStart ? !openDay && <StartDayButton onStarted={s => setTried(s)} /> : !ended && (
         <div className="flex flex-col gap-2 sm:flex-row">
           <button type="button" className="btn-primary btn-go h-12 w-full text-base sm:w-auto sm:px-6" onClick={() => { setNote(null); setCamera(true) }}>
             <Camera className="h-5 w-5" /> Take visit photo

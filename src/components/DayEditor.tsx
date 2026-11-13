@@ -314,7 +314,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   */
   const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
   const { data: myDay } = useMyDay()
-  const notStarted = !!myDay?.required && !myDay.start
+  // Until te_my_day answers, the day counts as not started, so no camera shows before Start my day (te_0156).
+  const notStarted = !myDay || (myDay.required && !myDay.start)
   const [starting, setStarting] = useState(false)
   // End my day from the last ride's To (te_0109): the ride whose To it fills.
   const [ending, setEnding] = useState<string | null>(null)
