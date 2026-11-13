@@ -136,7 +136,7 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
       }
       void qc.invalidateQueries({ queryKey: ['te_feedback_mine'] })
       onClose()
-      await ask.alert('Feedback sent ✅', `Thank you, ${employee.full_name.split(' ')[0]}. SW Admin will listen to it.`, 'success')
+      await ask.alert('Feedback sent ✅', `Thank you, ${employee.full_name.split(' ')[0]}. We will listen to it.`, 'success')
     } catch (e) {
       setErr((e as Error).message)
     } finally {
