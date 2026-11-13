@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import HomeGate from '@/components/HomeGate'
 import clsx from 'clsx'
 import Bell from '@/components/Bell'
+import FeedbackButton from '@/components/Feedback'
 import { BarChart3, Building2, Camera, ClipboardCheck, Grid2x2, IdCard, LogOut, Navigation, ReceiptText, Settings2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInbox } from '@/lib/claims'
@@ -84,6 +85,7 @@ export default function Shell() {
               <Avatar name={employee?.full_name} src={employee?.avatar} size="header" />
             </NavLink>
             <ThemeToggle />
+            <FeedbackButton />
             <Bell />
             <button onClick={handleSignOut} className="btn-icon" aria-label="Sign out" title="Sign out">
               <LogOut className="h-4.5 w-4.5 text-cyrixRed-600" />
