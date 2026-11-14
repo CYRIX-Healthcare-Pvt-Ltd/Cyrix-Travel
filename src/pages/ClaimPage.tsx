@@ -14,7 +14,7 @@ import RouteMap from '@/components/RouteMap'
 import { routeShotsOn, shotBand, shotFits } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
-import TicketLookup, { TICKET_TEST, AP_TICKET, copyTicketReports } from '@/components/TicketLookup'
+import TicketLookup, { TICKET_TEST, BEMP_TICKET, copyTicketReports } from '@/components/TicketLookup'
 import History from '@/components/History'
 import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
@@ -490,7 +490,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const c = data.claim, rule = data.rule
   const ask = useAsk()
   /** An AP ticket on a test account's claim comes from BEMP (the user, 10 Nov). */
-  const fromBemp = (no: string | null | undefined) => TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && AP_TICKET.test((no ?? '').trim())
+  const fromBemp = (no: string | null | undefined) => TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && BEMP_TICKET.test((no ?? '').trim())
   const outOfState = d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const dep = depOn(data.deputations, d.day)

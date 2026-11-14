@@ -7,13 +7,27 @@ import { uploadReport, type Bill } from '@/lib/claims'
 
 /*
   A service call's ticket looked up in Cyrix BEMP (KPI function bemp-ticket; the user, 10 Nov: "if we type ticket id
-  there, automatically the service report should fetch"): once an AP ticket ID is typed, its hospital, equipment and
+  there, automatically the service report should fetch"): once an AP ticket ID, or a PMPT job of Care360's FieldPro (14 Nov), is typed, its hospital, equipment and
   resolved time show under it with its service report as a picture that opens in a pop-up. It replaces the Service
   report upload for these tickets (the user, 10 Nov: "now we dont need option for sr upload button"). AP only for
   now; the test accounts only.
 */
 export const TICKET_TEST = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
-export const AP_TICKET = /^AP\d{5,}$/i
+/** A ticket looked up by itself: Cyrix BEMP's AP tickets (AP143084) and FieldPro's PMPT jobs (PMPT_000023). */
+export const BEMP_TICKET = /^(AP\d{5,}|PMPT_\d{6,})$/i
+
+/** Care360's rides are private BEMMP (the user, 14 Nov: "this will be the cost centre"). */
+export const isCare360 = (project: string | null | undefined) => /^care\s*360$/i.test((project ?? '').trim())
+
+/**
+ * On a Care360 ride the engineer types only the number and the PMPT ID is made of it (the user, 14 Nov: "if eng type
+ * 000023 we should add auto pmpt"): 23, 000023, pmpt 23 and PMPT_000023 all become PMPT_000023. Anything else stays.
+ */
+export function pmptOf(v: string | null | undefined): string {
+  const t = (v ?? '').trim()
+  const m = t.match(/^(?:pmpt[\s_-]*)?(\d{1,8})$/i)
+  return m ? `PMPT_${m[1].padStart(6, '0')}` : t
+}
 
 interface Found {
   id: string; status: string | null; hospital: string | null; city: string | null; equipment: string | null; model: string | null
@@ -43,7 +57,7 @@ export default function TicketLookup({ ticket, day, claimId }: {
   const asked = useRef('')
 
   useEffect(() => {
-    if (!AP_TICKET.test(id)) { asked.current = ''; return } // cleared or changed: the same ticket typed again is asked again
+    if (!BEMP_TICKET.test(id)) { asked.current = ''; return } // cleared or changed: the same ticket typed again is asked again
     if (asked.current === id) return
     const t = setTimeout(async () => {
       asked.current = id
@@ -51,7 +65,7 @@ export default function TicketLookup({ ticket, day, claimId }: {
       try {
         const { data, error: fe } = await supabase.functions.invoke('bemp-ticket', { body: { ticket: id, claim: claimId } })
         if (fe) {
-          let msg = 'BEMP could not be reached'
+          let msg = 'The ticket could not be looked up'
           try { msg = (await (fe as { context?: Response }).context?.json())?.error ?? msg } catch { /* keep the plain one */ }
           throw new Error(msg)
         }
@@ -69,8 +83,8 @@ export default function TicketLookup({ ticket, day, claimId }: {
     return () => clearTimeout(t)
   }, [id])
 
-  if (!AP_TICKET.test(id)) return null
-  if (busy) return <p className="mt-1.5 flex items-center gap-1.5 pl-6 text-xs text-sky-700"><Spinner className="h-3.5 w-3.5" />Finding {id} in BEMP…</p>
+  if (!BEMP_TICKET.test(id)) return null
+  if (busy) return <p className="mt-1.5 flex items-center gap-1.5 pl-6 text-xs text-sky-700"><Spinner className="h-3.5 w-3.5" />Finding {id}…</p>
   if (error) return <p className="mt-1.5 pl-6 text-xs font-semibold text-red-700">{error}</p>
   if (!found) return null
   const loggedDay = isoOf(found.logged), resolvedDay = isoOf(found.resolved)
@@ -87,7 +101,7 @@ export default function TicketLookup({ ticket, day, claimId }: {
         {found.resolved && ` · ${when(found.resolved)}`}
         {found.closure === 'otp' && ' · Closed by OTP'}
       </p>
-      {found.engineer && <p className="mt-0.5">{found.engineer}</p>}
+      {found.engineer && <p className="mt-0.5">Assigned · {found.engineer}</p>}
       {before && <p className="mt-0.5 font-semibold text-amber-800">Logged on {dayText(loggedDay!)} — this day is {dayText(day!)}</p>}
       {after && <p className="mt-0.5 font-semibold text-amber-800">Resolved on {dayText(resolvedDay!)} — this day is {dayText(day!)}</p>}
       </div>
@@ -112,7 +126,7 @@ export async function copyTicketReports(claimId: string, tickets: Array<{ id: st
   const missed: string[] = []
   for (const t of tickets) {
     const id = (t.ticket_no ?? '').trim().toUpperCase()
-    if (!AP_TICKET.test(id) || bills.some(b => b.owner_id === t.id && b.owner_kind === 'report')) continue
+    if (!BEMP_TICKET.test(id) || bills.some(b => b.owner_id === t.id && b.owner_kind === 'report')) continue
     try {
       const { data, error } = await supabase.functions.invoke('bemp-ticket', { body: { ticket: id, claim: claimId } })
       if (error || !data?.image) { missed.push(id); continue }

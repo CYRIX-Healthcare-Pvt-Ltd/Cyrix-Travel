@@ -14,7 +14,7 @@ import { needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, s
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
-import TicketLookup, { TICKET_TEST, AP_TICKET } from '@/components/TicketLookup'
+import TicketLookup, { TICKET_TEST, BEMP_TICKET, isCare360, pmptOf } from '@/components/TicketLookup'
 import ModePicker from '@/components/ModePicker'
 import PickList from '@/components/PickList'
 import { useAsk } from '@/components/Ask'
@@ -663,7 +663,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const rideIds = new Set(d.rides.map(r => r.id))
     const tickets = [
       ...d.rides.filter(r => isBreakdown(r.purpose) && r.ticket_no?.trim()).map(r => ({
-        id: r.id, ticket_no: r.ticket_no!.trim(), service_report: null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
+        id: r.id, ticket_no: isCare360(r.project) ? pmptOf(r.ticket_no) : r.ticket_no!.trim(), service_report: null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
       })),
       ...d.tickets.filter(t => !rideIds.has(t.id)).map(t => { const r = ends.find(x => placeKey(x.to_name) === placeKey(t.place)); return { ...t, district: r ? distOf.get(r.id) ?? null : null } }),
     ]
@@ -874,10 +874,11 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       <div className="mt-2 flex items-center gap-2 pl-6">
                         <span className="relative min-w-0 flex-1">
                           <TicketIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-600" />
-                          <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })} />
+                          <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })}
+                            onBlur={() => { if (isCare360(r.project) && r.ticket_no?.trim() && pmptOf(r.ticket_no) !== r.ticket_no) setRide(r.id, { ticket_no: pmptOf(r.ticket_no) }) }} />
                         </span>
                         {/* An AP ticket's report comes from BEMP, so no upload for it (test accounts; the user, 10 Nov). */}
-                        <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable={!(TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && AP_TICKET.test((r.ticket_no ?? '').trim()))} onChange={refresh} />
+                        <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable={!(TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && BEMP_TICKET.test((r.ticket_no ?? '').trim()))} onChange={refresh} />
                       </div>
                     )}
                     {/* The ticket found in Cyrix BEMP, its service report attached by itself (test accounts; the user, 10 Nov). */}
