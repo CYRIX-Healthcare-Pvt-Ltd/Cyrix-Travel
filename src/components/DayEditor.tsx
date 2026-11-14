@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lastGoing, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
-import { HOME_M, endedNextMorning, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
+import { homeLimit, endedNextMorning, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
 import { StartConfirm } from '@/components/StartDay'
 import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
@@ -309,7 +309,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const commute = (r: Ride) => (near(home, r.from_lat, r.from_lng) && near(work, r.to_lat, r.to_lng)) || (near(work, r.from_lat, r.from_lng) && near(home, r.to_lat, r.to_lng))
   const paid = (r: Ride) => rideAmount({ ...r, commute: commute(r) }, rule)
   /*
-    Start my day (te_0104): the day's first ride starts where the day was started — Home when within 500 m of it — and
+    Start my day (te_0104): the day's first ride starts where the day was started — Home when within 3 km of it — and
     that From is not changed here (the user, 3 Nov: "start my day, with the first ride's From locked to where he pressed").
   */
   const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
@@ -324,7 +324,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
   const firstId = d.rides[0]?.id
   /*
-    End my day (te_0109; the user, 4 Nov): the day's last ride ends where the day was ended — Home within 500 m of it —
+    End my day (te_0109; the user, 4 Nov): the day's last ride ends where the day was ended — Home within 3 km of it —
     and that To is not changed here; a ride added after it goes before it.
   */
   const dayEnd = data.day_ends?.find(s => s.day === d.day) ?? null
@@ -1153,7 +1153,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       )}
       {starting && <StartConfirm onClose={() => setStarting(false)} />}
       {ending && <StartConfirm end day={lateHere ? d.day : null} onClose={() => setEnding(null)} onStarted={s => {
-        const at = home && distanceKm(home, s) <= HOME_M / 1000 ? home : { name: s.place ?? `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`, lat: s.lat, lng: s.lng }
+        const at = home && distanceKm(home, s) <= homeLimit(s) / 1000 ? home : { name: s.place ?? `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`, lat: s.lat, lng: s.lng }
         void placed(ending, 'to', at)
       }} />}
       {cameraTo && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraTo(null)} onDone={(text, q, at) => {

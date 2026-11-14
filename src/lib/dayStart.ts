@@ -6,7 +6,7 @@ import type { VisitPhoto } from '@/lib/visits'
   Start my day (te_0104; the user, 3 Nov: home marked at Edappally, the night at Vytilla, the claim from Edappally). One
   press a day before the first visit photo keeps where the phone was; the day's first ride starts there.
 */
-export interface DayStart { day?: string; at: string; lat: number; lng: number; place: string | null; home_m: number | null }
+export interface DayStart { day?: string; at: string; lat: number; lng: number; place: string | null; home_m: number | null; /** The home circle in metres, from Settings (te_0159). */ home_limit?: number | null }
 /** End my day (te_0109): the same, where and when the day was ended. */
 export type DayEnd = DayStart
 
@@ -73,9 +73,11 @@ export const useMyDay = () => useQuery({
 /** "3 Nov" */
 export const shortDay = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 
-/** Within this of the saved home, a start is at home. */
-export const HOME_M = 500
-export const startName = (s: DayStart) => (s.home_m != null && s.home_m <= HOME_M ? 'Home' : s.place ?? `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`)
+/** Within this of the saved home, a start or an end is at home: 3 km since 14 Nov (the user: "we need to change 500m to 3 km"). */
+export const HOME_M = 3000
+/** The home circle a start or end was judged by: SW Admin's Settings (te_0159), else 3 km. */
+export const homeLimit = (s?: Pick<DayStart, 'home_limit'> | null) => Number(s?.home_limit ?? HOME_M)
+export const startName = (s: DayStart) => (s.home_m != null && s.home_m <= homeLimit(s) ? 'Home' : s.place ?? `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`)
 
 /*
   Time at a place (the user, 3 Nov: "this logic is good, we are giving just a calculation"): from its visit photo to

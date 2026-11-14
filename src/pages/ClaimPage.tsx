@@ -9,7 +9,7 @@ import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
-import { HOME_M, endedNextMorning, startName, stayMinutes, stayText, shortDay } from '@/lib/dayStart'
+import { homeLimit, endedNextMorning, startName, stayMinutes, stayText, shortDay } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
 import { routeShotsOn, shotBand, shotFits } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
@@ -604,8 +604,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {(hasMap || dayStart || dayEnd) && (
             <div className="col-span-full flex items-center justify-end gap-3 px-1 pt-0.5">
               {/* Where and when the day was started (te_0104). */}
-              {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">Day started {clock(dayStart.at)} · <b className="font-semibold text-ink-800">{short(startName(dayStart))}</b>{dayStart.home_m != null && dayStart.home_m > HOME_M && ` · ${km(dayStart.home_m / 1000)} from home`}</span></span>}
-              {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">Day ended {clockOf({ day: d.day, shot_at: dayEnd.at })} · <b className="font-semibold text-ink-800">{short(startName(dayEnd))}</b>{dayEnd.home_m != null && dayEnd.home_m > HOME_M && ` · ${km(dayEnd.home_m / 1000)} from home`}</span></span>}
+              {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">Day started {clock(dayStart.at)} · <b className="font-semibold text-ink-800">{short(startName(dayStart))}</b>{dayStart.home_m != null && dayStart.home_m > homeLimit(dayStart) && ` · ${km(dayStart.home_m / 1000)} from home`}</span></span>}
+              {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">Day ended {clockOf({ day: d.day, shot_at: dayEnd.at })} · <b className="font-semibold text-ink-800">{short(startName(dayEnd))}</b>{dayEnd.home_m != null && dayEnd.home_m > homeLimit(dayEnd) && ` · ${km(dayEnd.home_m / 1000)} from home`}</span></span>}
               {hasMap && <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>}
             </div>
           )}
@@ -1023,15 +1023,15 @@ export function claimObservations(data: ClaimData): Obs[] {
     }
     /*
       Start my day (te_0104; the user, 3 Nov: "in observation it will show isnt, ie start location far from home"): a day
-      with rides and no start, a start more than 500 m from home (after a room stay, said so), a first ride from elsewhere.
+      with rides and no start, a start more than 3 km from home (after a room stay, said so), a first ride from elsewhere.
     */
     const st = data.day_starts?.find(s => s.day === d.day), first = d.rides[0]
     if (first && data.day_start_from && d.day >= data.day_start_from && !st) items.push({ kind: 'nostart', day, to: first.id, detail: `First ride from ${short(first.from_name)}` })
-    if (st && st.home_m != null && st.home_m > HOME_M) {
+    if (st && st.home_m != null && st.home_m > homeLimit(st)) {
       const before = data.days.find(x => x.day === new Date(new Date(d.day + 'T00:00:00').getTime() - 86_400_000).toLocaleDateString('en-CA'))
       items.push({ kind: 'startfar', day, to: first?.id, detail: `${short(startName(st))} at ${clock(st.at)} · ${km(st.home_m / 1000)} from home${before?.hotel || before?.room_by ? ' · after a room stay' : ''}` })
     }
-    // End my day (te_0109): a past day with rides and no end; an end more than 500 m from home (a room stay that night, said so).
+    // End my day (te_0109): a past day with rides and no end; an end more than 3 km from home (a room stay that night, said so).
     const en = data.day_ends?.find(s => s.day === d.day), lastR = d.rides[d.rides.length - 1]
     // The manager's to judge: once the manager has approved, it is not shown to the Travel Desk (the user, 10 Nov:
     // "it is not travel desk headache").
@@ -1039,9 +1039,9 @@ export function claimObservations(data: ClaimData): Obs[] {
     if (managers && lastR && data.day_end_from && d.day >= data.day_end_from && !en && d.day < new Date().toLocaleDateString('en-CA'))
       items.push({ kind: d.day >= '2026-11-10' ? 'noendred' : 'noend', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)}` })
     const morning = !!en && endedNextMorning(en)
-    if (en && morning && lastR?.to_lat != null && distanceKm(en, { lat: lastR.to_lat, lng: lastR.to_lng! }) * 1000 > HOME_M)
+    if (en && morning && lastR?.to_lat != null && distanceKm(en, { lat: lastR.to_lat, lng: lastR.to_lng! }) * 1000 > homeLimit(en))
       items.push({ kind: 'endnext', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)} · End pressed ${new Date(en.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })} ${clockOf({ day: d.day, shot_at: en.at })} at ${short(startName(en))}, ${km(distanceKm(en, { lat: lastR.to_lat, lng: lastR.to_lng! }))} away` })
-    if (en && !morning && en.home_m != null && en.home_m > HOME_M)
+    if (en && !morning && en.home_m != null && en.home_m > homeLimit(en))
       items.push({ kind: 'endfar', day, to: lastR?.id, detail: `${short(startName(en))} at ${clockOf({ day: d.day, shot_at: en.at })} · ${km(en.home_m / 1000)} from home${d.hotel || d.room_by ? ' · a room stay that night' : ''}` })
     // Photos of the day's trip taken after its midnight (te_0108; the user, 4 Nov: "in observation also it should say late night work").
     const night = (data.visit_photos ?? []).filter(p => p.day === d.day && nightOf(p))
