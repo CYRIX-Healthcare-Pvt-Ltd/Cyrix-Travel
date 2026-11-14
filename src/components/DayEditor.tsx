@@ -14,7 +14,7 @@ import { needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, s
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
-import TicketLookup, { TICKET_TEST, BEMP_TICKET, isCare360, pmptOf } from '@/components/TicketLookup'
+import TicketLookup, { TICKET_TEST, BEMP_TICKET, ticketFor, ticketMismatch } from '@/components/TicketLookup'
 import ModePicker from '@/components/ModePicker'
 import PickList from '@/components/PickList'
 import { useAsk } from '@/components/Ask'
@@ -241,6 +241,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   }, [kmKey])
   const set = (p: Partial<Day>) => setD(x => ({ ...x, ...p }))
   const setRide = (id: string, p: Partial<Ride>) => setD(x => ({ ...x, rides: x.rides.map(r => (r.id === id ? { ...r, ...p } : r)) }))
+  // The ticket is looked up only once the engineer leaves the box, never while typing in it (the user, 14 Nov: they go
+  // to another app to check the ID and come back): while a ride's box is in use, its look-up keeps what it had.
+  const [editingTicket, setEditingTicket] = useState<{ id: string; was: string } | null>(null)
   // A Google Maps screenshot sets its ride's km, and the km box is locked while it fits the ride (te_0141; the user,
   // 9 Nov: "when attached, change the input field to what google map location says and it shouldnt be editable, only
   // if deleted, then it will come default of our map").
@@ -613,6 +616,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
     if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
+    else if (isBreakdown(r.purpose) && ticketMismatch(ticketFor(r.ticket_no, r.project), r.project)) blockers.push({ text: `The ticket of ${n} is not a ${r.project} ticket`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
     // No visit photo: the photo or why not, before the day saves — today too, so Send finds nothing left (the user, 30 Oct).
     if (photoNeeded(r) && !r.photo_skip?.trim()) {
@@ -663,7 +667,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const rideIds = new Set(d.rides.map(r => r.id))
     const tickets = [
       ...d.rides.filter(r => isBreakdown(r.purpose) && r.ticket_no?.trim()).map(r => ({
-        id: r.id, ticket_no: isCare360(r.project) ? pmptOf(r.ticket_no) : r.ticket_no!.trim(), service_report: null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
+        id: r.id, ticket_no: ticketFor(r.ticket_no, r.project), service_report: null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
       })),
       ...d.tickets.filter(t => !rideIds.has(t.id)).map(t => { const r = ends.find(x => placeKey(x.to_name) === placeKey(t.place)); return { ...t, district: r ? distOf.get(r.id) ?? null : null } }),
     ]
@@ -867,15 +871,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         onChange={v => setRide(r.id, { purpose: v })} />
                       <PickList label="Call centre" title={`Call centre of ride ${i + 1}`} placeholder="Call centre…" value={r.project}
                         options={[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => ({ value: x, label: x, icon: Headset, tone: 'cyan' as const }))}
-                        onChange={v => setRide(r.id, { project: v })} />
+                        onChange={v => setRide(r.id, v === r.project ? { project: v } : { project: v, ticket_no: '' })} />
                     </div>
                     {nudgeLine(r.id, 'purpose', i + 1, 'pl-6')}
                     {isBreakdown(r.purpose) && (
                       <div className="mt-2 flex items-center gap-2 pl-6">
                         <span className="relative min-w-0 flex-1">
                           <TicketIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-600" />
-                          <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })}
-                            onBlur={() => { if (isCare360(r.project) && r.ticket_no?.trim() && pmptOf(r.ticket_no) !== r.ticket_no) setRide(r.id, { ticket_no: pmptOf(r.ticket_no) }) }} />
+                          <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })} onFocus={() => setEditingTicket({ id: r.id, was: r.ticket_no ?? '' })}
+                            onBlur={() => { setEditingTicket(null); if (r.ticket_no?.trim() && ticketFor(r.ticket_no, r.project) !== r.ticket_no) setRide(r.id, { ticket_no: ticketFor(r.ticket_no, r.project) }) }} />
                         </span>
                         {/* An AP ticket's report comes from BEMP, so no upload for it (test accounts; the user, 10 Nov). */}
                         <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable={!(TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && BEMP_TICKET.test((r.ticket_no ?? '').trim()))} onChange={refresh} />
@@ -883,7 +887,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     )}
                     {/* The ticket found in Cyrix BEMP, its service report attached by itself (test accounts; the user, 10 Nov). */}
                     {isBreakdown(r.purpose) && TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && (
-                      <TicketLookup ticket={r.ticket_no} day={d.day} />
+                      <TicketLookup ticket={editingTicket?.id === r.id ? editingTicket.was : r.ticket_no} day={d.day} project={r.project} />
                     )}
                     {/* A round trip: where its return will be added (te_0058). */}
                     {r.return_leg?.date && !returnAdded(r.return_leg) && r.return_leg.date !== d.day && (

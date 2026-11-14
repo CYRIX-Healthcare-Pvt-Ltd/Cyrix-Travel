@@ -14,10 +14,36 @@ import { uploadReport, type Bill } from '@/lib/claims'
 */
 export const TICKET_TEST = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
 /** A ticket looked up by itself: Cyrix BEMP's AP tickets (AP143084) and FieldPro's PMPT jobs (PMPT_000023). */
-export const BEMP_TICKET = /^(AP\d{5,}|PMPT_\d{6,})$/i
+export const BEMP_TICKET = /^(AP\d+|PMPT_\d{6,})$/i
 
 /** Care360's rides are private BEMMP (the user, 14 Nov: "this will be the cost centre"). */
 export const isCare360 = (project: string | null | undefined) => /^care\s*360$/i.test((project ?? '').trim())
+
+/** AP's call centres (APBEMP…): their tickets are AP numbers. */
+export const isApCentre = (project: string | null | undefined) => /^ap/i.test((project ?? '').trim())
+
+/**
+ * The ticket ID made of what was typed, by the ride's call centre (the user, 14 Nov: only the number is typed):
+ * Care360 → PMPT_000023; an AP call centre → AP143084 (143084 or ap 143084 typed). Anything else stays as typed.
+ */
+export function ticketFor(v: string | null | undefined, project: string | null | undefined): string {
+  const t = (v ?? '').trim()
+  if (isCare360(project)) return pmptOf(t)
+  if (isApCentre(project)) { const m = t.match(/^(?:ap[\s_-]*)?(\d+)$/i); return m ? `AP${m[1]}` : t }
+  return t
+}
+
+/**
+ * A ticket that does not belong to the ride's call centre (the user, 14 Nov, a PMPT ticket left on an APBEMP ride):
+ * PMPT jobs are Care360's, AP tickets are not. Null when it fits, or when there is no ticket or call centre yet.
+ */
+export function ticketMismatch(ticket: string | null | undefined, project: string | null | undefined): string | null {
+  const id = (ticket ?? '').trim().toUpperCase()
+  if (!id || !project?.trim()) return null
+  if (/^PMPT_\d+$/.test(id) && !isCare360(project)) return `${id} is a Care360 ticket — this ride is ${project}`
+  if (/^AP\d+$/.test(id) && isCare360(project)) return `${id} is an AP ticket — this ride is ${project}`
+  return null
+}
 
 /**
  * On a Care360 ride the engineer types only the number and the PMPT ID is made of it (the user, 14 Nov: "if eng type
@@ -41,13 +67,16 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const when = (v: string) => { const m = v.match(/^(\d{2})-(\d{2})-(\d{4})\s*(\d{2}:\d{2})?/); return m ? `${m[1]}-${MON[Number(m[2]) - 1] ?? m[2]}-${m[3]}${m[4] ? ' ' + m[4] : ''}` : v.slice(0, 16) }
 const dayText = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 
-export default function TicketLookup({ ticket, day, claimId }: {
+export default function TicketLookup({ ticket, day, claimId, project }: {
   ticket: string | null | undefined
   day: string | null | undefined
+  /** The ride's call centre: a ticket of another one is shown as such and not looked up. */
+  project?: string | null
   /** The claim it is on, so its manager and the Travel Desk may look it up too. */
   claimId?: string
 }) {
   const id = (ticket ?? '').trim().toUpperCase()
+  const wrong = ticketMismatch(id, project)
   const [busy, setBusy] = useState(false)
   const [found, setFound] = useState<Found | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -57,7 +86,7 @@ export default function TicketLookup({ ticket, day, claimId }: {
   const asked = useRef('')
 
   useEffect(() => {
-    if (!BEMP_TICKET.test(id)) { asked.current = ''; return } // cleared or changed: the same ticket typed again is asked again
+    if (!BEMP_TICKET.test(id) || wrong) { asked.current = ''; return } // cleared or changed: the same ticket typed again is asked again
     if (asked.current === id) return
     const t = setTimeout(async () => {
       asked.current = id
@@ -77,12 +106,17 @@ export default function TicketLookup({ ticket, day, claimId }: {
           const file = new File([bytes], (data.image_name as string) || `${id}.jpg`, { type: (data.image_type as string) || 'image/jpeg' })
           setImg(URL.createObjectURL(file))
         }
-      } catch (e) { setError((e as Error).message) }
+      } catch (e) {
+        // Only our own words reach the engineer: never an address or another software's error (the user, 14 Nov).
+        const m = (e as Error).message ?? ''
+        setError(/^Ticket /.test(m) || /^KL tickets|^Not a ticket/.test(m) ? m : 'Ticket look-up did not answer, try again')
+      }
       finally { setBusy(false) }
     }, 700)
     return () => clearTimeout(t)
-  }, [id])
+  }, [id, wrong])
 
+  if (wrong) return <p className="mt-1.5 pl-6 text-xs font-semibold text-red-700">{wrong}</p>
   if (!BEMP_TICKET.test(id)) return null
   if (busy) return <p className="mt-1.5 flex items-center gap-1.5 pl-6 text-xs text-sky-700"><Spinner className="h-3.5 w-3.5" />Finding {id}…</p>
   if (error) return <p className="mt-1.5 pl-6 text-xs font-semibold text-red-700">{error}</p>

@@ -675,7 +675,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                       <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
                       {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
                       <ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit && !fromBemp(t.ticket_no)} onChange={onBills} />
-                      {fromBemp(t.ticket_no) && <span className="basis-full -ml-6"><TicketLookup ticket={t.ticket_no} day={d.day} claimId={c.id} /></span>}
+                      {fromBemp(t.ticket_no) && <span className="basis-full -ml-6"><TicketLookup ticket={t.ticket_no} day={d.day} claimId={c.id} project={r.project} /></span>}
                     </span>
                   )
                 })}
