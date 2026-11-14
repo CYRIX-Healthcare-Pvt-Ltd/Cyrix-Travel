@@ -8,6 +8,7 @@ import { useAsk } from '@/components/Ask'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase, friendlyError } from '@/lib/supabase'
 import { newId } from '@/lib/claims'
+import { cleanMic, micContext, type CleanMic } from '@/lib/cleanMic'
 
 /*
   Feedback by voice (te_0158; management, 13 Nov: "mainly voice, so sw admin can hear and improve"; the user: "max 1
@@ -61,6 +62,7 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
   const [playing, setPlaying] = useState(false)
   const rec = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
+  const clean = useRef<CleanMic | null>(null)
   const tick = useRef<number | null>(null)
   const audio = useRef<HTMLAudioElement | null>(null)
   const started = useRef(0)
@@ -70,6 +72,8 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
     tick.current = null
     stream.current?.getTracks().forEach(t => t.stop())
     stream.current = null
+    clean.current?.close()
+    clean.current = null
   }
   useEffect(() => () => { release(); if (rec.current?.state === 'recording') rec.current.stop() }, [])
   useEffect(() => () => { if (clip) URL.revokeObjectURL(clip.url) }, [clip])
@@ -78,13 +82,17 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
     setErr(null)
     const type = pickType()
     if (type === null || !navigator.mediaDevices?.getUserMedia) { setErr('This phone cannot record here — type it instead'); return }
+    // Made inside the press, before any wait, so the phone lets it run; RNNoise uses it (lib/cleanMic).
+    const ctx = micContext()
     try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
     } catch {
+      ctx?.close().catch(() => {})
       setErr('Allow the microphone for app.cyrix.in, then press again'); return
     }
+    clean.current = await cleanMic(stream.current, ctx)
     const chunks: Blob[] = []
-    const r = new MediaRecorder(stream.current, type ? { mimeType: type } : undefined)
+    const r = new MediaRecorder(clean.current.stream, type ? { mimeType: type } : undefined)
     r.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
     r.onstop = () => {
       release()
