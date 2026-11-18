@@ -28,8 +28,8 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
-  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortPct, ROAD_WHY_PCT } from '@/lib/claims'
+  DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmRange, money, monthName, needsBill, newId,
+  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, dayExtra, ROAD_WHY_PCT } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
 
 /*
@@ -255,7 +255,11 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   setGoogleRoutes(googleFor(isTestLogin(c.ecode), d.day))
   // Other routes, the % over the shortest road and its reason: test logins only, for now (the user, 18 Nov).
   const roadsExtra = isTestLogin(c.ecode)
-  const roadWhy = (r: Ride) => roadsExtra && (shortPct(r) ?? 0) > ROAD_WHY_PCT
+  const roadWhy = (r: Ride) => roadsExtra && MODES[r.mode].perKm && (shortExtra(r)?.pct ?? 0) > ROAD_WHY_PCT
+  // The km that may be typed: Google's shortest to longest road when known (test logins), else the map's km to the tolerance over it.
+  const kmBand = (r: Ride) => (roadsExtra && MODES[r.mode].perKm ? roadBand(r) : null) ?? (r.map_km != null ? kmRange(r.map_km, tol) : null)
+  const googleBand = (r: Ride) => roadsExtra && MODES[r.mode].perKm && roadBand(r) != null
+  const kmOff = (r: Ride) => { const b = kmBand(r); return r.claimed_km != null && b != null && (r.claimed_km < b.lo || r.claimed_km > b.hi) }
   const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
   const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
   // A ride whose screenshot is gone goes back to the map's km once the claim has reloaded without it; until then the
@@ -518,16 +522,18 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     A ride turned into a train, the metro or a flight, or back, has its km worked out again on the tracks, through the
     air or by road (the user, 23 Oct: "if train or metro, can we get their respective mode km?", "what about flight?").
   */
-  const railKey = d.rides.map(r => `${r.id}:${kmWay(r.mode)}`).join('|')
+  // Also a ride turned from bike or car to a fare (or back): Google's road for the km modes, our map for the rest (the user, 18 Nov).
+  const wayOf = (mode: ModeCode) => `${kmWay(mode)}${MODES[mode].perKm ? '+km' : ''}`
+  const railKey = d.rides.map(r => `${r.id}:${wayOf(r.mode)}`).join('|')
   const railWas = useRef(railKey)
   useEffect(() => {
     const before = new Map(railWas.current.split('|').map(x => x.split(':') as [string, string]))
     railWas.current = railKey
     for (const r of latest.current.rides) {
-      const now = kmWay(r.mode)
+      const now = wayOf(r.mode)
       if (!before.has(r.id) || before.get(r.id) === now || r.from_lat == null || r.to_lat == null) continue
       void roadKm({ name: '', lat: r.from_lat, lng: r.from_lng! }, { name: '', lat: r.to_lat, lng: r.to_lng! }, r.mode)
-        .then(road => { const r1 = latest.current.rides.find(x => x.id === r.id); if (r1 && kmWay(r1.mode) === now) setRide(r.id, { map_km: road?.km ?? null }) })
+        .then(road => { const r1 = latest.current.rides.find(x => x.id === r.id); if (r1 && wayOf(r1.mode) === now) setRide(r.id, { map_km: road?.km ?? null, ...(MODES[r1.mode].perKm ? {} : { route_km: null, route_why: null }) }) })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railKey])
@@ -618,7 +624,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (stays) blockers.push({ text: `${n[0].toUpperCase() + n.slice(1)} starts and ends at ${(r.to_name ?? '').split(',')[0]}: change its To`, to })
     else if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
     // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
-    else if (m.perKm && kmOutside(r, tol) && lockedKm(r) == null) blockers.push({ text: `The km of ${n} does not match the map (${km(r.map_km)})`, to })
+    else if (m.perKm && kmOff(r) && lockedKm(r) == null) blockers.push({ text: roadsExtra && roadBand(r) ? `The km of ${n} must be ${km(roadBand(r)!.lo)} to ${km(roadBand(r)!.hi)}` : `The km of ${n} does not match the map (${km(r.map_km)})`, to })
     else if (shotOn && needsShot(r, shotBand(data.policy)) && !shotOk(shotOf(r), r)) blockers.push({ text: `Add the Google Maps screenshot of ${n}`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
@@ -827,12 +833,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                               if (lockedKm(r) != null) return
                               const v = e.target.value === '' ? null : Number(e.target.value)
                               // A key that cannot end in the band is not taken: map 10, "12" stays "1"; map 8.8, "7" is not taken (the user, 26–27 Oct).
-                              if (v != null && r.map_km != null && !kmCanReach(e.target.value, kmRange(r.map_km, tol))) return
+                              if (v != null && kmBand(r) && !kmCanReach(e.target.value, kmBand(r)!)) return
                               setRide(r.id, { claimed_km: v })
                             }}
                             // Emptied, or under the map's km, and left: the map's km again (the user, 26–27 Oct: "he shouldnt be able to type less than map km").
                             onFocus={() => { if (lockedKm(r) == null) setTypingKm(r.id) }}
-                            onBlur={() => { setTypingKm(null); if (lockedKm(r) != null) return; if (r.map_km != null && (r.claimed_km == null || r.claimed_km < kmRange(r.map_km, tol).lo)) setRide(r.id, { claimed_km: r.map_km }) }} />
+                            onBlur={() => { setTypingKm(null); if (lockedKm(r) != null) return; if (r.map_km != null && (r.claimed_km == null || r.claimed_km < kmBand(r)!.lo)) setRide(r.id, { claimed_km: r.map_km }) }} />
                           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
                         </span>
                       ) : (
@@ -855,13 +861,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
                     {r.map_km != null && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 pl-6">
-                        <p className={`flex-auto text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{roadsExtra && kmWay(r.mode) === 'road' && shortPct(r) != null && <b className="font-semibold text-cyrixRed-700"> +{shortPct(r)}%</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
-                            : m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match'
-                            : m.perKm && kmChanged(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
+                        <p className={`flex-auto text-xs ${m.perKm && kmChanged(r) && !googleBand(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
+                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{roadsExtra && m.perKm && shortExtra(r) && <b className="font-semibold text-cyrixRed-700"> +{shortExtra(r)!.pct}% · +{km(shortExtra(r)!.km)}</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
+                            : m.perKm && kmOff(r) && typingKm !== r.id ? ' · km does not match'
+                            : m.perKm && kmChanged(r) && !googleBand(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
                         </p>
                         <span className="flex shrink-0 items-center gap-3">
-                        {kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
+                        {m.perKm && r.from_lat != null && r.to_lat != null && (
                           <RoadsButton ride={r} hidden={!roadsExtra} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
                             onRouteKm={k => setRide(r.id, { route_km: k })} onKeep={k => setRide(r.id, { route_alts: k })} />
                         )}
@@ -872,7 +878,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       </div>
                     )}
                     {/* Google's other roads, once asked: the one taken is picked and its km becomes the map's (test logins, 18 Nov). */}
-                    {roadsExtra && roadsOf === r.id && kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
+                    {roadsExtra && roadsOf === r.id && m.perKm && r.from_lat != null && r.to_lat != null && (
                       <RoutePick ride={r} onPick={(k, own) => setRide(r.id, { map_km: k, route_km: own })} />
                     )}
                     {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
@@ -1160,7 +1166,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         <div className="sticky bottom-16 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
           <span className="min-w-0 leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : paid(r)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
             {/* The day's km beside its rupees (the user, 27 Oct: "show total km also beautifully"). */}
-            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}</span> })()}</span></span>
+            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}{(() => { const x = roadsExtra ? dayExtra(d.rides) : null; return x && x.pct > ROAD_WHY_PCT && <b className="font-bold text-cyrixRed-700">+{x.pct}%</b> })()}</span> })()}</span></span>
           {/*
             What stops it: on a phone its own line under the total, full width (the user, 30 Oct: "is it looking good?" — it
             was squeezed into four short lines beside Save); beside Save on a wider screen. Save claim stays on one line

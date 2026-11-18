@@ -40,7 +40,7 @@ function decode(s: string): [number, number][] {
 }
 
 const kept = new Map<string, Promise<RouteAlt[] | null>>()
-const keyOf = (a: Pt, b: Pt) => `${a.lat.toFixed(5)},${a.lng.toFixed(5)};${b.lat.toFixed(5)},${b.lng.toFixed(5)}`
+export const keyOf = (a: Pt, b: Pt) => `${a.lat.toFixed(5)},${a.lng.toFixed(5)};${b.lat.toFixed(5)},${b.lng.toFixed(5)}`
 /**
   Google's roads already asked in this session, without asking again (the user, 18 Nov: "we need to max reduce the
   clicks"): opening a day or its map again, or an approver's look, costs nothing.

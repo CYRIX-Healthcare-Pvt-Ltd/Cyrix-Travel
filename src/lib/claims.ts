@@ -1,4 +1,4 @@
-import { googleKnown, googleRoutes, googleRoutesOn, type KeptRoads, type RouteAlt } from '@/lib/googleRoutes'
+import { googleKnown, googleRoutes, googleRoutesOn, keyOf, type KeptRoads, type RouteAlt } from '@/lib/googleRoutes'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { VehicleSpan } from '@/lib/vehicles'
 import {
@@ -412,6 +412,48 @@ export const kmOutside = (r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: num
 }
 /** Over this % above the shortest road, the engineer writes why (the user, 18 Nov: "if greater than 10%"). */
 export const ROAD_WHY_PCT = 10
+/** Google's roads kept on the ride for its present From and To (te_0164), or none. */
+const keptKms = (r: Pick<Ride, 'route_alts' | 'from_lat' | 'from_lng' | 'to_lat' | 'to_lng'>) => {
+  if (!r.route_alts?.roads?.length || r.from_lat == null || r.to_lat == null) return []
+  if (r.route_alts.key !== keyOf({ lat: r.from_lat, lng: r.from_lng! }, { lat: r.to_lat, lng: r.to_lng! })) return []
+  return r.route_alts.roads.map(x => x.km).filter(k => k > 0)
+}
+/**
+  The longest of Google's roads offered, from its own (fastest) road (the user, 18 Nov): under 30 km, its km rounded up
+  plus 3; from 30 km, its km and 10% rounded up plus 3 (7.1 → 11, 60.5 → 70). The 3 only lets a road just past show.
+  A road's own km is rounded down against it (27.8 shows under 27; the user, 18 Nov: "farthest down also").
+*/
+export const roadLimit = (own: number) => Math.ceil(Math.round((own < 30 ? own : own * 1.1) * 1000) / 1000 - 1e-9) + 3
+/** Google's roads that may be picked: its own, any shorter, and longer ones up to roadLimit. */
+export const roadsShown = <T extends { km: number }>(alts: T[]) => alts.filter((x, i) => i === 0 || Math.floor(x.km + 1e-9) <= roadLimit(alts[0].km))
+/** The km a ride may claim when Google's roads are known: its shortest shown road up to the road picked, never more (the user, 18 Nov). */
+export const roadBand = (r: Pick<Ride, 'route_alts' | 'from_lat' | 'from_lng' | 'to_lat' | 'to_lng' | 'map_km'>) => {
+  const k = keptKms(r)
+  if (!k.length) return null
+  const shown = roadsShown(k.map(km => ({ km }))).map(x => x.km)
+  const lo = Math.min(...shown)
+  return { lo, hi: Math.max(lo, r.map_km ?? k[0]) }
+}
+/** Google's own road km for the ride: the first it gave (kept), or the one kept when another was picked. */
+export const ownKm = (r: Pick<Ride, 'route_km' | 'route_alts'>) => r.route_alts?.roads?.[0]?.km ?? r.route_km ?? null
+/** The km over Google's own (fastest) road, of the km claimed (the map's when none is typed). */
+export const shortExtra = (r: Pick<Ride, 'map_km' | 'claimed_km' | 'route_km' | 'route_alts'>) => {
+  const own = ownKm(r)
+  const got = r.claimed_km ?? r.map_km
+  if (got == null || own == null || !(own > 0)) return null
+  return got > own + 0.05 ? { pct: Math.round(((got - own) / own) * 100), km: Math.round((got - own) * 10) / 10 } : null
+}
+/** The day's km over Google's own roads, all its road rides together (the user, 18 Nov: one % for the day). */
+export const dayExtra = (rides: Array<Pick<Ride, 'mode' | 'map_km' | 'claimed_km' | 'route_km' | 'route_alts'>>) => {
+  let own = 0, got = 0
+  for (const r of rides) {
+    if (!MODES[r.mode].perKm) continue
+    const o = ownKm(r), g = r.claimed_km ?? r.map_km
+    if (g == null) continue
+    own += o ?? g; got += g
+  }
+  return own > 0 && got > own + 0.05 ? { pct: Math.round(((got - own) / own) * 100), km: Math.round((got - own) * 10) / 10 } : null
+}
 /** How much longer the road picked is than the shortest of Google's roads, in % (the user, 18 Nov: "show a % from shortest distance in red"); null when it is the shortest. */
 export const shortPct = (r: Pick<Ride, 'map_km' | 'route_km' | 'route_alts'>) => {
   const kms = [...(r.route_alts?.roads ?? []).map(x => x.km), ...(r.route_km != null ? [r.route_km] : [])].filter(k => k > 0)
@@ -454,8 +496,8 @@ export async function roadKm(a: Place, b: Place, mode?: ModeCode | null, opts?: 
     const rail = await railKm(a, b)
     if (rail) return rail
   }
-  // Google's routes for a test login (the user, 18 Nov): its first route, the others offered on the ride.
-  if (googleRoutesOn()) {
+  // Google's routes only for the modes paid by the km (bike, car); the rest stay on our free map (the user, 18 Nov).
+  if (googleRoutesOn() && mode && MODES[mode].perKm) {
     // known: only what Google already said this session (drawing a map asks nothing).
     const alts = await (opts?.known ? googleKnown(a, b) : googleRoutes(a, b))
     if (alts) return { km: alts[0].km, line: alts[0].line, alts }

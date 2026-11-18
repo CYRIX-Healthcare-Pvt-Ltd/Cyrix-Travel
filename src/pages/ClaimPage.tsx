@@ -21,7 +21,7 @@ import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
   DA_KINDS, DA_RANK, isAurum, MODES, billMatches, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
-  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide, shortPct,
+  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide, shortExtra,
 } from '@/lib/claims'
 
 /*
@@ -659,9 +659,9 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     : <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-amber-700"><CameraOff className="h-3.5 w-3.5 shrink-0" />No visit photo</span>
                 })()}
                 {/* A Google road more than the tolerance longer than Google's own, with why (te_0165). */}
-                {r.route_km != null && shortPct(r) != null && (
+                {r.route_km != null && shortExtra(r) && (
                   <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><Route className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    Map {km(r.map_km)} +{shortPct(r)}%{r.route_why && <> · “{r.route_why}”</>}</span>
+                    Map {km(r.map_km)} +{shortExtra(r)!.pct}% · +{km(shortExtra(r)!.km)}{r.route_why && <> · “{r.route_why}”</>}</span>
                 )}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
                 {/* A round trip whose return is not on the claim yet (te_0058). */}

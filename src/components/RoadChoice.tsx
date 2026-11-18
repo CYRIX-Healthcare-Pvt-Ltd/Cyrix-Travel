@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Route } from 'lucide-react'
-import { km } from '@/lib/claims'
+import { km, roadsShown } from '@/lib/claims'
 import { googleKnown, googleRoutes, googleRoutesOn, googleSeed, onGoogle, keepRoads, type KeptRoads, type RouteAlt } from '@/lib/googleRoutes'
 
 /*
@@ -65,7 +65,7 @@ export function RoadsButton({ ride, open, onOpen, onRouteKm, onKeep, onlyUnknown
     if ((ride.route_km ?? null) !== want) onRouteKm(want)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alts, ride.map_km, ride.route_km])
-  if (hidden || !googleRoutesOn() || alts === undefined || (alts && (onlyUnknown || (alts.length < 2 && !open)))) return null
+  if (hidden || !googleRoutesOn() || alts === undefined || (alts && (onlyUnknown || (roadsShown(alts).length < 2 && !open)))) return null
   return (
     <button type="button" aria-expanded={open} onClick={onOpen}
       className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline">
@@ -80,7 +80,8 @@ export function RoutePick({ ride, onPick, className = 'mt-1.5 pl-6', ask = true 
   /** false: only roads already known, nothing asked (the map shows them open; the user, 18 Nov). */
   ask?: boolean
 }) {
-  const alts = useRoads(ride, ask)
+  const all = useRoads(ride, ask)
+  const alts = all ? roadsShown(all) : all
   if (!alts?.length || (!ask && alts.length < 2)) return null
   const taken = alts.find(x => ride.map_km != null && Math.abs(x.km - ride.map_km) < 0.05) ?? null
   return (
