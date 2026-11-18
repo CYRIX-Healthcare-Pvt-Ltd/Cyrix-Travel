@@ -177,7 +177,7 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
               <span className="text-ink-900">{r.label}</span>
               <span className="rounded-md px-2 py-0.5 text-xs font-semibold" style={{ background: MODES[r.mode].bg, color: MODES[r.mode].fg }}>{MODES[r.mode].label}</span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">
-                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}{rides[i] && isTestLogin(ecode) && MODES[rides[i].mode].perKm && shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed }) && <b className="font-semibold text-cyrixRed-700"> +{shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.pct}% · +{km(shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.km)}</b>}
+                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}{rides[i] && isTestLogin(ecode) && MODES[rides[i].mode].perKm && shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed }) && <b className="font-semibold text-cyrixRed-700"> · {shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.pct}% · {km(shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.km)} more</b>}
               </span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">{money(r.cost)}</span>
               {/* Google's roads to pick from, here too (the user, 18 Nov); the screenshot only once they are off. */}

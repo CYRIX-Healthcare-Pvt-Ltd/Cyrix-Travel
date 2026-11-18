@@ -565,13 +565,16 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             {[d.purpose, d.da_kind !== 'none' ? `DA ${daLabel?.toLowerCase()} ${money(d.da_amount)}` : null, tripDay].filter(Boolean).join(' · ')}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 max-sm:w-full">
           {/* The day's km beside its money, as weighty (the user, 21 Oct: "km by modes, emphasise km also like the amount"). */}
-          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}{(() => { const x = isTestLogin(c.ecode) ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="ml-1 font-bold text-cyrixRed-700">+{x.pct}%</b> })()}</span><span className="text-ink-300">·</span></>}
+          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}{(() => { const x = isTestLogin(c.ecode) ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="ml-1 font-bold text-cyrixRed-700">{x.pct}% more</b> })()}</span><span className="text-ink-300">·</span></>}
           <span className="mr-1 font-semibold text-ink-900">{money(dayTotal({ ...d, hotel: d.room_by ? null : d.hotel }, rule))}</span>
-          {hasMap && <button type="button" className="btn-icon" title="See on map" aria-label="See on map" onClick={onMap}><MapIcon className="h-4 w-4 text-teal-600" /></button>}
-          {c.can_edit && <button type="button" className="btn-icon" title="Edit" aria-label="Edit day" onClick={onEdit}><Pencil className="h-4 w-4" /></button>}
-          {c.can_edit && <button type="button" className="btn-icon text-cyrixRed-600" title="Remove" aria-label="Remove day" onClick={onDelete}><Trash2 className="h-4 w-4" /></button>}
+          {/* The day's actions at the end of the line, apart from its km and money (the user, 18 Nov: "just move to end"). */}
+          <span className="ml-auto flex items-center">
+            {hasMap && <button type="button" className="btn-icon" title="See on map" aria-label="See on map" onClick={onMap}><MapIcon className="h-4 w-4 text-teal-600" /></button>}
+            {c.can_edit && <button type="button" className="btn-icon" title="Edit" aria-label="Edit day" onClick={onEdit}><Pencil className="h-4 w-4" /></button>}
+            {c.can_edit && <button type="button" className="btn-icon text-cyrixRed-600" title="Remove" aria-label="Remove day" onClick={onDelete}><Trash2 className="h-4 w-4" /></button>}
+          </span>
         </div>
       </div>
 
@@ -607,7 +610,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
               {/* Where and when the day was started (te_0104). */}
               {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">Day started {clock(dayStart.at)} · <b className="font-semibold text-ink-800">{short(startName(dayStart))}</b>{dayStart.home_m != null && dayStart.home_m > homeLimit(dayStart) && ` · ${km(dayStart.home_m / 1000)} from home`}</span></span>}
               {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">Day ended {clockOf({ day: d.day, shot_at: dayEnd.at })} · <b className="font-semibold text-ink-800">{short(startName(dayEnd))}</b>{dayEnd.home_m != null && dayEnd.home_m > homeLimit(dayEnd) && ` · ${km(dayEnd.home_m / 1000)} from home`}</span></span>}
-              {hasMap && <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>}
+              {hasMap && <button type="button" className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> <span className="sm:hidden">Map</span><span className="max-sm:hidden">View on map</span></button>}
             </div>
           )}
           {d.rides.map(r => {
@@ -662,7 +665,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                 {/* A Google road more than the tolerance longer than Google's own, with why (te_0165). */}
                 {isTestLogin(c.ecode) && MODES[r.mode].perKm && shortExtra(r) && (
                   <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><Route className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    Map {km(r.map_km)} +{shortExtra(r)!.pct}% · +{km(shortExtra(r)!.km)}{r.route_why && <> · “{r.route_why}”</>}</span>
+                    Map {km(r.map_km)} · {shortExtra(r)!.pct}% · {km(shortExtra(r)!.km)} more{r.route_why && <> · “{r.route_why}”</>}</span>
                 )}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
                 {/* A round trip whose return is not on the claim yet (te_0058). */}
