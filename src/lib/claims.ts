@@ -1,4 +1,4 @@
-import { googleRoutes, googleRoutesOn, type RouteAlt } from '@/lib/googleRoutes'
+import { googleKnown, googleRoutes, googleRoutesOn, type KeptRoads, type RouteAlt } from '@/lib/googleRoutes'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { VehicleSpan } from '@/lib/vehicles'
 import {
@@ -141,6 +141,12 @@ export interface Ride {
   /** An end the map does not have, named by hand: learned for everyone once the day is saved (te_0071). Not stored. */
   from_named?: boolean; to_named?: boolean
   claimed_km: number | null; map_km: number | null; fare: number | null; amount?: number; note?: string | null
+  /** Google's own road km when the engineer picked another of its roads (te_0162); empty when Google's was kept. */
+  route_km?: number | null
+  /** Google's roads for the ride's From and To, kept until the Travel Desk approves (te_0164). */
+  route_alts?: KeptRoads | null
+  /** Why a road more than the tolerance longer than Google's own was taken (te_0165). */
+  route_why?: string | null
   /** Booked by the company (te_0042): it claims nothing, and its company cost is kept beside it. */
   company_booking?: string | null; company_amount?: number | null
   /** The return of a round-trip ticket whose fare is on another ride (te_0056): claims nothing, needs no bill. */
@@ -404,6 +410,16 @@ export const kmOutside = (r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: num
   const { lo, hi } = kmRange(r.map_km, tolerance)
   return r.claimed_km < lo || r.claimed_km > hi
 }
+/** Over this % above the shortest road, the engineer writes why (the user, 18 Nov: "if greater than 10%"). */
+export const ROAD_WHY_PCT = 10
+/** How much longer the road picked is than the shortest of Google's roads, in % (the user, 18 Nov: "show a % from shortest distance in red"); null when it is the shortest. */
+export const shortPct = (r: Pick<Ride, 'map_km' | 'route_km' | 'route_alts'>) => {
+  const kms = [...(r.route_alts?.roads ?? []).map(x => x.km), ...(r.route_km != null ? [r.route_km] : [])].filter(k => k > 0)
+  if (r.map_km == null || !kms.length) return null
+  const low = Math.min(...kms)
+  const pct = Math.round(((r.map_km - low) / low) * 100)
+  return r.map_km > low + 0.05 && pct >= 1 ? pct : null
+}
 export const kmChanged = (r: Pick<Ride, 'claimed_km' | 'map_km'>) => r.claimed_km != null && r.map_km != null && Math.abs(r.claimed_km - r.map_km) > 0.05
 
 // ---------------------------------------------------------------- maps
@@ -432,7 +448,7 @@ export const kmWay = (mode: ModeCode) => (RAIL_MODES.has(mode) ? 'rail' : mode =
  * flight, else by road from the free OSRM router on OpenStreetMap (the same as the trip module used). A rail route not
  * found falls back to the road.
  */
-export async function roadKm(a: Place, b: Place, mode?: ModeCode | null): Promise<{ km: number; line: [number, number][]; alts?: RouteAlt[] } | null> {
+export async function roadKm(a: Place, b: Place, mode?: ModeCode | null, opts?: { known?: boolean }): Promise<{ km: number; line: [number, number][]; alts?: RouteAlt[] } | null> {
   if (mode === 'flight') return { km: Math.round(distanceKm(a, b) * 10) / 10, line: [[a.lat, a.lng], [b.lat, b.lng]] }
   if (mode && RAIL_MODES.has(mode)) {
     const rail = await railKm(a, b)
@@ -440,7 +456,8 @@ export async function roadKm(a: Place, b: Place, mode?: ModeCode | null): Promis
   }
   // Google's routes for a test login (the user, 18 Nov): its first route, the others offered on the ride.
   if (googleRoutesOn()) {
-    const alts = await googleRoutes(a, b)
+    // known: only what Google already said this session (drawing a map asks nothing).
+    const alts = await (opts?.known ? googleKnown(a, b) : googleRoutes(a, b))
     if (alts) return { km: alts[0].km, line: alts[0].line, alts }
   }
   const key = `${a.lat.toFixed(5)},${a.lng.toFixed(5)};${b.lat.toFixed(5)},${b.lng.toFixed(5)}`

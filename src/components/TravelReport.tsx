@@ -21,7 +21,7 @@ const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
   return data as T
 }
 
-type Kind = 'speed' | 'shared_phone' | 'same_spot' | 'clock' | 'other_phone' | 'late' | 'no_photo' | 'at_limit' | 'twice' | 'auto_high' | 'no_map' | 'home' | 'cut'
+type Kind = 'speed' | 'shared_phone' | 'same_spot' | 'clock' | 'other_phone' | 'late' | 'no_photo' | 'at_limit' | 'twice' | 'auto_high' | 'no_map' | 'other_road' | 'home' | 'cut'
 type Weight = 'red' | 'amber' | 'grey'
 /** The signs, the hardest to explain away first; grey ones are for the picture, not counted as signs. */
 const SIGNS: Array<[Kind, string, Weight]> = [
@@ -29,7 +29,7 @@ const SIGNS: Array<[Kind, string, Weight]> = [
   ['same_spot', 'Exact same GPS point', 'red'], ['clock', 'Phone clock ahead', 'red'],
   ['other_phone', 'Photo on another phone', 'amber'], ['late', 'Photo uploaded late', 'amber'], ['no_photo', 'Ride without photo', 'amber'],
   ['at_limit', 'Km at the limit', 'amber'], ['twice', 'Same ride twice', 'amber'], ['auto_high', 'Auto fare high', 'amber'],
-  ['no_map', 'No map km', 'amber'], ['home', 'Home moved', 'grey'], ['cut', 'Cut by approver', 'grey'],
+  ['no_map', 'No map km', 'amber'], ['other_road', 'Other road picked', 'amber'], ['home', 'Home moved', 'grey'], ['cut', 'Cut by approver', 'grey'],
 ]
 const LOOK: Record<Weight, string> = { red: 'bg-cyrixRed-100 text-cyrixRed-800', amber: 'bg-amber-100 text-amber-800', grey: 'bg-ink-100 text-ink-700' }
 

@@ -11,7 +11,8 @@ import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
 import { isTestLogin, needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
-import { googleRoutes, setGoogleRoutes, type RouteAlt } from '@/lib/googleRoutes'
+import { googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
+import { RoadsButton, RoutePick } from '@/components/RoadChoice'
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -28,8 +29,7 @@ import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmOutside, kmRange, money, monthName, needsBill, newId,
-  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
-} from '@/lib/claims'
+  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortPct, ROAD_WHY_PCT } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
 
 /*
@@ -114,6 +114,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   )
   // One ride on the map, from its own card (the user, 21 Oct: "option to view in map in each mode").
   const [mapRide, setMapRide] = useState<Ride | null>(null)
+  // The ride whose other roads are open (the user, 18 Nov: hidden until asked, Google's own road kept).
+  const [roadsOf, setRoadsOf] = useState<string | null>(null)
   // The claim's details, kept in the form with everything else (the user, 17 Oct).
   const [hdr, setHdr] = useState(kept?.hdr ?? header)
   const changed = JSON.stringify({ ...d, id: initial.id }) !== JSON.stringify(initial) || JSON.stringify(hdr) !== JSON.stringify(header)
@@ -620,6 +622,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
     if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
     else if (isBreakdown(r.purpose) && ticketMismatch(ticketFor(r.ticket_no, r.project), r.project)) blockers.push({ text: `The ticket of ${n} is not a ${r.project} ticket`, to })
+    if ((shortPct(r) ?? 0) > ROAD_WHY_PCT && !r.route_why?.trim()) blockers.push({ text: `Write why ${n} took the longer road`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
     // No visit photo: the photo or why not, before the day saves — today too, so Send finds nothing left (the user, 30 Oct).
     if (photoNeeded(r) && !r.photo_skip?.trim()) {
@@ -687,7 +690,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       p_day: {
         ...d,
         // "Photo not possible" only where a photo is still wanted (a purpose changed, or the photo found since).
-        rides: d.rides.map(r => ({ ...r, photo_skip: photoNeeded(r) ? r.photo_skip ?? null : null })),
+        rides: d.rides.map(r => ({ ...r, photo_skip: photoNeeded(r) ? r.photo_skip ?? null : null, route_why: (shortPct(r) ?? 0) > ROAD_WHY_PCT ? r.route_why ?? null : null })),
         purpose: dayPurpose ?? null,
         place, district, place_lat: null, place_lng: null, tickets,
         continues_day: joined,
@@ -848,24 +851,38 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {/* One short line about the map, under the km it checks (the user, 2 Nov), amber when the km is over (no chips). */}
                     {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
                     {r.map_km != null && (
-                      <div className="mt-1.5 flex items-center gap-3 pl-6">
-                        <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 pl-6">
+                        <p className={`flex-auto text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
+                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{kmWay(r.mode) === 'road' && shortPct(r) != null && <b className="font-semibold text-cyrixRed-700"> +{shortPct(r)}%</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
                             : m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match'
                             : m.perKm && kmChanged(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
                         </p>
+                        <span className="flex shrink-0 items-center gap-3">
+                        {kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
+                          <RoadsButton ride={r} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
+                            onRouteKm={k => setRide(r.id, { route_km: k })} onKeep={k => setRide(r.id, { route_alts: k })} />
+                        )}
                         <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
                           <MapIcon className="h-3.5 w-3.5" /> View on map
                         </button>
+                        </span>
                       </div>
                     )}
-                    {/* Google's other roads for the ride: the one taken is picked and its km becomes the map's (test logins, 18 Nov). */}
-                    {kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
-                      <RoutePick ride={r} onPick={k => setRide(r.id, { map_km: k })} />
+                    {/* Google's other roads, once asked: the one taken is picked and its km becomes the map's (test logins, 18 Nov). */}
+                    {roadsOf === r.id && kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
+                      <RoutePick ride={r} onPick={(k, own) => setRide(r.id, { map_km: k, route_km: own })} />
                     )}
                     {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
                     {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
-                    {shotOn && m.perKm && (needsShot(r, shotBand(data.policy)) || !!shotOf(r)) && (
+                    {/* A road more than 10% longer than Google's own: why, before the day saves (the user, 18 Nov: "ask reason"). */}
+                    {(shortPct(r) ?? 0) > ROAD_WHY_PCT && (
+                      <div className="mt-2 ml-6">
+                        <input className={`input h-10 w-full text-sm ${!r.route_why?.trim() ? '!border-amber-400' : ''}`} aria-label="Why this road" placeholder="Why this road? (required)"
+                          value={r.route_why ?? ''} onChange={e => setRide(r.id, { route_why: e.target.value === '' ? null : e.target.value })} />
+                      </div>
+                    )}
+                    {/* Only when Google's roads are off (free requests used up, or not yet theirs); one already added stays (18 Nov). */}
+                    {shotOn && m.perKm && ((needsShot(r, shotBand(data.policy)) && !googleRoutesOn()) || !!shotOf(r)) && (
                       <div className="pl-6">
                         <RouteProof ride={r} shot={shotOf(r)} band={shotBand(data.policy)} claimId={c.id} onChange={refresh}
                           onKm={k => setRide(r.id, { claimed_km: k ?? r.map_km })} />
@@ -1185,7 +1202,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           void placed(r.id, 'to', { name: at.place ?? 'Photo place', lat: at.lat, lng: at.lng })
         setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info')
       }} />}
-      {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)}
+      {mapRide && <RouteMap days={[d]} focus={mapRide.id}
+        onRoad={(id, k, own) => setRide(id, { map_km: k, route_km: own })} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)}
         shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} ecode={c.ecode} band={shotBand(data.policy)} claimId={c.id} onShots={refresh} />}
       {picking && ride && (
         <PlacePicker
@@ -1218,35 +1236,6 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           onClose={() => setPicking(null)}
         />
       )}
-    </div>
-  )
-}
-
-/** Google's roads between a ride's places, as chips when there is more than one; the chosen one is the ride's map km. */
-function RoutePick({ ride, onPick }: { ride: Ride; onPick: (km: number) => void }) {
-  const [alts, setAlts] = useState<RouteAlt[] | null>(null)
-  const at = `${ride.from_lat},${ride.from_lng};${ride.to_lat},${ride.to_lng}`
-  useEffect(() => {
-    let on = true
-    setAlts(null)
-    void googleRoutes({ lat: ride.from_lat!, lng: ride.from_lng! }, { lat: ride.to_lat!, lng: ride.to_lng! }).then(a => { if (on) setAlts(a) })
-    return () => { on = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [at])
-  if (!alts || alts.length < 2) return null
-  const taken = alts.find(x => ride.map_km != null && Math.abs(x.km - ride.map_km) < 0.05) ?? null
-  return (
-    <div className="mt-1.5 grid grid-cols-1 gap-1.5 pl-6 sm:grid-cols-3">
-      {alts.map((x, i) => {
-        const on = x === taken
-        return (
-          <button key={i} type="button" aria-pressed={on} onClick={() => onPick(x.km)}
-            className={`min-w-0 rounded-lg border px-2.5 py-1.5 text-left text-xs ${on ? 'border-teal-600 bg-teal-50 font-semibold text-teal-800' : 'border-ink-200 bg-surface text-ink-700 hover:border-teal-400'}`}>
-            <span className="block">{km(x.km)} · {x.mins} min</span>
-            {x.via && <span className="block truncate text-ink-500">via {x.via}</span>}
-          </button>
-        )
-      })}
     </div>
   )
 }
