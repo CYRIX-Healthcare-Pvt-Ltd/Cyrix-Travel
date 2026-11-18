@@ -188,7 +188,7 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
               {rides[i] && onRoad && isTestLogin(ecode) && MODES[rides[i].mode].perKm && (
                 <RoutePick ride={rides[i]} ask={roadsOf === rides[i].id} className="w-full" onPick={(k, own) => onRoad(rides[i].id, k, own)} />
               )}
-              {rides[i] && shots && ((shotRides.has(rides[i].id) && !googleRoutesOn()) || shots.some(x => x.ride_id === rides[i].id)) && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}
+              {rides[i] && shots && ((shotRides.has(rides[i].id) && !googleRoutesOn() && !isTestLogin(ecode)) || shots.some(x => x.ride_id === rides[i].id)) && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}
             </div>
           ))}
         </div>

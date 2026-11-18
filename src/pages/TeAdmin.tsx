@@ -36,13 +36,19 @@ const RULE_COLS: Array<[keyof Rule, string]> = [
   ['bike_rate', 'Bike ₹/km'], ['bike_km_month', 'Bike km/month'], ['car_rate', 'Car ₹/km'], ['car_km_month', 'Car km/month'],
   ['per_diem', 'Per diem'], ['misc_day', 'Misc a day'], ['day_trip_metro', 'Day trip metro'], ['day_trip_other', 'Day trip other'],
 ]
-const POLICY: Array<[string, string]> = [
-  ['km_tolerance_pct', 'Km over the map allowed, %'], ['bill_over', 'Bill needed above ₹'], ['auto_month', 'Auto allowance a month ₹'],
-  ['phone_month', 'Phone allowance a month ₹'], ['tool_max', 'Tools above ₹ go to petty cash'], ['metro_extra_pct', 'Metro city room extra %'], ['deputation_da', 'Deputation DA a day ₹'],
-  ['bike_two_way_km', 'Bike two-way limit km'], ['car_two_way_km', 'Car two-way limit km'], ['submit_by_day', 'Submit by day of next month'], ['claim_within_days', 'Claim a day within (days)'],
-  ['late_pct', 'Late deduction % (1, 2, 3 months)'], ['auto_per_km', 'Auto fare ₹ a km'], ['auto_min_fare', 'Auto minimum fare ₹'], ['auto_min_km', 'Auto minimum fare covers km'],
-  ['km_band_km', 'Km band for Google Maps screenshot'], ['km_band_extra_km', 'Km allowed over the map a band'],
+/* Settings in rows of what belongs together (the user, 18 Nov: "group same related rules in single row"). */
+const POLICY_GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
+  { title: 'Km over the map', items: [['km_tolerance_pct', 'Allowed, %'], ['km_band_km', 'Screenshot band, km'], ['km_band_extra_km', 'Km over, a band']] },
+  // Google's roads and our own map alike (te_0166): the most that may be claimed, and when "Why this road?" is asked.
+  { title: 'Longer road', items: [['road_pct', 'Why asked over, %'], ['road_pct_from_km', '% added from, km'], ['road_extra_km', 'Km added']] },
+  { title: 'Allowances', items: [['auto_month', 'Auto a month, ₹'], ['phone_month', 'Phone a month, ₹'], ['deputation_da', 'Deputation DA a day, ₹']] },
+  { title: 'Bills and rooms', items: [['bill_over', 'Bill needed above, ₹'], ['tool_max', 'Tools to petty cash above, ₹'], ['metro_extra_pct', 'Metro room extra, %']] },
+  { title: 'Auto fare', items: [['auto_per_km', '₹ a km'], ['auto_min_fare', 'Minimum, ₹'], ['auto_min_km', 'Minimum covers, km']] },
+  { title: 'Dates', items: [['submit_by_day', 'Submit by day of next month'], ['claim_within_days', 'Claim a day within, days'], ['late_pct', 'Late deduction, % (1, 2, 3 months)']] },
+  // Home (Travel te_0159; the user, 14 Nov: "add Home circle")
+  { title: 'Home', items: [['home_changes_month', 'Changes a month'], ['home_km', 'Circle, km']] },
 ]
+const POLICY: Array<[string, string]> = POLICY_GROUPS.flatMap(g => g.items.map(([k, l]) => [k, `${g.title}: ${l}`] as [string, string]))
 
 export default function TeAdmin() {
   const qc = useQueryClient()
@@ -76,8 +82,15 @@ export default function TeAdmin() {
 
       {tab === 'rules' && <Rules rules={data.rules} onSave={r => void call('te_set_rule', { p_rule: r })} />}
       {tab === 'policy' && (
-        <div className="card grid gap-3 p-4 sm:grid-cols-2">
-          {POLICY.map(([k, l]) => <PolicyField key={k} label={l} value={data.policy[k]} onSave={v => void call('te_set_policy', { p_key: k, p_value: v })} />)}
+        <div className="space-y-3">
+          {POLICY_GROUPS.map(g => (
+            <div key={g.title} className="card p-4">
+              <p className="text-sm font-semibold text-ink-900">{g.title}</p>
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {g.items.map(([k, l]) => <PolicyField key={k} label={l} value={data.policy[k]} onSave={v => void call('te_set_policy', { p_key: k, p_value: v })} />)}
+              </div>
+            </div>
+          ))}
         </div>
       )}
       {tab === 'purposes' && <div className="space-y-4"><Purposes list={data.purposes} call={call} sw={!!data.sw} /><ExpenseKinds list={data.expense_kinds ?? []} call={call} sw={!!data.sw} /></div>}

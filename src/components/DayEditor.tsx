@@ -29,7 +29,7 @@ import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@
 import { useAuth } from '@/contexts/AuthContext'
 import {
   DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmRange, money, monthName, needsBill, newId,
-  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, dayExtra, ROAD_WHY_PCT } from '@/lib/claims'
+  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, mapBand, dayExtra, roadWhyPct, setRoadRules } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
 
 /*
@@ -253,12 +253,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const shotOn = routeShotsOn(c.ecode) && shotDay(d.day, c.ecode)
   // Google's roads for everyone's days from 19 Nov, a test login's any day (the user, 18 Nov), set before any ride asks for its km.
   setGoogleRoutes(googleFor(isTestLogin(c.ecode), d.day))
+  setRoadRules(data.policy)
   // Other routes, the % over the shortest road and its reason: test logins only, for now (the user, 18 Nov).
   const roadsExtra = isTestLogin(c.ecode)
-  const roadWhy = (r: Ride) => roadsExtra && MODES[r.mode].perKm && (shortExtra(r)?.pct ?? 0) > ROAD_WHY_PCT
+  const roadWhy = (r: Ride) => roadsExtra && MODES[r.mode].perKm && (shortExtra(r)?.pct ?? 0) > roadWhyPct()
   // The km that may be typed: Google's shortest to longest road when known (test logins), else the map's km to the tolerance over it.
-  const kmBand = (r: Ride) => (roadsExtra && MODES[r.mode].perKm ? roadBand(r) : null) ?? (r.map_km != null ? kmRange(r.map_km, tol) : null)
-  const googleBand = (r: Ride) => roadsExtra && MODES[r.mode].perKm && roadBand(r) != null
+  const kmBand = (r: Ride) => (roadsExtra && MODES[r.mode].perKm ? roadBand(r) ?? (r.map_km != null ? mapBand(r.map_km) : null) : null) ?? (r.map_km != null ? kmRange(r.map_km, tol) : null)
+  const googleBand = (r: Ride) => roadsExtra && MODES[r.mode].perKm && r.map_km != null
   const kmOff = (r: Ride) => { const b = kmBand(r); return r.claimed_km != null && b != null && (r.claimed_km < b.lo || r.claimed_km > b.hi) }
   const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
   const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
@@ -624,8 +625,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (stays) blockers.push({ text: `${n[0].toUpperCase() + n.slice(1)} starts and ends at ${(r.to_name ?? '').split(',')[0]}: change its To`, to })
     else if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
     // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
-    else if (m.perKm && kmOff(r) && lockedKm(r) == null) blockers.push({ text: roadsExtra && roadBand(r) ? `The km of ${n} must be ${km(roadBand(r)!.lo)} to ${km(roadBand(r)!.hi)}` : `The km of ${n} does not match the map (${km(r.map_km)})`, to })
-    else if (shotOn && needsShot(r, shotBand(data.policy)) && !shotOk(shotOf(r), r)) blockers.push({ text: `Add the Google Maps screenshot of ${n}`, to })
+    else if (m.perKm && kmOff(r) && lockedKm(r) == null) blockers.push({ text: googleBand(r) ? `The km of ${n} must be ${km(kmBand(r)!.lo)} to ${km(kmBand(r)!.hi)}` : `The km of ${n} does not match the map (${km(r.map_km)})`, to })
+    else if (shotOn && !roadsExtra && needsShot(r, shotBand(data.policy)) && !shotOk(shotOf(r), r)) blockers.push({ text: `Add the Google Maps screenshot of ${n}`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
@@ -891,7 +892,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       </div>
                     )}
                     {/* Only when Google's roads are off (free requests used up, or not yet theirs); one already added stays (18 Nov). */}
-                    {shotOn && m.perKm && ((needsShot(r, shotBand(data.policy)) && !googleRoutesOn()) || !!shotOf(r)) && (
+                    {shotOn && m.perKm && ((needsShot(r, shotBand(data.policy)) && !googleRoutesOn() && !roadsExtra) || !!shotOf(r)) && (
                       <div className="pl-6">
                         <RouteProof ride={r} shot={shotOf(r)} band={shotBand(data.policy)} claimId={c.id} onChange={refresh}
                           onKm={k => setRide(r.id, { claimed_km: k ?? r.map_km })} />
@@ -1166,7 +1167,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
         <div className="sticky bottom-16 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
           <span className="min-w-0 leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : paid(r)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
             {/* The day's km beside its rupees (the user, 27 Oct: "show total km also beautifully"). */}
-            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}{(() => { const x = roadsExtra ? dayExtra(d.rides) : null; return x && x.pct > ROAD_WHY_PCT && <b className="font-bold text-cyrixRed-700">+{x.pct}%</b> })()}</span> })()}</span></span>
+            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}{(() => { const x = roadsExtra ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="font-bold text-cyrixRed-700">+{x.pct}%</b> })()}</span> })()}</span></span>
           {/*
             What stops it: on a phone its own line under the total, full width (the user, 30 Oct: "is it looking good?" — it
             was squeezed into four short lines beside Save); beside Save on a wider screen. Save claim stays on one line

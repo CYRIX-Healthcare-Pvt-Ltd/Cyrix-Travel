@@ -11,7 +11,7 @@ import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
 import { homeLimit, endedNextMorning, startName, stayMinutes, stayText, shortDay } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
-import { routeShotsOn, shotBand, shotFits } from '@/lib/routeShots'
+import { routeShotsOn, shotBand, shotFits, isTestLogin } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import TicketLookup, { TICKET_TEST, BEMP_TICKET, copyTicketReports } from '@/components/TicketLookup'
@@ -21,7 +21,7 @@ import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
   DA_KINDS, DA_RANK, isAurum, MODES, billMatches, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
-  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide, shortExtra,
+  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide, shortExtra, dayExtra, roadWhyPct, setRoadRules,
 } from '@/lib/claims'
 
 /*
@@ -127,6 +127,7 @@ export default function ClaimPage() {
   const net = total - late - (c.advance ?? 0)
   const status = STATUS[c.status] ?? STATUS.draft
   const tol = Number(data.policy.km_tolerance_pct ?? 10)
+  setRoadRules(data.policy)
   const over = Number(data.policy.bill_over ?? 300)
   /*
     The bills still needed, named and marked on their days as soon as a day is saved, not only when sending
@@ -566,7 +567,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         </div>
         <div className="flex items-center gap-1">
           {/* The day's km beside its money, as weighty (the user, 21 Oct: "km by modes, emphasise km also like the amount"). */}
-          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}</span><span className="text-ink-300">·</span></>}
+          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}{(() => { const x = isTestLogin(c.ecode) ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="ml-1 font-bold text-cyrixRed-700">+{x.pct}%</b> })()}</span><span className="text-ink-300">·</span></>}
           <span className="mr-1 font-semibold text-ink-900">{money(dayTotal({ ...d, hotel: d.room_by ? null : d.hotel }, rule))}</span>
           {hasMap && <button type="button" className="btn-icon" title="See on map" aria-label="See on map" onClick={onMap}><MapIcon className="h-4 w-4 text-teal-600" /></button>}
           {c.can_edit && <button type="button" className="btn-icon" title="Edit" aria-label="Edit day" onClick={onEdit}><Pencil className="h-4 w-4" /></button>}
@@ -659,7 +660,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     : <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-amber-700"><CameraOff className="h-3.5 w-3.5 shrink-0" />No visit photo</span>
                 })()}
                 {/* A Google road more than the tolerance longer than Google's own, with why (te_0165). */}
-                {r.route_km != null && shortExtra(r) && (
+                {isTestLogin(c.ecode) && MODES[r.mode].perKm && shortExtra(r) && (
                   <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><Route className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     Map {km(r.map_km)} +{shortExtra(r)!.pct}% · +{km(shortExtra(r)!.km)}{r.route_why && <> · “{r.route_why}”</>}</span>
                 )}

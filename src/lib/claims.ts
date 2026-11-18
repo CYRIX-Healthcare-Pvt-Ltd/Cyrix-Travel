@@ -410,8 +410,17 @@ export const kmOutside = (r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: num
   const { lo, hi } = kmRange(r.map_km, tolerance)
   return r.claimed_km < lo || r.claimed_km > hi
 }
-/** Over this % above the shortest road, the engineer writes why (the user, 18 Nov: "if greater than 10%"). */
-export const ROAD_WHY_PCT = 10
+/**
+  The longer-road rules, from Settings (te_0166): over pct above Google's own road asks why; the longest road shown is
+  its km (with pct added from fromKm on) rounded up, plus extraKm. Set from the claim's policy before use.
+*/
+const ROAD = { pct: 10, fromKm: 30, extraKm: 3 }
+export const setRoadRules = (p: Record<string, unknown> | undefined) => {
+  const n = (k: string, d: number) => { const v = Number(p?.[k]); return Number.isFinite(v) ? v : d }
+  ROAD.pct = n('road_pct', 10); ROAD.fromKm = n('road_pct_from_km', 30); ROAD.extraKm = n('road_extra_km', 3)
+}
+/** Over this % above Google's own road, the engineer writes why (the user, 18 Nov: "if greater than 10%"). */
+export const roadWhyPct = () => ROAD.pct
 /** Google's roads kept on the ride for its present From and To (te_0164), or none. */
 const keptKms = (r: Pick<Ride, 'route_alts' | 'from_lat' | 'from_lng' | 'to_lat' | 'to_lng'>) => {
   if (!r.route_alts?.roads?.length || r.from_lat == null || r.to_lat == null) return []
@@ -423,7 +432,7 @@ const keptKms = (r: Pick<Ride, 'route_alts' | 'from_lat' | 'from_lng' | 'to_lat'
   plus 3; from 30 km, its km and 10% rounded up plus 3 (7.1 → 11, 60.5 → 70). The 3 only lets a road just past show.
   A road's own km is rounded down against it (27.8 shows under 27; the user, 18 Nov: "farthest down also").
 */
-export const roadLimit = (own: number) => Math.ceil(Math.round((own < 30 ? own : own * 1.1) * 1000) / 1000 - 1e-9) + 3
+export const roadLimit = (own: number) => Math.ceil(Math.round((own < ROAD.fromKm ? own : own * (1 + ROAD.pct / 100)) * 1000) / 1000 - 1e-9) + ROAD.extraKm
 /** Google's roads that may be picked: its own, any shorter, and longer ones up to roadLimit. */
 export const roadsShown = <T extends { km: number }>(alts: T[]) => alts.filter((x, i) => i === 0 || Math.floor(x.km + 1e-9) <= roadLimit(alts[0].km))
 /** The km a ride may claim when Google's roads are known: its shortest shown road up to the road picked, never more (the user, 18 Nov). */
@@ -435,7 +444,12 @@ export const roadBand = (r: Pick<Ride, 'route_alts' | 'from_lat' | 'from_lng' | 
   return { lo, hi: Math.max(lo, r.map_km ?? k[0]) }
 }
 /** Google's own road km for the ride: the first it gave (kept), or the one kept when another was picked. */
-export const ownKm = (r: Pick<Ride, 'route_km' | 'route_alts'>) => r.route_alts?.roads?.[0]?.km ?? r.route_km ?? null
+export const ownKm = (r: Pick<Ride, 'route_km' | 'route_alts' | 'map_km'>) => r.route_alts?.roads?.[0]?.km ?? r.route_km ?? r.map_km ?? null
+/**
+  No Google roads (its free requests used up, or our own map): the same most, from the map's km (the user, 18 Nov:
+  "if google map clicks is expired, same logic needed, in offline also").
+*/
+export const mapBand = (mapKm: number) => ({ lo: mapKm, hi: Math.max(mapKm, roadLimit(mapKm)) })
 /** The km over Google's own (fastest) road, of the km claimed (the map's when none is typed). */
 export const shortExtra = (r: Pick<Ride, 'map_km' | 'claimed_km' | 'route_km' | 'route_alts'>) => {
   const own = ownKm(r)
