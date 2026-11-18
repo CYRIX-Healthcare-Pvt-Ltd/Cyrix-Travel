@@ -659,7 +659,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     : <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-amber-700"><CameraOff className="h-3.5 w-3.5 shrink-0" />No visit photo</span>
                 })()}
                 {/* A Google road more than the tolerance longer than Google's own, with why (te_0165). */}
-                {shortPct(r) != null && (
+                {r.route_km != null && shortPct(r) != null && (
                   <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><Route className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     Map {km(r.map_km)} +{shortPct(r)}%{r.route_why && <> · “{r.route_why}”</>}</span>
                 )}

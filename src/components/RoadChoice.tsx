@@ -41,8 +41,10 @@ export function useRoads(ride: R, ask: boolean) {
   again later): shown, Google asked only when pressed. It also keeps route_km true to the road the ride has, when known:
   Google's own km when another road is taken, empty otherwise (a new From or To, a km of its own).
 */
-export function RoadsButton({ ride, open, onOpen, onRouteKm, onKeep, onlyUnknown = false }: {
+export function RoadsButton({ ride, open, onOpen, onRouteKm, onKeep, onlyUnknown = false, hidden = false }: {
   ride: R; open: boolean; onOpen: () => void; onRouteKm?: (km: number | null) => void
+  /** Keeps the roads on the ride without the button (everyone but the test logins, for now; the user, 18 Nov). */
+  hidden?: boolean
   /** Shown only while the roads are not known (the map, where known roads show open). */
   onlyUnknown?: boolean
   /** Google's roads to keep on the ride, once known for its From and To (te_0164). */
@@ -63,7 +65,7 @@ export function RoadsButton({ ride, open, onOpen, onRouteKm, onKeep, onlyUnknown
     if ((ride.route_km ?? null) !== want) onRouteKm(want)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alts, ride.map_km, ride.route_km])
-  if (!googleRoutesOn() || alts === undefined || (alts && (onlyUnknown || (alts.length < 2 && !open)))) return null
+  if (hidden || !googleRoutesOn() || alts === undefined || (alts && (onlyUnknown || (alts.length < 2 && !open)))) return null
   return (
     <button type="button" aria-expanded={open} onClick={onOpen}
       className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline">

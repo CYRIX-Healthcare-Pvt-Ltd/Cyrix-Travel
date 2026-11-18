@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 import { MODES, MODE_ORDER, kmWay, km, money, rideAmount, roadKm, shortPct, takenRoute, type Day, type Rule } from '@/lib/claims'
-import { googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
+import { googleFor, googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
 import { RoadsButton, RoutePick, seedRoads } from '@/components/RoadChoice'
 import { isTestLogin } from '@/lib/routeShots'
 import RouteProof from '@/components/RouteProof'
@@ -34,7 +34,8 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
   const [roadsOf, setRoadsOf] = useState<string | null>(null)
   const lift = useRef<(k: number | null) => void>(() => {})
   useBackCloses(onClose)
-  setGoogleRoutes(isTestLogin(ecode))
+  // Google's roads when every day shown is Google's (from 19 Nov; a test login's any day).
+  setGoogleRoutes(days.length > 0 && days.every(x => googleFor(isTestLogin(ecode), x.day)))
 
   /*
     The stops are numbered over all the rides opened, so a ride seen alone keeps the numbers it has on its
@@ -176,15 +177,15 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
               <span className="text-ink-900">{r.label}</span>
               <span className="rounded-md px-2 py-0.5 text-xs font-semibold" style={{ background: MODES[r.mode].bg, color: MODES[r.mode].fg }}>{MODES[r.mode].label}</span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">
-                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}{rides[i] && kmWay(rides[i].mode) === 'road' && shortPct({ ...rides[i], map_km: r.map }) != null && <b className="font-semibold text-cyrixRed-700"> +{shortPct({ ...rides[i], map_km: r.map })}%</b>}
+                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}{rides[i] && isTestLogin(ecode) && kmWay(rides[i].mode) === 'road' && shortPct({ ...rides[i], map_km: r.map }) != null && <b className="font-semibold text-cyrixRed-700"> +{shortPct({ ...rides[i], map_km: r.map })}%</b>}
               </span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">{money(r.cost)}</span>
               {/* Google's roads to pick from, here too (the user, 18 Nov); the screenshot only once they are off. */}
-              {rides[i] && onRoad && kmWay(rides[i].mode) === 'road' && (
+              {rides[i] && onRoad && isTestLogin(ecode) && kmWay(rides[i].mode) === 'road' && (
                 <span className="ml-auto"><RoadsButton ride={rides[i]} onlyUnknown open={roadsOf === rides[i].id} onOpen={() => setRoadsOf(roadsOf === rides[i].id ? null : rides[i].id)} /></span>
               )}
               {/* Open from the start when the roads are known (the user, 18 Nov: "here defaultly expand it"); asked only on a press. */}
-              {rides[i] && onRoad && kmWay(rides[i].mode) === 'road' && (
+              {rides[i] && onRoad && isTestLogin(ecode) && kmWay(rides[i].mode) === 'road' && (
                 <RoutePick ride={rides[i]} ask={roadsOf === rides[i].id} className="w-full" onPick={(k, own) => onRoad(rides[i].id, k, own)} />
               )}
               {rides[i] && shots && ((shotRides.has(rides[i].id) && !googleRoutesOn()) || shots.some(x => x.ride_id === rides[i].id)) && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}

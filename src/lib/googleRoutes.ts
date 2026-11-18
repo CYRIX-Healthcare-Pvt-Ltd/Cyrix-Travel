@@ -13,9 +13,14 @@ export interface KeptRoads { at: string; key: string; roads: Array<{ km: number;
 interface Pt { lat: number; lng: number }
 
 const KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined)?.trim() || ''
-/** Google is asked only when the key is set and the claim is a test login's (on for them alone, for now). */
+/** Everyone's rides from this day on (the user, 18 Nov: "can we enable to all from 19th date claim?"); test logins any day. */
+export const GOOGLE_FROM = '2026-11-19'
+export const googleFor = (test: boolean, day: string) => test || day >= GOOGLE_FROM
+/** Google is asked only when the key is set and the day is Google's (googleFor). */
 let on = false
-export const setGoogleRoutes = (yes: boolean) => { on = yes && !!KEY }
+/** The month's free requests used up: off for the rest of the session, whatever the page sets. */
+let spent = false
+export const setGoogleRoutes = (yes: boolean) => { on = yes && !!KEY && !spent }
 export const googleRoutesOn = () => on
 
 /** Google's encoded polyline to [lat, lng] points. */
@@ -68,7 +73,7 @@ export function googleRoutes(a: Pt, b: Pt): Promise<RouteAlt[] | null> {
 async function ask(a: Pt, b: Pt): Promise<RouteAlt[] | null> {
   // Only while Google is free this month (te_0163): at the limit, our own map, and no more asking this session.
   const { data: free, error } = await supabase.rpc('te_google_take')
-  if (error || free !== true) { if (!error) on = false; return null }
+  if (error || free !== true) { if (!error) { on = false; spent = true } return null }
   const stop = new AbortController(), t = setTimeout(() => stop.abort(), 12_000)
   try {
     const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {

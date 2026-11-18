@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
 import { isTestLogin, needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
-import { googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
+import { googleFor, googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
 import { RoadsButton, RoutePick } from '@/components/RoadChoice'
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
@@ -251,8 +251,11 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   // 9 Nov: "when attached, change the input field to what google map location says and it shouldnt be editable, only
   // if deleted, then it will come default of our map").
   const shotOn = routeShotsOn(c.ecode) && shotDay(d.day, c.ecode)
-  // Google's roads for a test login (the user, 18 Nov), set before any ride asks for its km.
-  setGoogleRoutes(isTestLogin(c.ecode))
+  // Google's roads for everyone's days from 19 Nov, a test login's any day (the user, 18 Nov), set before any ride asks for its km.
+  setGoogleRoutes(googleFor(isTestLogin(c.ecode), d.day))
+  // Other routes, the % over the shortest road and its reason: test logins only, for now (the user, 18 Nov).
+  const roadsExtra = isTestLogin(c.ecode)
+  const roadWhy = (r: Ride) => roadsExtra && (shortPct(r) ?? 0) > ROAD_WHY_PCT
   const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
   const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
   // A ride whose screenshot is gone goes back to the map's km once the claim has reloaded without it; until then the
@@ -622,7 +625,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
     if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
     else if (isBreakdown(r.purpose) && ticketMismatch(ticketFor(r.ticket_no, r.project), r.project)) blockers.push({ text: `The ticket of ${n} is not a ${r.project} ticket`, to })
-    if ((shortPct(r) ?? 0) > ROAD_WHY_PCT && !r.route_why?.trim()) blockers.push({ text: `Write why ${n} took the longer road`, to })
+    if (roadWhy(r) && !r.route_why?.trim()) blockers.push({ text: `Write why ${n} took the longer road`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
     // No visit photo: the photo or why not, before the day saves — today too, so Send finds nothing left (the user, 30 Oct).
     if (photoNeeded(r) && !r.photo_skip?.trim()) {
@@ -690,7 +693,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       p_day: {
         ...d,
         // "Photo not possible" only where a photo is still wanted (a purpose changed, or the photo found since).
-        rides: d.rides.map(r => ({ ...r, photo_skip: photoNeeded(r) ? r.photo_skip ?? null : null, route_why: (shortPct(r) ?? 0) > ROAD_WHY_PCT ? r.route_why ?? null : null })),
+        rides: d.rides.map(r => ({ ...r, photo_skip: photoNeeded(r) ? r.photo_skip ?? null : null, route_why: roadWhy(r) ? r.route_why ?? null : null })),
         purpose: dayPurpose ?? null,
         place, district, place_lat: null, place_lng: null, tickets,
         continues_day: joined,
@@ -853,13 +856,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {r.map_km != null && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 pl-6">
                         <p className={`flex-auto text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{kmWay(r.mode) === 'road' && shortPct(r) != null && <b className="font-semibold text-cyrixRed-700"> +{shortPct(r)}%</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
+                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{roadsExtra && kmWay(r.mode) === 'road' && shortPct(r) != null && <b className="font-semibold text-cyrixRed-700"> +{shortPct(r)}%</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
                             : m.perKm && kmOutside(r, tol) && typingKm !== r.id ? ' · km does not match'
                             : m.perKm && kmChanged(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
                         </p>
                         <span className="flex shrink-0 items-center gap-3">
                         {kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
-                          <RoadsButton ride={r} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
+                          <RoadsButton ride={r} hidden={!roadsExtra} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
                             onRouteKm={k => setRide(r.id, { route_km: k })} onKeep={k => setRide(r.id, { route_alts: k })} />
                         )}
                         <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
@@ -869,13 +872,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       </div>
                     )}
                     {/* Google's other roads, once asked: the one taken is picked and its km becomes the map's (test logins, 18 Nov). */}
-                    {roadsOf === r.id && kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
+                    {roadsExtra && roadsOf === r.id && kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
                       <RoutePick ride={r} onPick={(k, own) => setRide(r.id, { map_km: k, route_km: own })} />
                     )}
                     {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
                     {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
                     {/* A road more than 10% longer than Google's own: why, before the day saves (the user, 18 Nov: "ask reason"). */}
-                    {(shortPct(r) ?? 0) > ROAD_WHY_PCT && (
+                    {roadWhy(r) && (
                       <div className="mt-2 ml-6">
                         <input className={`input h-10 w-full text-sm ${!r.route_why?.trim() ? '!border-amber-400' : ''}`} aria-label="Why this road" placeholder="Why this road? (required)"
                           value={r.route_why ?? ''} onChange={e => setRide(r.id, { route_why: e.target.value === '' ? null : e.target.value })} />
