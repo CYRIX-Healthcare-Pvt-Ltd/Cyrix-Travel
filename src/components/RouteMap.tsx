@@ -3,7 +3,9 @@ import { useBackCloses } from '@/lib/useBackCloses'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
-import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, type Day, type Rule } from '@/lib/claims'
+import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, takenRoute, type Day, type Rule } from '@/lib/claims'
+import { setGoogleRoutes } from '@/lib/googleRoutes'
+import { isTestLogin } from '@/lib/routeShots'
 import RouteProof from '@/components/RouteProof'
 import { shotDay, type Band, type RouteShot } from '@/lib/routeShots'
 
@@ -98,20 +100,24 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
       })
       let sum = 0
       const out: typeof rows = []
+      setGoogleRoutes(isTestLogin(ecode))
       for (let k = 0; k < shown.length; k++) {
         const r = rides[k], m = MODES[r.mode]
         const road = await roadKm({ name: '', lat: r.from_lat!, lng: r.from_lng! }, { name: '', lat: r.to_lat!, lng: r.to_lng! }, r.mode)
         if (!alive || !map) return
-        const line = road?.line ?? [[r.from_lat!, r.from_lng!], [r.to_lat!, r.to_lng!]]
+        // The Google route the ride took, when it chose one (test logins, 18 Nov).
+        const took = takenRoute(road?.alts, r.map_km)
+        const line = took?.line ?? road?.line ?? [[r.from_lat!, r.from_lng!], [r.to_lat!, r.to_lng!]]
+        const roadKmNow = took?.km ?? road?.km
         pts.push(...line)
-        sum += road?.km ?? r.map_km ?? 0
+        sum += roadKmNow ?? r.map_km ?? 0
         const edge = L.polyline(line, { color: '#fff', weight: 0, opacity: 0 }).addTo(map)
         const pl = L.polyline(line, { color: m.color, weight: 6, opacity: 0.95, className: 'rm-line' }).addTo(map)
         const mid = line[Math.floor(line.length / 2)]
-        const label = L.marker(mid, { icon: L.divIcon({ className: '', html: `<div class="rm-km" style="background:${m.bg};color:${m.fg}">${m.label} · ${km(road?.km ?? r.map_km)} · ${money(rideAmount(r, rule))}</div>`, iconSize: undefined }) }).addTo(map)
+        const label = L.marker(mid, { icon: L.divIcon({ className: '', html: `<div class="rm-km" style="background:${m.bg};color:${m.fg}">${m.label} · ${km(roadKmNow ?? r.map_km)} · ${money(rideAmount(r, rule))}</div>`, iconSize: undefined }) }).addTo(map)
         parts.push({ line: pl, edge, label })
         for (const t of [pl, label]) { t.on('mouseover', () => lift.current(k)); t.on('mouseout', () => lift.current(null)) }
-        out.push({ label: `${r.from_name ?? ''} → ${r.to_name ?? ''}`, mode: r.mode, claimed: r.claimed_km, map: road?.km ?? r.map_km, cost: rideAmount(r, rule), ends: ends[shown[k]] })
+        out.push({ label: `${r.from_name ?? ''} → ${r.to_name ?? ''}`, mode: r.mode, claimed: r.claimed_km, map: roadKmNow ?? r.map_km, cost: rideAmount(r, rule), ends: ends[shown[k]] })
       }
       if (pts.length) map.fitBounds(pts, { padding: [30, 30] })
       setRows(out); setTotal(sum)

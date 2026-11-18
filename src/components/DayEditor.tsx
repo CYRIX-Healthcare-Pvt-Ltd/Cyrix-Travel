@@ -10,7 +10,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
-import { needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
+import { isTestLogin, needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
+import { googleRoutes, setGoogleRoutes, type RouteAlt } from '@/lib/googleRoutes'
 import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
@@ -248,6 +249,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   // 9 Nov: "when attached, change the input field to what google map location says and it shouldnt be editable, only
   // if deleted, then it will come default of our map").
   const shotOn = routeShotsOn(c.ecode) && shotDay(d.day, c.ecode)
+  // Google's roads for a test login (the user, 18 Nov), set before any ride asks for its km.
+  setGoogleRoutes(isTestLogin(c.ecode))
   const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
   const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
   // A ride whose screenshot is gone goes back to the map's km once the claim has reloaded without it; until then the
@@ -856,6 +859,10 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         </button>
                       </div>
                     )}
+                    {/* Google's other roads for the ride: the one taken is picked and its km becomes the map's (test logins, 18 Nov). */}
+                    {kmWay(r.mode) === 'road' && r.from_lat != null && r.to_lat != null && (
+                      <RoutePick ride={r} onPick={k => setRide(r.id, { map_km: k })} />
+                    )}
                     {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
                     {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
                     {shotOn && m.perKm && (needsShot(r, shotBand(data.policy)) || !!shotOf(r)) && (
@@ -1211,6 +1218,35 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           onClose={() => setPicking(null)}
         />
       )}
+    </div>
+  )
+}
+
+/** Google's roads between a ride's places, as chips when there is more than one; the chosen one is the ride's map km. */
+function RoutePick({ ride, onPick }: { ride: Ride; onPick: (km: number) => void }) {
+  const [alts, setAlts] = useState<RouteAlt[] | null>(null)
+  const at = `${ride.from_lat},${ride.from_lng};${ride.to_lat},${ride.to_lng}`
+  useEffect(() => {
+    let on = true
+    setAlts(null)
+    void googleRoutes({ lat: ride.from_lat!, lng: ride.from_lng! }, { lat: ride.to_lat!, lng: ride.to_lng! }).then(a => { if (on) setAlts(a) })
+    return () => { on = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [at])
+  if (!alts || alts.length < 2) return null
+  const taken = alts.find(x => ride.map_km != null && Math.abs(x.km - ride.map_km) < 0.05) ?? null
+  return (
+    <div className="mt-1.5 grid grid-cols-1 gap-1.5 pl-6 sm:grid-cols-3">
+      {alts.map((x, i) => {
+        const on = x === taken
+        return (
+          <button key={i} type="button" aria-pressed={on} onClick={() => onPick(x.km)}
+            className={`min-w-0 rounded-lg border px-2.5 py-1.5 text-left text-xs ${on ? 'border-teal-600 bg-teal-50 font-semibold text-teal-800' : 'border-ink-200 bg-surface text-ink-700 hover:border-teal-400'}`}>
+            <span className="block">{km(x.km)} · {x.mins} min</span>
+            {x.via && <span className="block truncate text-ink-500">via {x.via}</span>}
+          </button>
+        )
+      })}
     </div>
   )
 }

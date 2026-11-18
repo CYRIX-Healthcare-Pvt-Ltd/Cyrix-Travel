@@ -1,3 +1,4 @@
+import { googleRoutes, googleRoutesOn, type RouteAlt } from '@/lib/googleRoutes'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { VehicleSpan } from '@/lib/vehicles'
 import {
@@ -407,6 +408,9 @@ export const kmChanged = (r: Pick<Ride, 'claimed_km' | 'map_km'>) => r.claimed_k
 
 // ---------------------------------------------------------------- maps
 export interface Place { name: string; lat: number; lng: number }
+/** The road a ride took among Google's: the one whose km the ride has. */
+export const takenRoute = (alts: RouteAlt[] | undefined, mapKm: number | null | undefined) =>
+  alts?.length ? (alts.find(x => mapKm != null && Math.abs(x.km - mapKm) < 0.05) ?? alts[0]) : null
 
 /** A train or the metro goes by its tracks, not the road (the user, 23 Oct). */
 export const RAIL_MODES = new Set<ModeCode>(['train', 'metro'])
@@ -428,11 +432,16 @@ export const kmWay = (mode: ModeCode) => (RAIL_MODES.has(mode) ? 'rail' : mode =
  * flight, else by road from the free OSRM router on OpenStreetMap (the same as the trip module used). A rail route not
  * found falls back to the road.
  */
-export async function roadKm(a: Place, b: Place, mode?: ModeCode | null): Promise<{ km: number; line: [number, number][] } | null> {
+export async function roadKm(a: Place, b: Place, mode?: ModeCode | null): Promise<{ km: number; line: [number, number][]; alts?: RouteAlt[] } | null> {
   if (mode === 'flight') return { km: Math.round(distanceKm(a, b) * 10) / 10, line: [[a.lat, a.lng], [b.lat, b.lng]] }
   if (mode && RAIL_MODES.has(mode)) {
     const rail = await railKm(a, b)
     if (rail) return rail
+  }
+  // Google's routes for a test login (the user, 18 Nov): its first route, the others offered on the ride.
+  if (googleRoutesOn()) {
+    const alts = await googleRoutes(a, b)
+    if (alts) return { km: alts[0].km, line: alts[0].line, alts }
   }
   const key = `${a.lat.toFixed(5)},${a.lng.toFixed(5)};${b.lat.toFixed(5)},${b.lng.toFixed(5)}`
   const kept = roads.get(key)
