@@ -817,13 +817,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 )
                 return (
                   // A soft line and tint in its mode's colour (the user, 17 Oct: "not this much color, like neon").
-                  <div key={r.id} id={'ride-' + r.id} className="scroll-mt-24 rounded-xl border p-3 transition-shadow" style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
-                    <div className="flex items-start gap-2">
-                      <span className="mt-3 w-4 text-xs font-semibold text-ink-400">{i + 1}</span>
-                      <div className="min-w-0 flex-1 space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}</div>
-                      <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-4 w-4" /></button>
-                    </div>
-                    <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-2 pl-6 sm:gap-x-2">
+                  // "Ride 1" and the bin sit on the card's top border, so the places get the full width (the user, 18 Nov: B).
+                  <div key={r.id} id={'ride-' + r.id} className={`relative scroll-mt-24 rounded-xl border p-3 pt-4 transition-shadow ${i === 0 ? 'mt-4' : '!mt-6'}`} style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
+                    <span className="absolute -top-3 left-3 rounded-full border px-2.5 py-0.5 text-xs font-semibold text-ink-800" style={{ borderColor: m.color + '99', background: `color-mix(in srgb, ${m.color} 16%, rgb(var(--surface)))` }}>Ride {i + 1}</span>
+                    <button type="button" className="absolute -top-3.5 right-3 grid h-7 w-7 place-items-center rounded-full border border-ink-200 bg-surface text-ink-400 transition-colors duration-150 hover:border-cyrixRed-200 hover:bg-cyrixRed-50 hover:text-cyrixRed-700 focus-visible:border-cyrixRed-200 focus-visible:text-cyrixRed-700 active:scale-95" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-3.5 w-3.5" /></button>
+                    <div className="space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}</div>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-2 sm:gap-x-2">
                       <ModePicker value={r.mode} onChange={code => setMode(r.id, code)} blocked={code => outOfPolicy(code, rule, data.vehicles, d.day ?? undefined)} />
                       {m.perKm ? (
                         <span className="relative min-w-[4.75rem] max-w-[8rem] flex-1">
@@ -861,7 +860,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {/* One short line about the map, under the km it checks (the user, 2 Nov), amber when the km is over (no chips). */}
                     {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
                     {r.map_km != null && (
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 pl-6">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                         <p className={`flex-auto text-xs ${m.perKm && kmChanged(r) && !googleBand(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
                           <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{roadsExtra && m.perKm && shortExtra(r) && <b className="font-semibold text-cyrixRed-700"> +{shortExtra(r)!.pct}% · +{km(shortExtra(r)!.km)}</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
                             : m.perKm && kmOff(r) && typingKm !== r.id ? ' · km does not match'
@@ -886,20 +885,20 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
                     {/* A road more than 10% longer than Google's own: why, before the day saves (the user, 18 Nov: "ask reason"). */}
                     {roadWhy(r) && (
-                      <div className="mt-2 ml-6">
+                      <div className="mt-2">
                         <input className={`input h-10 w-full text-sm ${!r.route_why?.trim() ? '!border-amber-400' : ''}`} aria-label="Why this road" placeholder="Why this road? (required)"
                           value={r.route_why ?? ''} onChange={e => setRide(r.id, { route_why: e.target.value === '' ? null : e.target.value })} />
                       </div>
                     )}
                     {/* Only when Google's roads are off (free requests used up, or not yet theirs); one already added stays (18 Nov). */}
                     {shotOn && m.perKm && ((needsShot(r, shotBand(data.policy)) && !googleRoutesOn() && !roadsExtra) || !!shotOf(r)) && (
-                      <div className="pl-6">
+                      <div>
                         <RouteProof ride={r} shot={shotOf(r)} band={shotBand(data.policy)} claimId={c.id} onChange={refresh}
                           onKm={k => setRide(r.id, { claimed_km: k ?? r.map_km })} />
                       </div>
                     )}
                     {/* Why, and for which call centre — each ride its own (te_0060). */}
-                    <div className="mt-2.5 grid grid-cols-1 gap-2 pl-6 sm:grid-cols-2">
+                    <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <PickList id={'purpose-' + r.id} label="Purpose" title={`Purpose of ride ${i + 1}`} placeholder="Purpose…" alarm={nudged(r.id, 'purpose')} value={r.purpose}
                         options={[...new Set([...data.purposes, ...(r.purpose ? [r.purpose] : [])])].map(p => ({ value: p, label: p, ...purposeLook(p) }))}
                         onChange={v => setRide(r.id, { purpose: v })} />
@@ -907,9 +906,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         options={[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => ({ value: x, label: x, icon: Headset, tone: 'cyan' as const }))}
                         onChange={v => setRide(r.id, v === r.project ? { project: v } : { project: v, ticket_no: '' })} />
                     </div>
-                    {nudgeLine(r.id, 'purpose', i + 1, 'pl-6')}
+                    {nudgeLine(r.id, 'purpose', i + 1, '')}
                     {isBreakdown(r.purpose) && (
-                      <div className="mt-2 flex items-center gap-2 pl-6">
+                      <div className="mt-2 flex items-center gap-2">
                         <span className="relative min-w-0 flex-1">
                           <TicketIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-600" />
                           <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })} onFocus={() => setEditingTicket({ id: r.id, was: r.ticket_no ?? '' })}
@@ -925,13 +924,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     )}
                     {/* A round trip: where its return will be added (te_0058). */}
                     {r.return_leg?.date && !returnAdded(r.return_leg) && r.return_leg.date !== d.day && (
-                      <p className="mt-1.5 pl-6 text-xs font-semibold text-sky-700">
+                      <p className="mt-1.5 text-xs font-semibold text-sky-700">
                         Round trip · return on {((iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))(r.return_leg.date)}, {r.return_leg.from} → {r.return_leg.to} — {r.return_leg.date.slice(0, 7) === c.month.slice(0, 7) ? 'add it on that day' : "add it in that month's claim"}
                       </p>
                     )}
                     {/* A ticket for another day than this one (te_0057; the user, 22 Oct). */}
                     {r.ticket_date && r.ticket_date !== d.day && (
-                      <p className="mt-1.5 pl-6 text-xs font-semibold text-amber-800">
+                      <p className="mt-1.5 text-xs font-semibold text-amber-800">
                         The ticket is for {new Date(r.ticket_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} — this day is {new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
                       </p>
                     )}
@@ -944,7 +943,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       if (hit) {
                         const late = lateBy(hit.photo)
                         return (
-                          <div className="mt-2 ml-6 flex items-center gap-2.5 rounded-lg bg-emerald-50 px-2 py-1.5 ring-1 ring-emerald-200">
+                          <div className="mt-2 flex items-center gap-2.5 rounded-lg bg-emerald-50 px-2 py-1.5 ring-1 ring-emerald-200">
                             <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? to} · ${clock(hit.photo.shot_at)}`} />
                             <p className="min-w-0 text-xs text-emerald-900"><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${to}`}{(() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{late && <span className="font-semibold text-amber-700"> · {late}</span>}</p>
                           </div>
@@ -955,7 +954,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       // The reason box shows by itself, no button first (the user, 30 Oct); typing it is the Photo not possible.
                       const why = r.photo_skip ?? '', open = r.photo_skip != null || left > 0 || !blocked
                       return (
-                        <div className="mt-2 ml-6 space-y-1.5 rounded-lg bg-amber-50 px-2.5 py-2 ring-1 ring-amber-200">
+                        <div className="mt-2 space-y-1.5 rounded-lg bg-amber-50 px-2.5 py-2 ring-1 ring-amber-200">
                           <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900"><CameraOff className="h-3.5 w-3.5" /> No visit photo
                             {(d.day === today || lateHere) && (notStarted && !lateHere
                               ? <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setStarting(true)}><Sunrise className="h-3.5 w-3.5" /> Start my day</button>
@@ -967,13 +966,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       )
                     })()}
                     {order && orderText && order.late.ride.id === r.id && (
-                      <p className="mt-2 ml-6 rounded-lg bg-cyrixRed-50 px-2.5 py-1.5 text-xs font-medium text-cyrixRed-800 ring-1 ring-cyrixRed-200">
+                      <p className="mt-2 rounded-lg bg-cyrixRed-50 px-2.5 py-1.5 text-xs font-medium text-cyrixRed-800 ring-1 ring-cyrixRed-200">
                         The {orderText.late} photo is {orderText.lateAt}, before {orderText.early} at {orderText.earlyAt}. Put the rides in the order you went.
                       </p>
                     )}
                     {/* The bill and what it reads, on a line of its own (the user, 18 Oct). */}
                     {data.bills.some(b => b.owner_id === r.id) && (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <BillButton compact part="bills" claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={false} claimed={m.perKm ? undefined : r.fare} onChange={refresh} />
                         {read != null && r.fare != null && !billMatches(read, r.fare) && (
                           <span className="text-xs font-semibold text-amber-800">Reads {money(read)} · <button type="button" className="underline" onClick={() => setRide(r.id, { fare: read })}>Use {money(read)}</button></span>
@@ -981,12 +980,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       </div>
                     )}
                     {/* Anything about the ride, in the engineer's words (the user, 21 Oct). */}
-                    <div className="mt-2 pl-6">
+                    <div className="mt-2">
                       <input className={`input h-10 w-full text-sm ${REMARKS_NEEDED.has(r.mode) && !r.note?.trim() ? '!border-amber-400' : ''}`} aria-label="Remarks" placeholder={REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
                     </div>
                     {/* A ticket the company booked: shown, and not claimed (te_0042). */}
-                    {(() => { const co = companyOf(data.bills, r); return co && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
-                    {notAllowed && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-cyrixRed-100 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
+                    {(() => { const co = companyOf(data.bills, r); return co && <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
+                    {notAllowed && <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-cyrixRed-100 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
                   </div>
                 )
               })}

@@ -75,7 +75,7 @@ export function RoadsButton({ ride, open, onOpen, onRouteKm, onKeep, onlyUnknown
 }
 
 /** Google's roads as boxes (one when it has one); the one pressed is the ride's map km, Google's own km kept when it is another. */
-export function RoutePick({ ride, onPick, className = 'mt-1.5 pl-6', ask = true }: {
+export function RoutePick({ ride, onPick, className = 'mt-1.5', ask = true }: {
   ride: R; onPick: (km: number, own: number | null) => void; className?: string
   /** false: only roads already known, nothing asked (the map shows them open; the user, 18 Nov). */
   ask?: boolean
