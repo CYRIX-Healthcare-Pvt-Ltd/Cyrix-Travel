@@ -116,6 +116,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const [mapRide, setMapRide] = useState<Ride | null>(null)
   // The ride whose other roads are open (the user, 18 Nov: hidden until asked, Google's own road kept).
   const [roadsOf, setRoadsOf] = useState<string | null>(null)
+  // Open roads close on a press anywhere else (the user, 18 Nov: "clicked anywhere other ... it should collapse").
+  useEffect(() => {
+    if (!roadsOf) return
+    const away = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest?.(`[data-roads="${roadsOf}"]`)) setRoadsOf(null) }
+    document.addEventListener('pointerdown', away)
+    return () => document.removeEventListener('pointerdown', away)
+  }, [roadsOf])
   // The claim's details, kept in the form with everything else (the user, 17 Oct).
   const [hdr, setHdr] = useState(kept?.hdr ?? header)
   const changed = JSON.stringify({ ...d, id: initial.id }) !== JSON.stringify(initial) || JSON.stringify(hdr) !== JSON.stringify(header)
@@ -866,20 +873,24 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                             : m.perKm && kmOff(r) && typingKm !== r.id ? ' · km does not match'
                             : m.perKm && kmChanged(r) && !googleBand(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
                         </p>
-                        <span className="flex shrink-0 items-center gap-3">
-                        {m.perKm && r.from_lat != null && r.to_lat != null && (
-                          <RoadsButton ride={r} hidden={!roadsExtra} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
-                            onRouteKm={k => setRide(r.id, { route_km: k })} onKeep={k => setRide(r.id, { route_alts: k })} />
-                        )}
-                        <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
-                          <MapIcon className="h-3.5 w-3.5" /> View on map
-                        </button>
-                        </span>
+                        {/*
+                          View on map at the right of the map's km; with Other routes, both on their own line, Other routes at
+                          the left and View on map at the right (the user, 18 Nov: "view on map in same row as other").
+                        */}
+                        <div data-roads={r.id} className="ml-auto flex items-center gap-3 has-[[data-other]]:ml-0 has-[[data-other]]:basis-full">
+                          {m.perKm && r.from_lat != null && r.to_lat != null && (
+                            <RoadsButton ride={r} hidden={!roadsExtra} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
+                              onRouteKm={k => setRide(r.id, { route_km: k })} onKeep={k => setRide(r.id, { route_alts: k })} />
+                          )}
+                          <button type="button" className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
+                            <MapIcon className="h-3.5 w-3.5" /> View on map
+                          </button>
+                        </div>
                       </div>
                     )}
                     {/* Google's other roads, once asked: the one taken is picked and its km becomes the map's (test logins, 18 Nov). */}
                     {roadsExtra && roadsOf === r.id && m.perKm && r.from_lat != null && r.to_lat != null && (
-                      <RoutePick ride={r} onPick={(k, own) => setRide(r.id, { map_km: k, route_km: own })} />
+                      <div data-roads={r.id}><RoutePick ride={r} onPick={(k, own) => setRide(r.id, { map_km: k, route_km: own })} /></div>
                     )}
                     {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
                     {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}

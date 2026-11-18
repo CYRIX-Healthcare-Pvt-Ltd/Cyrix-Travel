@@ -67,7 +67,7 @@ export function RoadsButton({ ride, open, onOpen, onRouteKm, onKeep, onlyUnknown
   }, [alts, ride.map_km, ride.route_km])
   if (hidden || !googleRoutesOn() || alts === undefined || (alts && (onlyUnknown || (roadsShown(alts).length < 2 && !open)))) return null
   return (
-    <button type="button" aria-expanded={open} onClick={onOpen}
+    <button type="button" data-other aria-expanded={open} onClick={onOpen}
       className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline">
       <Route className="h-3.5 w-3.5" /> Other routes
     </button>
