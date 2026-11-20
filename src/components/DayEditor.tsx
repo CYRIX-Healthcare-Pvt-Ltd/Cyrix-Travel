@@ -29,7 +29,7 @@ import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@
 import { useAuth } from '@/contexts/AuthContext'
 import {
   autoAfterBike, DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmRange, money, monthName, needsBill, newId,
-  kmOutFromHome, areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, mapBand, dayExtra, roadWhyPct, setRoadRules } from '@/lib/claims'
+  rpc, kmOutFromHome, areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, mapBand, dayExtra, roadWhyPct, setRoadRules } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
 
 /*
@@ -193,6 +193,24 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
   // Each ride its own photo (te_0092): a hospital gone to twice needs two.
   const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
+  /*
+    The next visit photo for a ride's To (the user, 20 Nov): the first photo of the day not on a ride yet, taken after
+    the photo of the ride before it. Offered on the card under an empty To and at the top of the picker.
+  */
+  const photoOf = (r: Ride) => setup && d.day ? (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo ?? null : null
+  const nextPhoto = (i: number) => {
+    if (!setup?.on || !d.day) return null
+    const usedIds = new Set(d.rides.map(photoOf).filter(Boolean).map(p => p!.id))
+    const after = d.rides.slice(0, i).map(photoOf).filter(Boolean).map(p => p!.shot_at).sort().pop() ?? ''
+    return dayPhotos.find(p => !usedIds.has(p.id) && p.shot_at > after) ?? null
+  }
+  const [usingPhoto, setUsingPhoto] = useState<string | null>(null)
+  const useNextPhoto = async (rideId: string, ph: NonNullable<ReturnType<typeof nextPhoto>>) => {
+    setUsingPhoto(rideId)
+    const known = await rpc<string | null>('te_place_at', { p_lat: ph.lat, p_lng: ph.lng }).catch(() => null)
+    const name = known ?? ((ph.place ?? '').split(',')[0].trim() || 'Visit photo')
+    try { await placed(rideId, 'to', { name, lat: ph.lat, lng: ph.lng } as Place, !known) } finally { setUsingPhoto(null) }
+  }
   const photoNeeded = (r: Ride) => needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides)) && !!d.day && !shots.has(r.id)
   // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
   const dayPhotos = useMemo(() => photosPreview && d.day ? previewPhotos(d.day) : (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
@@ -834,7 +852,25 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   <div key={r.id} id={'ride-' + r.id} className={`relative scroll-mt-24 rounded-xl border p-3 pt-4 transition-shadow ${i === 0 ? 'mt-4' : '!mt-6'}`} style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
                     <span className="absolute -top-3 left-3 rounded-full border px-2.5 py-0.5 text-xs font-semibold text-ink-800" style={{ borderColor: m.color + '99', background: `color-mix(in srgb, ${m.color} 16%, rgb(var(--surface)))` }}>Ride {i + 1}</span>
                     <button type="button" className="absolute -top-3.5 right-3 grid h-7 w-7 place-items-center rounded-full border border-ink-200 bg-surface text-ink-400 transition-colors duration-150 hover:border-cyrixRed-200 hover:bg-cyrixRed-50 hover:text-cyrixRed-700 focus-visible:border-cyrixRed-200 focus-visible:text-cyrixRed-700 active:scale-95" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-3.5 w-3.5" /></button>
-                    <div className="space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}</div>
+                    <div className="space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}
+                      {!r.to_name && !endLocked && (() => {
+                        const ph = nextPhoto(i)
+                        if (!ph) return null
+                        return (
+                          <button type="button" disabled={usingPhoto === r.id} onClick={() => void useNextPhoto(r.id, ph)}
+                            className="flex w-full items-center gap-2.5 ring-glow rounded-lg p-1.5 text-left">
+                            <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-md bg-ink-100">
+                              <VisitThumb path={ph.path} label={ph.place ?? ''} className="absolute inset-0 h-full w-full" />
+                              <span className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/75 text-[10px] font-bold text-white">{dayPhotos.findIndex(x => x.id === ph.id) + 1}</span>
+                            </span>
+                            <span className="min-w-0 flex-1 text-sm">
+                              <span className="block text-xs font-semibold text-emerald-700">Next location</span>
+                              <span className="block truncate font-semibold text-ink-900">{(ph.place ?? '').split(',')[0] || 'Visit photo'} · {clock(ph.shot_at)}</span>
+                            </span>
+                            <span className="shrink-0 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">{usingPhoto === r.id ? <Spinner className="h-4 w-4" /> : 'Use'}</span>
+                          </button>
+                        )
+                      })()}</div>
                     <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-2 sm:gap-x-2">
                       <ModePicker value={r.mode} onChange={code => setMode(r.id, code)} blocked={code => outOfPolicy(code, rule, data.vehicles, d.day ?? undefined)} />
                       {m.perKm ? (
@@ -1248,6 +1284,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           quick={quick}
           photos={dayPhotos}
           used={setup && d.day ? d.rides.map(r => (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo.id).filter((x): x is string => !!x) : []}
+          suggest={picking.end === 'to' ? nextPhoto(d.rides.findIndex(x => x.id === picking.ride)) : null}
+          usedBy={setup && d.day ? Object.fromEntries(d.rides.flatMap((r, i) => { const id = (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo.id; return id ? [[id, i + 1] as const] : [] })) : {}}
           onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
           /*
             Today, before the day is started, the first ride's From is Start my day: the press is the From, and it is

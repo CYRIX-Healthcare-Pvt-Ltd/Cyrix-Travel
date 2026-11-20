@@ -1934,3 +1934,15 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .shot-need { color: #000; }
 }
+
+/* "Next location": a plain green border that softly glows brighter and dimmer (the user, 20 Nov: "soft pulse"). */
+.ring-glow {
+  border: 2px solid #10b981;
+  background: rgb(var(--surface));
+  animation: ring-pulse 2s ease-in-out infinite;
+}
+@keyframes ring-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(16 185 129 / 0); }
+  50% { box-shadow: 0 0 0 4px rgb(16 185 129 / .22), 0 0 12px rgb(16 185 129 / .35); }
+}
+@media (prefers-reduced-motion: reduce) { .ring-glow { animation: none; } }

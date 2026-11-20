@@ -16,7 +16,7 @@ import { clock, usePhotoUrls, type VisitPhoto } from '@/lib/visits'
   should be there to select in map"): searched by name, or a pin dropped and dragged, or where the
   phone is. It works the next day too: nothing here depends on where the phone is now unless asked.
 */
-export default function PlacePicker({ title, start, near, other, quick, photos, used, onPick, onClose, askName = false, plain = false, yes, camera, also, startGps = false }: {
+export default function PlacePicker({ title, start, near, other, quick, photos, used, usedBy, suggest, onPick, onClose, askName = false, plain = false, yes, camera, also, startGps = false }: {
   title: string
   start?: Place | null
   /** Where the map opens when nothing is picked yet: a ride's start, for its end. */
@@ -28,6 +28,10 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
   photos?: VisitPhoto[]
   /** The photos already on one of the day's rides: a green edge and a tick (the user, 30 Oct: "already selected image show a green border"). */
   used?: string[]
+  /** Which ride each used photo is on, by photo id (the user, 20 Nov: the photo's order and its ride). */
+  usedBy?: Record<string, number>
+  /** The next visit photo to use, offered in one press above the strip (the user, 20 Nov: option 3). */
+  suggest?: VisitPhoto | null
   /** `named`: a spot the map does not have, given its name by hand — learned for everyone once its day is saved (te_0071). */
   /** `gps`: the pin is where the phone was, untouched (a home set so counts as set at home; the user, 3 Nov). */
   onPick: (p: Place, name?: string, named?: boolean, gps?: boolean) => void
@@ -114,8 +118,11 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
     setFromPhoto(null)
     knownAt.current = known
     const named = known ?? (ph.place ?? '').split(',')[0].trim()
+    // One press goes back to the claim with the photo's place (the user, 20 Nov: "earlier on single click the image will go
+    // to claim page"); Name this place stays for a spot pressed or searched on the map.
     await put(ph.lat, ph.lng, named || 'Visit photo')
-    setNaming(named)
+    knownAt.current = null
+    void finish({ lat: ph.lat, lng: ph.lng, name: named || 'Visit photo' } as Place, !known)
   }
 
   const put = async (lat: number, lng: number, name?: string, move = true, fromLink?: string, byGps = false) => {
@@ -239,14 +246,33 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
         {/* The day's visit photos first, earliest first: the photo is the place. */}
         {(photos ?? []).length > 0 && (
           <div className="shrink-0">
+            {suggest && (
+              <button type="button" onClick={() => void pickPhoto(suggest)} disabled={!!fromPhoto}
+                className="mb-3 flex w-full items-center gap-3 ring-glow rounded-xl p-2 text-left">
+                <span className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-ink-100">
+                  {suggest.path && (suggest.path.startsWith('data:') || photoUrls[suggest.path]) ? <img src={suggest.path.startsWith('data:') ? suggest.path : photoUrls[suggest.path]} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <Camera className="h-5 w-5 text-ink-400" />}
+                  <span className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/75 text-[10px] font-bold text-white">{[...photos!].sort((a, b) => a.shot_at.localeCompare(b.shot_at)).findIndex(x => x.id === suggest.id) + 1}</span>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold text-emerald-700">Next location</span>
+                  <span className="block truncate text-sm font-semibold text-ink-900">{(suggest.place ?? '').split(',')[0] || 'Visit photo'}</span>
+                  <span className="block text-xs text-ink-500">{clock(suggest.shot_at)}</span>
+                </span>
+                <span className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">{fromPhoto === suggest.id ? <Spinner className="h-4 w-4" /> : 'Use'}</span>
+              </button>
+            )}
             <p className="label">Visit photos</p>
             <div className="mt-1 flex gap-2 overflow-x-auto pb-1">
-              {photos!.map(ph => (
+              {[...photos!].sort((a, b) => a.shot_at.localeCompare(b.shot_at)).map((ph, i) => (
                 <button key={ph.id} type="button" onClick={() => void pickPhoto(ph)} disabled={!!fromPhoto}
                   className={`w-24 shrink-0 overflow-hidden rounded-xl border text-left transition-colors ${used?.includes(ph.id) ? 'border-emerald-500 outline outline-2 -outline-offset-2 outline-emerald-500' : 'border-ink-200 hover:border-ink-400'}`}>
                   <span className="relative grid h-14 w-full place-items-center overflow-hidden bg-ink-100">
                     {ph.path && (ph.path.startsWith('data:') || photoUrls[ph.path]) ? <img src={ph.path.startsWith('data:') ? ph.path : photoUrls[ph.path]} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <Camera className="h-5 w-5 text-ink-400" />}
-                    {used?.includes(ph.id) && <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white shadow"><Check className="h-3.5 w-3.5" strokeWidth={3} /></span>}
+                    {/* The order taken that day, and the ride a used one is on (the user, 20 Nov). */}
+                    <span className="absolute left-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/75 text-[11px] font-bold text-white ring-1 ring-white/70 shadow">{i + 1}</span>
+                    {used?.includes(ph.id) && (usedBy?.[ph.id]
+                      ? <span className="absolute right-1 top-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">Ride {usedBy[ph.id]}</span>
+                      : <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white shadow"><Check className="h-3.5 w-3.5" strokeWidth={3} /></span>)}
                     {fromPhoto === ph.id && <span className="absolute inset-0 grid place-items-center bg-black/40"><Spinner className="h-5 w-5 text-white" /></span>}
                   </span>
                   <span className="block truncate px-1.5 pt-1 text-xs font-medium text-ink-900">{(ph.place ?? '').split(',')[0] || 'Visit photo'}</span>

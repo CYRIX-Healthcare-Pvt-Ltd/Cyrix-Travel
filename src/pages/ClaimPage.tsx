@@ -498,6 +498,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const dep = depOn(data.deputations, d.day)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const shots = matchPhotos(d.rides, d.day, data.visit_photos, data.photo_setup)
+  // Each photo's place in the day's order taken, as the engineer sees it in the picker (the user, 20 Nov).
+  const photoNo = new Map((data.visit_photos ?? []).filter(v => v.day === d.day).sort((a, b) => a.shot_at.localeCompare(b.shot_at)).map((v, i) => [v.id, i + 1]))
   // The Travel Desk does not see where the day started and ended, nor time at a place: the manager's (the user, 10 Nov).
   const desk = deskOnly(data.claim)
   const dayStart = desk ? null : data.day_starts?.find(s => s.day === d.day) ?? null
@@ -656,7 +658,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   if (hit) return (
                     <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
                       <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? short(r.to_name)} · ${clock(hit.photo.shot_at)}`} className="h-9 w-9" />
-                      <span><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{!desk && (() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{otherPhone(hit.photo, data.usual_device) && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
+                      <span><b className="font-semibold">Visit photo{photoNo.get(hit.photo.id) ? ` ${photoNo.get(hit.photo.id)}` : ''}</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{!desk && (() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{otherPhone(hit.photo, data.usual_device) && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
                     </span>
                   )
                   return r.photo_skip
