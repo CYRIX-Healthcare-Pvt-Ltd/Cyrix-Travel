@@ -1062,12 +1062,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 // The ride ending the day stays last: one added goes before it, and it then starts where the new one ends.
                 if (endRideId) {
                   const before = d.rides[d.rides.length - 2]
-                  const from = before?.to_lat != null ? { name: before.to_name!, lat: before.to_lat, lng: before.to_lng! } : startPlace ?? home
+                  const from = before?.to_lat != null ? { name: before.to_name!, lat: before.to_lat, lng: before.to_lng! } : startPlace ?? null
                   const er = d.rides[d.rides.length - 1]
                   set({ rides: [...d.rides.slice(0, -1), blankRide(from, carry()), { ...er, from_name: null, from_lat: null, from_lng: null, map_km: null }] })
                   return
                 }
-                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? (notStarted && d.day === today ? null : home) : null
+                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? null : null
                 // With the day ended and a ride already there, the next is the ride to where it ended.
                 // …only once every visit photo of the day has its ride (the user, 4 Nov: Home → Medicare, then
                 // "why after medicare, 2nd ride home came?" with two more hospitals photographed after it).
