@@ -96,6 +96,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const start: Day = kept ? { ...kept.day, ...(chosen && !saved ? { day: initial.day } : {}) } : initial
   const [d, setD] = useState<Day>(start)
   const [picking, setPicking] = useState<{ ride: string; end: 'from' | 'to' } | null>(null)
+  // The ride home as it was before Add another ride cleared its To: closing the picker without a place puts it back (the user, 20 Nov).
+  const [undoEnd, setUndoEnd] = useState<Ride | null>(null)
   /*
     A ride is finished before the next is added (the user, 30 Oct: "without entering purpose dont let add another ride … on
     click it should say enter purpose and that field should be highlighted"): its To, then its purpose, named under the
@@ -1083,6 +1085,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 if (endRideId) {
                   const er = d.rides[d.rides.length - 1]
                   const homeGoal = er.purpose && /home/i.test(er.purpose)
+                  setUndoEnd(er)
                   setRide(er.id, { to_name: null, to_lat: null, to_lng: null, map_km: null, claimed_km: null, ...(homeGoal ? { purpose: null } : {}) })
                   setPicking({ ride: er.id, end: 'to' })
                   return
@@ -1312,7 +1315,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             d.rides.forEach((r, i) => { if (shots.has(r.id) || needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides))) return; const id = photoNear(r, d.day!, data.visit_photos, setup.near_m)?.photo.id; if (id && !(id in by)) by[id] = i + 1 })
             return by
           })() : {}}
-          onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
+          onPick={(p, _name, named) => { setUndoEnd(null); void placed(picking.ride, picking.end, p, named) }}
           /*
             Today, before the day is started, the first ride's From is Start my day: the press is the From, and it is
             locked from then (the user, 3 Nov: "how to having start my day?, it should be from isnt"). The To's camera
@@ -1329,7 +1332,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             && ((d.day === today && !notStarted && !myDay?.end) || lateHere)
             ? { label: lateHere ? `End ${shortDay(d.day!)}` : 'End my day', icon: <Sunset className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setEnding(id) } }
             : undefined}
-          onClose={() => setPicking(null)}
+          onClose={() => { if (undoEnd && undoEnd.id === picking.ride) setRide(undoEnd.id, undoEnd); setUndoEnd(null); setPicking(null) }}
         />
       )}
     </div>

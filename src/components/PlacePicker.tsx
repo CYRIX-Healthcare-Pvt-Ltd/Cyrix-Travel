@@ -331,10 +331,6 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
         {pasteErr && <p className="shrink-0 text-sm text-cyrixRed-700">{pasteErr}</p>}
         {none && !busy && <p className="shrink-0 text-sm text-ink-500">No match. Try another spelling, or tap the place on the map.</p>}
         <div ref={box} className="min-h-[10rem] w-full flex-1 overflow-hidden rounded-xl border border-ink-200" />
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={here}><Crosshair className="h-4 w-4" /> Use my location</button>
-          <span className="min-w-0 flex-1 truncate text-right text-sm text-ink-600">{picked ? picked.name : 'Tap the map or search'}</span>
-        </div>
         {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
         {picked && picked.name !== '…' && !plain && (saveAs === null ? (
           <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline" onClick={() => setSaveAs(picked.name.split(',')[0])}><Star className="h-4 w-4" /> Save to my places</button>
@@ -343,8 +339,10 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
             <input className="input mt-1" value={saveAs} onChange={e => setSaveAs(e.target.value)} placeholder="Home, Kochi office, ESI Hospital" autoFocus={askName} /></label>
         ))}
         {saveErr && <p className="text-sm text-cyrixRed-700">{saveErr}</p>}
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+        {/* One row (the user, 20 Nov): my location, Cancel, Use this place; the map takes the room the line under it had. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" className="btn-secondary !px-3" onClick={here} aria-label="Use my location" title="Use my location"><Crosshair className="h-5 w-5" /></button>
+          <button type="button" className="btn-secondary ml-auto" onClick={onClose}>Cancel</button>
           <button type="button" className="btn-primary" disabled={!picked || (!plain && !handPlaced && (picked.name === '…' || !picked.name.trim())) || (askName && !(saveAs ?? '').trim())} onClick={() => {
             if (!picked) return
             if (handPlaced) setNaming(linkName.current ?? '')
