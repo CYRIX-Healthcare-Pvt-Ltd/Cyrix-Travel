@@ -1308,7 +1308,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             locked from then (the user, 3 Nov: "how to having start my day?, it should be from isnt"). The To's camera
             follows once the day is started.
           */
-          camera={setup?.on && (d.day === today || lateHere)
+          camera={setup?.on && !dayEnd && (d.day === today || lateHere)
             ? notStarted && !lateHere
               ? { label: 'Start my day', icon: <Sunrise className="h-5 w-5" />, onPress: () => { setPicking(null); setStarting(true) }, only: true }
               : picking.end === 'to'
