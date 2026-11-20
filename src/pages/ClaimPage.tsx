@@ -11,7 +11,7 @@ import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
 import { homeLimit, endedNextMorning, startName, stayMinutes, stayText, shortDay } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
-import { routeShotsOn, shotBand, shotFits, isTestLogin } from '@/lib/routeShots'
+import { routeShotsOn, shotBand, shotFits, roadsFor } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
 import TicketLookup, { TICKET_TEST, BEMP_TICKET, copyTicketReports } from '@/components/TicketLookup'
@@ -567,7 +567,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
         </div>
         <div className="flex items-center gap-1 max-sm:w-full">
           {/* The day's km beside its money, as weighty (the user, 21 Oct: "km by modes, emphasise km also like the amount"). */}
-          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}{(() => { const x = isTestLogin(c.ecode) ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="ml-1 font-bold text-cyrixRed-700">{x.pct}% more</b> })()}</span><span className="text-ink-300">·</span></>}
+          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}{(() => { const x = roadsFor(c.ecode, d.day) ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="ml-1 font-bold text-cyrixRed-700">{x.pct}% more</b> })()}</span><span className="text-ink-300">·</span></>}
           <span className="mr-1 font-semibold text-ink-900">{money(dayTotal({ ...d, hotel: d.room_by ? null : d.hotel }, rule))}</span>
           {/* The day's actions at the end of the line, apart from its km and money (the user, 18 Nov: "just move to end"). */}
           <span className="ml-auto flex items-center">
@@ -663,7 +663,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     : <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-amber-700"><CameraOff className="h-3.5 w-3.5 shrink-0" />No visit photo</span>
                 })()}
                 {/* A Google road more than the tolerance longer than Google's own, with why (te_0165). */}
-                {isTestLogin(c.ecode) && MODES[r.mode].perKm && shortExtra(r) && (
+                {roadsFor(c.ecode, d.day) && MODES[r.mode].perKm && shortExtra(r) && (
                   <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><Route className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     Map {km(r.map_km)} · {shortExtra(r)!.pct}% · {km(shortExtra(r)!.km)} more{r.route_why && <> · “{r.route_why}”</>}</span>
                 )}

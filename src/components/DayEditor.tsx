@@ -10,7 +10,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
-import { isTestLogin, needsShot, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
+import { isTestLogin, needsShot, roadsFor, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
 import { googleFor, googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
 import { RoadsButton, RoutePick } from '@/components/RoadChoice'
 import RouteProof from '@/components/RouteProof'
@@ -261,8 +261,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   // Google's roads for everyone's days from 19 Nov, a test login's any day (the user, 18 Nov), set before any ride asks for its km.
   setGoogleRoutes(googleFor(isTestLogin(c.ecode), d.day))
   setRoadRules(data.policy)
-  // Other routes, the % over the shortest road and its reason: test logins only, for now (the user, 18 Nov).
-  const roadsExtra = isTestLogin(c.ecode)
+  // Other routes, the % over the shortest road and its reason: everybody's days from 20 Nov, a test login's any day (roadsFor).
+  const roadsExtra = roadsFor(c.ecode, d.day)
   const roadWhy = (r: Ride) => roadsExtra && MODES[r.mode].perKm && (shortExtra(r)?.pct ?? 0) > roadWhyPct()
   // The km that may be typed: Google's shortest to longest road when known (test logins), else the map's km to the tolerance over it.
   const kmBand = (r: Ride) => (roadsExtra && MODES[r.mode].perKm ? roadBand(r) ?? (r.map_km != null ? mapBand(r.map_km) : null) : null) ?? (r.map_km != null ? kmRange(r.map_km, tol) : null)

@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css'
 import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, shortExtra, takenRoute, type Day, type Rule } from '@/lib/claims'
 import { googleFor, googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
 import { RoadsButton, RoutePick, seedRoads } from '@/components/RoadChoice'
-import { isTestLogin } from '@/lib/routeShots'
+import { isTestLogin, roadsFor } from '@/lib/routeShots'
 import RouteProof from '@/components/RouteProof'
 import { shotDay, type Band, type RouteShot } from '@/lib/routeShots'
 
@@ -43,6 +43,8 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
   */
   // Rides of days from 10 Nov, where the screenshot is asked for; an earlier one shows only one already added.
   const shotRides = new Set(days.filter(d => shotDay(d.day, ecode)).flatMap(d => d.rides.map(r => r.id)))
+  // Rides whose day has Other routes (roadsFor: everybody's from 20 Nov, a test login's any day).
+  const roadRides = new Set(days.filter(d => roadsFor(ecode, d.day)).flatMap(d => d.rides.map(r => r.id)))
   const all = days.flatMap(d => d.rides).filter(r => r.from_lat != null && r.to_lat != null)
   const stops: Array<{ name: string; lat: number; lng: number }> = []
   const ends: Array<[number, number]> = []
@@ -177,18 +179,18 @@ export default function RouteMap({ days, rule, title, focus, onClose, shots, ban
               <span className="text-ink-900">{r.label}</span>
               <span className="rounded-md px-2 py-0.5 text-xs font-semibold" style={{ background: MODES[r.mode].bg, color: MODES[r.mode].fg }}>{MODES[r.mode].label}</span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">
-                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}{rides[i] && isTestLogin(ecode) && MODES[rides[i].mode].perKm && shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed }) && <b className="font-semibold text-cyrixRed-700"> · {shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.pct}% · {km(shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.km)} more</b>}
+                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}{rides[i] && roadRides.has(rides[i].id) && MODES[rides[i].mode].perKm && shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed }) && <b className="font-semibold text-cyrixRed-700"> · {shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.pct}% · {km(shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.km)} more</b>}
               </span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">{money(r.cost)}</span>
               {/* Google's roads to pick from, here too (the user, 18 Nov); the screenshot only once they are off. */}
-              {rides[i] && onRoad && isTestLogin(ecode) && MODES[rides[i].mode].perKm && (
+              {rides[i] && onRoad && roadRides.has(rides[i].id) && MODES[rides[i].mode].perKm && (
                 <span className="ml-auto"><RoadsButton ride={rides[i]} onlyUnknown open={roadsOf === rides[i].id} onOpen={() => setRoadsOf(roadsOf === rides[i].id ? null : rides[i].id)} /></span>
               )}
               {/* Open from the start when the roads are known (the user, 18 Nov: "here defaultly expand it"); asked only on a press. */}
-              {rides[i] && onRoad && isTestLogin(ecode) && MODES[rides[i].mode].perKm && (
+              {rides[i] && onRoad && roadRides.has(rides[i].id) && MODES[rides[i].mode].perKm && (
                 <RoutePick ride={rides[i]} ask={roadsOf === rides[i].id} className="w-full" onPick={(k, own) => onRoad(rides[i].id, k, own)} />
               )}
-              {rides[i] && shots && ((shotRides.has(rides[i].id) && !googleRoutesOn() && !isTestLogin(ecode)) || shots.some(x => x.ride_id === rides[i].id)) && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}
+              {rides[i] && shots && ((shotRides.has(rides[i].id) && !googleRoutesOn() && !roadRides.has(rides[i].id)) || shots.some(x => x.ride_id === rides[i].id)) && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}
             </div>
           ))}
         </div>

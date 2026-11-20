@@ -15,6 +15,14 @@ export const routeShotsOn = (_ecode?: string | null) => true
 export const SHOT_FROM = '2026-11-10'
 const TEST = new Set(['E6666', 'E7777', 'E8888', 'E9999'])
 export const isTestLogin = (ecode?: string | null) => !!ecode && TEST.has(ecode.toUpperCase())
+/*
+  Other routes — Google's roads to pick from, the % over its own road and "Why this road?" — for everybody's days from
+  20 Nov, a test login's any day (the user, 20 Nov, after Arjun Krishnadas TV saw only the fastest road: "ya open for
+  everyone"). Until then they were the test logins' only (18 Nov). Drafts too, but only their days from 20 Nov (the user,
+  20 Nov: "from todays draft only"); a day before goes as it did, screenshot and all.
+*/
+export const ROADS_FROM = '2026-11-20'
+export const roadsFor = (ecode: string | null | undefined, day: string | null | undefined) => isTestLogin(ecode) || (!!day && day >= ROADS_FROM)
 /** The test accounts any day (the user, 9 Nov: "for test accounts there is not date or starting"). */
 export const shotDay = (day: string | null | undefined, ecode?: string | null) => (!!ecode && TEST.has(ecode.toUpperCase())) || (!!day && day >= SHOT_FROM)
 
