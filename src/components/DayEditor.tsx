@@ -1301,7 +1301,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           photos={dayPhotos}
           used={setup && d.day ? d.rides.map(r => (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo.id).filter((x): x is string => !!x) : []}
           suggest={picking.end === 'to' ? nextPhoto(d.rides.findIndex(x => x.id === picking.ride)) : null}
-          usedBy={setup && d.day ? Object.fromEntries(d.rides.flatMap((r, i) => { const id = (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo.id; return id ? [[id, i + 1] as const] : [] })) : {}}
+          usedBy={setup && d.day ? (() => {
+            // A photo is the ride it was matched to; a place-only match never takes a photo another ride has (the user, 20 Nov: photo 1 shown as Ride 3).
+            const by: Record<string, number> = {}
+            d.rides.forEach((r, i) => { const h = shots.get(r.id); if (h) by[h.photo.id] = i + 1 })
+            d.rides.forEach((r, i) => { if (shots.has(r.id) || needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides))) return; const id = photoNear(r, d.day!, data.visit_photos, setup.near_m)?.photo.id; if (id && !(id in by)) by[id] = i + 1 })
+            return by
+          })() : {}}
           onPick={(p, _name, named) => void placed(picking.ride, picking.end, p, named)}
           /*
             Today, before the day is started, the first ride's From is Start my day: the press is the From, and it is
