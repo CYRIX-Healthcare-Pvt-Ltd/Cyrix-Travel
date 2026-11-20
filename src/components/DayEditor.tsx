@@ -1074,8 +1074,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           <section>
             <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><ReceiptIndianRupee className="h-4 w-4 text-amber-600" /> Other expenses</h3>
             {d.expenses.length > 0 && (
-              <div className="mb-2 overflow-hidden rounded-xl border border-ink-200">
-                <div className="hidden grid-cols-[11rem_8rem_1fr_auto_2.5rem] gap-2 bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
+              <div className="mb-2 rounded-xl border border-ink-200">
+                <div className="hidden grid-cols-[11rem_8rem_1fr_auto_2.5rem] gap-2 rounded-t-xl bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
                   <span>Category</span><span>Amount</span><span>Description</span><span>Bill</span><span />
                 </div>
                 {d.expenses.map(x => {
