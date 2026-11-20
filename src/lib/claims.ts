@@ -163,12 +163,14 @@ export interface Ride {
   photo_skip?: string | null
   /** A breakdown call's ticket ID, kept in te_tickets under the ride's id (te_0060). */
   ticket_no?: string
+  /** Aurum service calls: the asset / MPT number and the service report number, kept on the ticket (te_0168). */
+  asset_no?: string; service_report?: string
   /** Home to work or work to home: the daily commute, claiming nothing (te_0085). */
   commute?: boolean
   /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */
   auto_norm?: { per_km: number; n: number; from: 'nearby' | 'policy' } | null
 }
-export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null }
+export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null; asset_no?: string | null }
 export interface Hotel {
   id: string; name: string | null; amount: number; occupancy: 'single' | 'double'; metro: boolean
   shared_ecode?: string | null; shared_name?: string | null
@@ -1320,4 +1322,16 @@ export function autoAfterBike(rides: Array<{ id: string; mode: string; fare: num
   if (!(r.mode === 'auto' || r.mode === 'taxi') || !((r.fare ?? 0) > 0)) return false
   const bike = rides.findIndex(x => x.mode === 'bike')
   return bike >= 0 && rides.findIndex(x => x.id === r.id) > bike
+}
+
+/**
+ * Aurum's 100 km (the user, 20 Nov: "from home", "road"): on a day that starts from home, the rides' km from home up
+ * to the place farthest from it. Null when the day does not start from home (a trip's later day) or has no rides.
+ */
+export function kmOutFromHome(rides: Array<Pick<Ride, 'from_lat' | 'from_lng' | 'to_lat' | 'to_lng' | 'claimed_km' | 'map_km'>>, home: { lat: number; lng: number } | null): number | null {
+  if (!home || !rides.length || rides[0].from_lat == null || rides[0].from_lng == null) return null
+  if (distanceKm(home, { lat: rides[0].from_lat, lng: rides[0].from_lng }) > 0.5) return null
+  let far = -1, best = -1
+  rides.forEach((r, i) => { if (r.to_lat != null && r.to_lng != null) { const k = distanceKm(home, { lat: r.to_lat, lng: r.to_lng }); if (k > best) { best = k; far = i } } })
+  return rides.slice(0, far + 1).reduce((t, r) => t + Number(r.claimed_km ?? r.map_km ?? 0), 0)
 }

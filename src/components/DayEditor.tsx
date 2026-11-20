@@ -29,7 +29,7 @@ import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@
 import { useAuth } from '@/contexts/AuthContext'
 import {
   autoAfterBike, DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmRange, money, monthName, needsBill, newId,
-  areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, mapBand, dayExtra, roadWhyPct, setRoadRules } from '@/lib/claims'
+  kmOutFromHome, areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, mapBand, dayExtra, roadWhyPct, setRoadRules } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
 
 /*
@@ -53,7 +53,7 @@ const blankRide = (from?: Place | null, carry?: Pick<Ride, 'purpose' | 'project'
   purpose: carry?.purpose ?? null, project: carry?.project ?? null, ticket_no: '',
 })
 /** A breakdown ride's ticket ID, from the ticket kept under the ride's id (te_0060). */
-const withTickets = (day: Day): Day => ({ ...day, rides: day.rides.map(r => ({ ...r, ticket_no: r.ticket_no ?? day.tickets.find(t => t.id === r.id)?.ticket_no ?? '' })) })
+const withTickets = (day: Day): Day => ({ ...day, rides: day.rides.map(r => ({ ...r, ticket_no: r.ticket_no ?? day.tickets.find(t => t.id === r.id)?.ticket_no ?? '', asset_no: r.asset_no ?? day.tickets.find(t => t.id === r.id)?.asset_no ?? '', service_report: r.service_report ?? day.tickets.find(t => t.id === r.id)?.service_report ?? '' })) })
 
 /*
   An amount a bill can fill says so (the user, 26 Oct: management wants people to know attaching a bill fills it in):
@@ -414,7 +414,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       }
       // Aurum: local is within 100 km of base and has no allowance; past it, outstation at actual (the person may
       // choose per diem instead).
-      if (k && k !== 'deputation' && isAurum(rule)) k = home && stops.some(p => distanceKm(home, p) > 100) ? 'aurum_actual' : 'none'
+      // By road from home since 20 Nov (te_0168): the rides' km out; a day not starting from home keeps the straight line.
+      const out = kmOutFromHome(d.rides, home)
+      if (k && k !== 'deputation' && isAurum(rule)) k = (out != null ? out >= 100 : !!home && stops.some(p => distanceKm(home, p) > 100)) ? 'aurum_actual' : 'none'
       if (!live || !k) return
       setAuto(k); setOff(outside)
       if (applied.current !== stopsKey + depKey) { applied.current = stopsKey + depKey; set({ da_kind: k }) }
@@ -621,10 +623,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     what to do to save it"). Save is greyed while any is left; the first is said beside it, a press goes there.
   */
   const billed = new Set(data.bills.map(b => b.owner_id))
+  const outKm = isAurum(rule) ? kmOutFromHome(d.rides, home) : null
   const blockers: Array<{ text: string; to: string }> = []
   if (!d.day) blockers.push({ text: 'Choose the date', to: 'day-date' })
   else if (d.day > lastDay) blockers.push({ text: 'A future date cannot be claimed', to: 'day-date' })
   else if (d.day < earliest && d.day !== savedOn) blockers.push({ text: `Only days from ${new Date(earliest + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} can be added`, to: 'day-date' })
+  if (outKm != null && outKm < 100 && String(d.da_kind ?? '').startsWith('aurum')) blockers.push({ text: `Only ${Math.round(outKm)} km from home by road: local travel, choose None`, to: 'day-da' })
   for (const [i, r] of d.rides.entries()) {
     const n = `ride ${i + 1}`, to = 'ride-' + r.id, m = MODES[r.mode]
     if (r.from_lat == null || r.to_lat == null) blockers.push({ text: `Pick the from and to of ${n} on the map`, to })
@@ -638,7 +642,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
     if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
-    else if (isBreakdown(r.purpose) && ticketMismatch(ticketFor(r.ticket_no, r.project), r.project)) blockers.push({ text: `The ticket of ${n} is not a ${r.project} ticket`, to })
+    if (isAurum(rule) && isBreakdown(r.purpose) && (!r.asset_no?.trim() || !r.service_report?.trim())) blockers.push({ text: `Enter the asset / MPT no. and service report no. of ${n}`, to })
+    if (isBreakdown(r.purpose) && ticketMismatch(ticketFor(r.ticket_no, r.project), r.project)) blockers.push({ text: `The ticket of ${n} is not a ${r.project} ticket`, to })
     if (roadWhy(r) && !r.route_why?.trim()) blockers.push({ text: `Write why ${n} took the longer road`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
     else if (autoAfterBike(d.rides, r) && !r.note?.trim()) blockers.push({ text: `Write why ${n} was by ${(m.short ?? m.label).toLowerCase()} after the bike`, to })
@@ -691,7 +696,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const rideIds = new Set(d.rides.map(r => r.id))
     const tickets = [
       ...d.rides.filter(r => isBreakdown(r.purpose) && r.ticket_no?.trim()).map(r => ({
-        id: r.id, ticket_no: ticketFor(r.ticket_no, r.project), service_report: null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
+        id: r.id, ticket_no: ticketFor(r.ticket_no, r.project), service_report: r.service_report?.trim() || null, asset_no: r.asset_no?.trim() || null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
       })),
       ...d.tickets.filter(t => !rideIds.has(t.id)).map(t => { const r = ends.find(x => placeKey(x.to_name) === placeKey(t.place)); return { ...t, district: r ? distOf.get(r.id) ?? null : null } }),
     ]
@@ -930,6 +935,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                         <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable={!(TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && BEMP_TICKET.test((r.ticket_no ?? '').trim()))} onChange={refresh} />
                       </div>
                     )}
+                    {isBreakdown(r.purpose) && isAurum(rule) && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <input className={`input h-10 w-full text-sm ${r.asset_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Asset / MPT no." placeholder="Asset / MPT no." value={r.asset_no ?? ''} onChange={e => setRide(r.id, { asset_no: e.target.value })} />
+                        <input className={`input h-10 w-full text-sm ${r.service_report?.trim() ? '' : '!border-amber-400'}`} aria-label="Service report no." placeholder="Service report no." value={r.service_report ?? ''} onChange={e => setRide(r.id, { service_report: e.target.value })} />
+                      </div>
+                    )}
                     {/* The ticket found in Cyrix BEMP, its service report attached by itself (test accounts; the user, 10 Nov). */}
                     {isBreakdown(r.purpose) && TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && (
                       <TicketLookup ticket={editingTicket?.id === r.id ? editingTicket.was : r.ticket_no} day={d.day} project={r.project} />
@@ -1047,7 +1058,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             <p className="input mt-1 flex h-11 items-center text-ink-500">No DA — office day</p>
           </section>
           ) : (
-          <section>
+          <section id="day-da">
             <label className="block">
               <span className="label flex flex-wrap items-center gap-2">Daily allowance
                 {dep && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-violet-800">Deputation · {dep.state}</span>}

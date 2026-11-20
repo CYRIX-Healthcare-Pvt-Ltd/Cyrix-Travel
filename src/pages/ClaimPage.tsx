@@ -682,7 +682,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   const earlier = (t as typeof t & { earlier?: Array<{ day: string }> }).earlier ?? []
                   return (
                     <span key={t.id} className="col-span-full flex flex-wrap items-center gap-1.5 pl-1 text-xs text-sky-700">
-                      <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
+                      <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.asset_no ? ` · Asset ${t.asset_no}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}
                       {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
                       <ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit && !fromBemp(t.ticket_no)} onChange={onBills} />
                       {fromBemp(t.ticket_no) && <span className="basis-full -ml-6"><TicketLookup ticket={t.ticket_no} day={d.day} claimId={c.id} project={r.project} /></span>}
@@ -697,7 +697,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             return (
               <div key={t.id} id={'bill-' + t.id} className={'col-span-full flex flex-wrap items-center gap-2 py-2 text-sm' + mark(t.id)} style={lit(t.id, '#0284C7')}>
                 <TicketIcon className="h-4 w-4 text-sky-600" />
-                <span className="text-ink-800">{t.ticket_no}{t.place ? ` · ${t.place}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}</span>
+                <span className="text-ink-800">{t.ticket_no}{t.place ? ` · ${t.place}` : ''}{t.asset_no ? ` · Asset ${t.asset_no}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}</span>
                 {earlier.length > 0 && <span className="text-xs font-semibold text-sky-700">{ordinal(earlier.length + 1)} visit</span>}
                 {/* A hospital none of the day's rides went to (the user, 21 Oct). */}
                 {ticketVisited(t, d.rides) === false && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not visited on this day's rides</span>}
