@@ -611,8 +611,8 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {(hasMap || dayStart || dayEnd) && (
             <div className="col-span-full flex items-center justify-end gap-3 px-1 pt-0.5">
               {/* Where and when the day was started (te_0104). */}
-              {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">Day started {clock(dayStart.at)} · <b className="font-semibold text-ink-800">{short(startName(dayStart))}</b>{dayStart.home_m != null && dayStart.home_m > homeLimit(dayStart) && ` · ${km(dayStart.home_m / 1000)} from home`}</span></span>}
-              {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">Day ended {clockOf({ day: d.day, shot_at: dayEnd.at })} · <b className="font-semibold text-ink-800">{short(startName(dayEnd))}</b>{dayEnd.home_m != null && dayEnd.home_m > homeLimit(dayEnd) && ` · ${km(dayEnd.home_m / 1000)} from home`}</span></span>}
+              {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">{clock(dayStart.at)}</span></span>}
+              {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">{clockOf({ day: d.day, shot_at: dayEnd.at })}</span></span>}
               {hasMap && <button type="button" className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> <span className="sm:hidden">Map</span><span className="max-sm:hidden">View on map</span></button>}
             </div>
           )}
