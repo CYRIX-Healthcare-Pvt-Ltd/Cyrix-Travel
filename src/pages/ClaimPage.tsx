@@ -801,6 +801,7 @@ export const OBS = {
   routeshot: { title: 'Map km corrected with Google Maps screenshot', level: 'info', icon: Gauge, group: 'km' },
   routeedit: { title: 'Google Maps screenshot of other places', level: 'approve', icon: MapPinOff, group: 'km' },
   nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff, group: 'photos' },
+  startskip: { title: 'Start my day missed',      level: 'approve', icon: CameraOff, group: 'photos' },
   photoyet: { title: 'No visit photo', level: 'check', icon: CameraOff, group: 'photos' },
   photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera, group: 'photos' },
   photophone: { title: 'Visit photo from another phone', level: 'approve', icon: Smartphone, group: 'photos' },
@@ -888,9 +889,10 @@ export function claimObservations(data: ClaimData): Obs[] {
   const keyedText = (claimed: number, t: number) => `${billMatches(t, claimed) ? `${money(t)} typed from the bill` : `claimed ${money(claimed)}, ${money(t)} typed from the bill`}, which could not be read — open it and compare`
   // "Photo not possible" this month, on this claim and the person's others (te_0082), against the monthly limit.
   const setup = data.photo_setup
-  const skipped = (data.photo_skips_other ?? 0) + data.days.reduce((t, x) => t + x.rides.filter(r => r.photo_skip).length, 0)
+  const skipped = (data.photo_skips_other ?? 0) + data.days.reduce((t, x) => t + x.rides.filter(r => r.photo_skip).length + (x.start_skip ? 1 : 0), 0)
   for (const d of data.days) {
     const day = dn(d.day)
+    if (d.start_skip) items.push({ kind: 'startskip', day, to: d.id, detail: `From ${short(d.rides[0]?.from_name ?? null)} · “${d.start_skip}”` })
     const shots = matchPhotos(d.rides, d.day, data.visit_photos, setup)
     /*
       An auto or taxi on a day the person rode their own bike (the user, 5 Nov: "he went 52 km in bike, then just for
@@ -1141,7 +1143,7 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
   const past = !['draft', 'with_manager', 'returned'].includes(data.claim.status)
   const lv = LEVEL
   // Auto after bike stays red at every step (the user, 20 Nov).
-  const lvOf = (i: Obs): keyof typeof LEVEL => past && OBS[i.kind].level === 'approve' && i.kind !== 'autobike' ? 'passed' : OBS[i.kind].level
+  const lvOf = (i: Obs): keyof typeof LEVEL => past && OBS[i.kind].level === 'approve' && i.kind !== 'autobike' && i.kind !== 'startskip' ? 'passed' : OBS[i.kind].level
   const items = claimObservations(data)
   if (!items.length) return data.days.length ? <p className="text-sm text-green-800"><Check className="mr-1 inline h-4 w-4" />Nothing to look at twice on this claim.</p> : null
 

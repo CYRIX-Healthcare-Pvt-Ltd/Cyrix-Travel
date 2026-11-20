@@ -10,7 +10,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 const DOW = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const iso = (d: Date) => d.toLocaleDateString('en-CA')
 
-export default function MonthCalendar({ value, onChange, min, max, marked = [], taken = {}, drafts = {}, approved = {}, legend = false, openDay = null }: {
+export default function MonthCalendar({ value, onChange, min, max, marked = [], taken = {}, drafts = {}, approved = {}, legend = false, openDay = null, noProof = [] }: {
   value: string; onChange: (v: string) => void; min: string; max: string; marked?: string[]
   /** Dates already in another claim, and which: shown struck through, not chosen (te_0060: one claim a day). */
   taken?: Record<string, string>
@@ -23,6 +23,8 @@ export default function MonthCalendar({ value, onChange, min, max, marked = [], 
   legend?: boolean
   /** The last day worked and not ended (te_0150; the user, 12 Nov): orange, "Not ended". */
   openDay?: string | null
+  /** Past days with no Start my day, no visit photo and no Photo not possible left (te_0169): greyed. */
+  noProof?: string[]
 }) {
   const [view, setView] = useState(() => { const d = new Date((value || max) + 'T00:00:00'); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const first = new Date(view.getFullYear(), view.getMonth(), 1)
@@ -44,12 +46,12 @@ export default function MonthCalendar({ value, onChange, min, max, marked = [], 
         {DOW.map(d => <span key={d} className="py-1 text-[11px] font-semibold text-ink-400">{d}</span>)}
         {cells.map((d, i) => {
           if (!d) return <span key={i} />
-          const used = taken[d], ok = approved[d], draft = drafts[d], off = d > max || d < min || !!used || !!ok, on = d === value
+          const used = taken[d], ok = approved[d], draft = drafts[d], off = d > max || d < min || !!used || !!ok || noProof.includes(d), on = d === value
           // Each its own colour: today ringed pink, the chosen day violet, a draft's blue, one sent and waiting yellow, an
           // approved one green; all but a draft a tint inside their edge (the user, 24 Oct: "same as like green";
           // "make today pink and sent yellow").
           return (
-            <button key={d} type="button" disabled={off} onClick={() => onChange(d)} title={used || ok ? `Claimed in ${used ?? ok}` : d === openDay ? 'Not ended' : draft ? `In your ${draft}` : undefined}
+            <button key={d} type="button" disabled={off} onClick={() => onChange(d)} title={noProof.includes(d) ? 'No visits' : used || ok ? `Claimed in ${used ?? ok}` : d === openDay ? 'Not ended' : draft ? `In your ${draft}` : undefined}
               className={clsx('relative grid h-9 place-items-center rounded-lg text-sm',
                 on ? (draft ? 'border-2 border-blue-500 bg-blue-500/15 font-semibold text-blue-800' : 'border-2 border-violet-500 bg-violet-500/15 font-semibold text-violet-800')
                   : d === openDay ? 'border-2 border-orange-500 bg-orange-500/15 font-semibold text-orange-800'

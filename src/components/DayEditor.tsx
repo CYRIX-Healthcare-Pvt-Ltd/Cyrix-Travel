@@ -190,7 +190,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   // A To taken by the camera (the user, 3 Nov): the photo is saved, and where it was taken is the ride's end.
   const [cameraTo, setCameraTo] = useState<string | null>(null)
   const setup = data.photo_setup
-  const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length, 0) + d.rides.filter(r => r.photo_skip != null).length
+  const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length + (x.start_skip ? 1 : 0), 0) + d.rides.filter(r => r.photo_skip != null).length + (d.start_skip != null ? 1 : 0)
   // Each ride its own photo (te_0092): a hospital gone to twice needs two.
   const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
   /*
@@ -200,7 +200,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const photoOf = (r: Ride) => setup && d.day ? (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo ?? null : null
   const nextPhoto = (i: number) => {
     if (!setup?.on || !d.day) return null
-    const usedIds = new Set(d.rides.map(photoOf).filter(Boolean).map(p => p!.id))
+    const usedIds = new Set([...d.rides.map(photoOf).filter(Boolean).map(p => p!.id), ...(startPhoto ? [startPhoto.id] : [])])
     const after = d.rides.slice(0, i).map(photoOf).filter(Boolean).map(p => p!.shot_at).sort().pop() ?? ''
     return dayPhotos.find(p => !usedIds.has(p.id) && p.shot_at > after) ?? null
   }
@@ -362,7 +362,15 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const [ending, setEnding] = useState<string | null>(null)
   // The day before, after midnight and before today is started: its photos are still taken here (te_0108).
   const lateHere = !!d.day && d.day === myDay?.late_day
-  const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng }) : null
+  /*
+    A past day without Start my day starts at visit photo 1, counted nothing; with no photo either, ride 1's From is
+    chosen with why (the user, 20 Nov). Today is as before: Start my day first.
+  */
+  const pastDay = !!d.day && d.day >= '2026-11-20' && d.day !== today && !!setup?.on
+  const startPhoto = !dayStart && pastDay ? dayPhotos[0] ?? null : null
+  const noProof = !dayStart && pastDay && !dayPhotos.length && !!myDay?.required
+  const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng })
+    : startPhoto ? { name: (startPhoto.place ?? '').split(',')[0].trim() || 'Visit photo 1', lat: startPhoto.lat, lng: startPhoto.lng } : null
   const firstId = d.rides[0]?.id
   /*
     End my day (te_0109; the user, 4 Nov): the day's last ride ends where the day was ended — Home within 3 km of it —
@@ -646,6 +654,9 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   if (!d.day) blockers.push({ text: 'Choose the date', to: 'day-date' })
   else if (d.day > lastDay) blockers.push({ text: 'A future date cannot be claimed', to: 'day-date' })
   else if (d.day < earliest && d.day !== savedOn) blockers.push({ text: `Only days from ${new Date(earliest + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} can be added`, to: 'day-date' })
+  // A past day with neither Start my day nor a photo: ride 1's From is chosen with why, one of the month's limit (te_0169).
+  if (noProof && d.rides.length && !d.start_skip?.trim()) blockers.push({ text: 'Write why Start my day was missed', to: 'start-skip' })
+  if (noProof && d.start_skip != null && setup?.after === 'block' && skipsUsed > setup.skips) blockers.push({ text: `Photo not possible is used up for this month (${setup.skips})`, to: 'start-skip' })
   if (outKm != null && outKm < 100 && String(d.da_kind ?? '').startsWith('aurum')) blockers.push({ text: `Only ${Math.round(outKm)} km from home by road: local travel, choose None`, to: 'day-da' })
   for (const [i, r] of d.rides.entries()) {
     const n = `ride ${i + 1}`, to = 'ride-' + r.id, m = MODES[r.mode]
@@ -852,7 +863,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   <div key={r.id} id={'ride-' + r.id} className={`relative scroll-mt-24 rounded-xl border p-3 pt-4 transition-shadow ${i === 0 ? 'mt-4' : '!mt-6'}`} style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
                     <span className="absolute -top-3 left-3 rounded-full border px-2.5 py-0.5 text-xs font-semibold text-ink-800" style={{ borderColor: m.color + '99', background: `color-mix(in srgb, ${m.color} 16%, rgb(var(--surface)))` }}>Ride {i + 1}</span>
                     <button type="button" className="absolute -top-3.5 right-3 grid h-7 w-7 place-items-center rounded-full border border-ink-200 bg-surface text-ink-400 transition-colors duration-150 hover:border-cyrixRed-200 hover:bg-cyrixRed-50 hover:text-cyrixRed-700 focus-visible:border-cyrixRed-200 focus-visible:text-cyrixRed-700 active:scale-95" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-3.5 w-3.5" /></button>
-                    <div className="space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}
+                    <div className="space-y-1.5">{placeBtn('from', r.from_name)}
+                      {i === 0 && noProof && (
+                        <input id="start-skip" className={`input h-10 w-full text-sm ${d.start_skip?.trim() ? '' : '!border-cyrixRed-400'}`} aria-label="Why Start my day was missed"
+                          placeholder={`Why no Start my day? · ${Math.max(0, (setup?.skips ?? 0) - skipsUsed + (d.start_skip != null ? 1 : 0))} of ${setup?.skips ?? 0} left`}
+                          value={d.start_skip ?? ''} onChange={e => set({ start_skip: e.target.value })} />
+                      )}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}
                       {!r.to_name && !endLocked && (() => {
                         const ph = nextPhoto(i)
                         if (!ph) return null

@@ -190,6 +190,8 @@ export interface Day {
   id: string; day: string; place: string | null; district: string | null; purpose: string | null
   da_kind: DaKind; da_amount: number; continues_day: string | null; remarks: string | null
   rides: Ride[]; tickets: Ticket[]; hotel: Hotel | null; expenses: Expense[]
+  /** A past day with no Start my day and no visit photo: why, counted as one Photo not possible (te_0169). */
+  start_skip?: string | null
   /** The hospital's pin, and the DA the map gave for the day's places (te_0025). */
   place_lat?: number | null; place_lng?: number | null; da_auto?: DaKind | null
   room_by?: { name: string; ecode: string; amount: number; number: string | null } | null

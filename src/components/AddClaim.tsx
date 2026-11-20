@@ -38,9 +38,11 @@ export default function AddClaim() {
   const [drafts, setDrafts] = useState<Record<string, { claim: string; name: string }>>({})
   // The first day that can be added (te_0093: within 3 days, today counted), by India's date on the server.
   const [from, setFrom] = useState<string | null>(null)
+  const [noProof, setNoProof] = useState<string[]>([])
   useEffect(() => {
     if (!picking) return
     void rpc<string | null>('te_claim_from', {}).then(setFrom).catch(() => setFrom(null))
+    void rpc<string[]>('te_my_no_proof_days', {}).then(x => setNoProof(x ?? [])).catch(() => setNoProof([]))
     void rpc<Array<{ day: string; name: string; claim: string; draft: boolean; status: string }>>('te_my_claimed_days', {}).then(list => {
       const done = (s: string) => s === 'approved' || s === 'paid'
       setTaken(Object.fromEntries((list ?? []).filter(x => !x.draft && !done(x.status)).map(x => [x.day, x.name])))
@@ -79,7 +81,7 @@ export default function AddClaim() {
         <Dialog title="Add a claim" icon={<CalendarPlus className="h-5 w-5 text-amber-600" />} onClose={() => setPicking(false)}>
           <div className="mt-3 space-y-3">
             <MonthCalendar value={claimedIn ? '' : pickDay} onChange={setPickDay} min={minDay} max={todayIso()} legend
-              taken={taken} approved={approved} drafts={Object.fromEntries(Object.entries(drafts).map(([d, x]) => [d, x.name]))} openDay={openDay} />
+              taken={taken} approved={approved} drafts={Object.fromEntries(Object.entries(drafts).map(([d, x]) => [d, x.name]))} openDay={openDay} noProof={noProof} />
             {claimedIn
               ? <p className="text-sm font-semibold text-amber-800">{new Date(pickDay + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} is already claimed in {claimedIn}</p>
               : drafts[pickDay]
