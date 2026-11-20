@@ -1314,3 +1314,10 @@ export function useClaimAction() {
   })
 }
 export { rpc }
+
+/** An auto or taxi after the day's first bike ride (the user, 20 Nov): its remarks say why, and it is red for the manager and the Travel Desk. */
+export function autoAfterBike(rides: Array<{ id: string; mode: string; fare: number | null }>, r: { id: string; mode: string; fare: number | null }) {
+  if (!(r.mode === 'auto' || r.mode === 'taxi') || !((r.fare ?? 0) > 0)) return false
+  const bike = rides.findIndex(x => x.mode === 'bike')
+  return bike >= 0 && rides.findIndex(x => x.id === r.id) > bike
+}

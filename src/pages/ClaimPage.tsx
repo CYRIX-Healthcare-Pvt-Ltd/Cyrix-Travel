@@ -22,6 +22,7 @@ import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
   DA_KINDS, DA_RANK, isAurum, MODES, billMatches, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide, shortExtra, dayExtra, roadWhyPct, setRoadRules,
+  autoAfterBike,
 } from '@/lib/claims'
 
 /*
@@ -824,7 +825,7 @@ export const OBS = {
   cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange, group: 'tickets' },
   cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2, group: 'tickets' },
   autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront, group: 'km' },
-  autobike: { title: 'Auto on a bike day',       level: 'check',   icon: CarTaxiFront, group: 'km' },
+  autobike: { title: 'Auto after bike',          level: 'approve',   icon: CarTaxiFront, group: 'km' },
   tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange, group: 'tickets' },
   retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon, group: 'tickets' },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins, group: 'policy' },
@@ -852,6 +853,7 @@ const GROUPS = {
 export const LEVEL = {
   approve: { label: 'need approval', chip: 'bg-cyrixRed-100 text-cyrixRed-700', dot: 'bg-cyrixRed-600' },
   check:   { label: 'to check',      chip: 'bg-amber-100 text-amber-700',       dot: 'bg-amber-500' },
+  passed:  { label: 'approved by the manager', chip: 'bg-ink-100 text-ink-700', dot: 'bg-ink-400' },
   info:    { label: 'for information', chip: 'bg-sky-100 text-sky-700',         dot: 'bg-sky-500' },
 } as const
 
@@ -892,8 +894,9 @@ export function claimObservations(data: ClaimData): Obs[] {
       An auto or taxi on a day the person rode their own bike (the user, 5 Nov: "he went 52 km in bike, then just for
       1.4 km he went by auto, why?"): all of the day's together, against the same km by bike. A bill does not answer it.
     */
-    const hired = d.rides.filter(r => (r.mode === 'auto' || r.mode === 'taxi' || r.mode === 'taxi_bike') && (r.fare ?? 0) > 0)
-    if (hired.length && d.rides.some(r => r.mode === 'bike')) {
+    // Only after the bike (the user, 20 Nov: auto first then bike is fine; bike then auto needs a reason, red for all).
+    const hired = d.rides.filter(r => autoAfterBike(d.rides, r))
+    if (hired.length) {
       const kms = hired.reduce((t, r) => t + (r.claimed_km ?? r.map_km ?? 0), 0)
       const paid = hired.reduce((t, r) => t + (r.fare ?? 0), 0)
       const byBike = Math.round(kms * (rule?.bike_rate ?? 5))
@@ -904,7 +907,8 @@ export function claimObservations(data: ClaimData): Obs[] {
         // A courier sent the same day: the box may have been too big for the bike (the user, 5 Nov: "that is genuine, see the photo of courier, large box").
         detail: d.expenses.some(x => /courier/i.test(`${x.category} ${x.description ?? ''}`))
           ? `${who} came by bike, but took ${what} for ${km(Math.round(kms * 10) / 10)}${why ? ` (${why})` : ''} · ${money(paid)}. By bike ${money(byBike)}. A courier was sent that day: if the box was large or heavy, the auto is fine.`
-          : `${who} came by bike, but took ${what} for ${km(Math.round(kms * 10) / 10)}${why ? ` (${why})` : ''} · ${money(paid)}. By bike it would be ${money(byBike)}.` })
+          : `${who} came by bike, but took ${what} for ${km(Math.round(kms * 10) / 10)}${why ? ` (${why})` : ''} · ${money(paid)}. By bike it would be ${money(byBike)}.`
+          + hired.filter(r => r.note?.trim()).map(r => ` · “${r.note!.trim()}”`).join('') })
     }
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
@@ -1131,14 +1135,19 @@ export const claimIssues = (data: ClaimData) => {
 }
 
 function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => void }) {
+  // Past the manager, what needed approval has been approved: grey, not red (the user, 20 Nov: "for travel desk it is in red").
+  const past = !['draft', 'with_manager', 'returned'].includes(data.claim.status)
+  const lv = LEVEL
+  // Auto after bike stays red at every step (the user, 20 Nov).
+  const lvOf = (i: Obs): keyof typeof LEVEL => past && OBS[i.kind].level === 'approve' && i.kind !== 'autobike' ? 'passed' : OBS[i.kind].level
   const items = claimObservations(data)
   if (!items.length) return data.days.length ? <p className="text-sm text-green-800"><Check className="mr-1 inline h-4 w-4" />Nothing to look at twice on this claim.</p> : null
 
-  const order = ['approve', 'check', 'info'] as const
-  const sorted = [...items].sort((x, y) => order.indexOf(OBS[x.kind].level) - order.indexOf(OBS[y.kind].level))
-  const count = (l: typeof order[number], list = items) => list.filter(i => OBS[i.kind].level === l).length
+  const order = ['approve', 'passed', 'check', 'info'] as const
+  const sorted = [...items].sort((x, y) => order.indexOf(lvOf(x)) - order.indexOf(lvOf(y)))
+  const count = (l: typeof order[number], list = items) => list.filter(i => lvOf(i) === l).length
   // Each topic once, the one holding the most serious observation first.
-  const worst = (list: Obs[]) => Math.min(...list.map(i => order.indexOf(OBS[i.kind].level)))
+  const worst = (list: Obs[]) => Math.min(...list.map(i => order.indexOf(lvOf(i))))
   const topics = (Object.keys(GROUPS) as Array<keyof typeof GROUPS>).map(g => ({ g, list: sorted.filter(i => OBS[i.kind].group === g) }))
     .filter(x => x.list.length).sort((x, y) => worst(x.list) - worst(y.list))
   return (
@@ -1147,8 +1156,8 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
         <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-900"><TriangleAlert className="h-4 w-4 text-amber-600" /> Observations</h2>
         <span className="flex flex-wrap gap-1.5">
           {order.filter(l => count(l)).map(l => (
-            <span key={l} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${LEVEL[l].chip}`}>
-              <i className={`h-1.5 w-1.5 rounded-full ${LEVEL[l].dot}`} />{count(l)} {LEVEL[l].label}
+            <span key={l} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${lv[l].chip}`}>
+              <i className={`h-1.5 w-1.5 rounded-full ${lv[l].dot}`} />{count(l)} {lv[l].label}
             </span>
           ))}
         </span>
@@ -1162,8 +1171,8 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
               <h3 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-ink-600">{G.title}</h3>
               <span className="flex shrink-0 gap-1">
                 {order.filter(l => count(l, list)).map(l => (
-                  <span key={l} title={LEVEL[l].label} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${LEVEL[l].chip}`}>
-                    <i className={`h-1.5 w-1.5 rounded-full ${LEVEL[l].dot}`} />{count(l, list)}
+                  <span key={l} title={lv[l].label} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${lv[l].chip}`}>
+                    <i className={`h-1.5 w-1.5 rounded-full ${lv[l].dot}`} />{count(l, list)}
                   </span>
                 ))}
               </span>
@@ -1175,7 +1184,7 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
                   <li key={i} role={it.to ? 'button' : undefined} tabIndex={it.to ? 0 : undefined} onClick={it.to ? () => onGo(it.to!) : undefined}
                     onKeyDown={it.to ? e => { if (e.key === 'Enter') onGo(it.to!) } : undefined}
                     className={`flex items-start gap-3 px-4 py-2.5 ${it.to ? 'cursor-pointer transition-colors hover:bg-ink-100/60' : ''}`}>
-                    <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${LEVEL[o.level].chip}`}><I className="h-4 w-4" /></span>
+                    <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${lv[lvOf(it)].chip}`}><I className="h-4 w-4" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold text-ink-900">{o.title}</span>
                       <span className="block text-sm text-ink-600">{it.detail}</span>
