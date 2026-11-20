@@ -1075,12 +1075,16 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   return
                 }
                 setNudge(null)
-                // The ride ending the day stays last: one added goes before it, and it then starts where the new one ends.
+                /*
+                  The ride ending the day gives up its To (the user, 20 Nov: "that to home should be cleared so there they can
+                  click to … then on click another, last to to home"): it becomes the next visit, and the ride home comes
+                  again with the next Add another ride.
+                */
                 if (endRideId) {
-                  const before = d.rides[d.rides.length - 2]
-                  const from = before?.to_lat != null ? { name: before.to_name!, lat: before.to_lat, lng: before.to_lng! } : startPlace ?? null
                   const er = d.rides[d.rides.length - 1]
-                  set({ rides: [...d.rides.slice(0, -1), blankRide(from, carry()), { ...er, from_name: null, from_lat: null, from_lng: null, map_km: null }] })
+                  const homeGoal = er.purpose && /home/i.test(er.purpose)
+                  setRide(er.id, { to_name: null, to_lat: null, to_lng: null, map_km: null, claimed_km: null, ...(homeGoal ? { purpose: null } : {}) })
+                  setPicking({ ride: er.id, end: 'to' })
                   return
                 }
                 const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? null : null
