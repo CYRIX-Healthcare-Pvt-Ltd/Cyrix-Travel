@@ -1145,15 +1145,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
           <section>
             <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><ReceiptIndianRupee className="h-4 w-4 text-amber-600" /> Other expenses</h3>
             {d.expenses.length > 0 && (
-              <div className="mb-2 rounded-xl border border-ink-200">
-                <div className="hidden grid-cols-[11rem_8rem_1fr_auto_2.5rem] gap-2 rounded-t-xl bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
-                  <span>Category</span><span>Amount</span><span>Description</span><span>Bill</span><span />
-                </div>
+              <div className="mb-2 space-y-4 pt-2">
                 {d.expenses.map(x => {
                   const put = (p: Partial<typeof x>) => set({ expenses: d.expenses.map(y => (y.id === x.id ? { ...y, ...p } : y)) })
                   return (
-                    <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
-                      <div className="grid grid-cols-[1fr_7.5rem_2.25rem] items-center gap-2 sm:grid-cols-[11rem_8rem_1fr_auto_2.5rem]">
+                    <div key={x.id} id={'exp-' + x.id} className="relative rounded-xl border border-ink-200 px-3 pb-2.5 pt-3.5">
+                      {/* Delete on the card's edge and the bill where delete was, as on a ride (the user, 21 Nov). */}
+                      <button type="button" className="absolute -top-3.5 right-3 grid h-7 w-7 place-items-center rounded-full border border-ink-200 bg-surface text-ink-400 transition-colors duration-150 hover:border-cyrixRed-200 hover:bg-cyrixRed-50 hover:text-cyrixRed-700 active:scale-95" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-3.5 w-3.5" /></button>
+                      <div className="grid grid-cols-[1fr_7.5rem_auto] items-center gap-2 sm:grid-cols-[11rem_8rem_auto_1fr]">
                         <PickList label="Expense type" title="Expense type" placeholder="Expense type…" value={x.category}
                           options={expenseKinds().filter(k => k.active || k.label === x.category).map(k => ({ value: k.label, label: k.label, icon: expenseIcon(k.label), tone: expenseTone(k.label) }))}
                           onChange={v => put({ category: v })} />
@@ -1162,12 +1161,11 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                           <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7 pr-7" aria-label="Amount" value={x.amount || ''} placeholder="from bill" onChange={e => put({ amount: Number(e.target.value) })} />
                           <BillHint value={x.amount} read={billRead(data.bills, x.id)} />
                         </span>
-                        <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
-                        <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
-                        <span className="col-span-3 sm:col-span-1">
-                          <BillButton compact large fills empty={!x.amount} claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
+                        <span>
+                          <BillButton compact fills empty={!x.amount} claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
                             onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
                         </span>
+                        <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
                       </div>
                       {expenseRole(x.category) === 'tools' && x.amount > Number(data.policy.tool_max ?? 500) && <p className="mt-1 text-xs text-amber-800">Tools above {money(Number(data.policy.tool_max ?? 500))} go through petty cash</p>}
                     </div>
