@@ -181,7 +181,7 @@ export default function Summary() {
                   <span>Person</span><span className="text-right">Claims</span><span className="text-right">Claimed</span><span className="text-right">With approvers</span><span className="text-right">Paid</span><span />
                 </div>
                 {data.team.map(p => (
-                  <Link key={p.ecode} to="/approvals" className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-b border-ink-100 px-4 py-3 last:border-0 hover:bg-ink-100/60 sm:grid-cols-[1fr_4rem_6.5rem_9.5rem_6.5rem_1.25rem]">
+                  <Link key={p.ecode} to={`/approvals/person/${p.ecode}?tab=${p.waiting > 0 ? 'waiting' : p.paid > 0 && p.pending === 0 ? 'paid' : 'pending'}`} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-b border-ink-100 px-4 py-3 last:border-0 hover:bg-ink-100/60 sm:grid-cols-[1fr_4rem_6.5rem_9.5rem_6.5rem_1.25rem]">
                     <span className="min-w-0">
                       <span className="block truncate font-medium text-ink-900">{p.name} <span className="text-xs font-normal text-ink-500">{p.ecode}</span></span>
                       {p.waiting > 0 && <span className="text-xs font-semibold text-amber-800">{p.waiting} waiting on you</span>}

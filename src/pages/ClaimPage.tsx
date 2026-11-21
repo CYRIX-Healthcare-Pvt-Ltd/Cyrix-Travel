@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, Route, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users, ChevronRight } from 'lucide-react'
+import { type LucideIcon, RotateCcw, Route, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users, ChevronRight } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
 import { depOn } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
@@ -504,6 +504,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const desk = deskOnly(data.claim)
   const dayStart = desk ? null : data.day_starts?.find(s => s.day === d.day) ?? null
   const dayEnd = desk ? null : data.day_ends?.find(s => s.day === d.day) ?? null
+  const restarts = desk ? [] : (data.day_restarts ?? []).filter(s => s.day === d.day)
   // Each line its own raised card (the user, 30 Oct: "it looks very plain", "like each ride 3d? div?"); red while its bill is still needed.
   const tile = ' rounded-lg border px-3 shadow-[0_1px_2px_rgb(15_23_42/0.07),0_3px_8px_-2px_rgb(15_23_42/0.08)]'
   const mark = (id: string) => tile + (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' border-cyrixRed-300 bg-cyrixRed-50' : ' border-ink-200 bg-surface')
@@ -608,10 +609,15 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 
       {(
         <div data-details className="grid gap-x-2 gap-y-2 rounded-xl bg-ink-100/60 p-2" style={{ gridTemplateColumns: cols }}>
+          {/* Restart my day (te_0170): why, so the manager sees the late call. */}
+          {restarts.map(rs => <p key={'w' + rs.at} className="col-span-full rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-900 ring-1 ring-amber-200"><RotateCcw className="mr-1 inline h-3.5 w-3.5" />Restarted {clock(rs.at)} · “{rs.reason}”</p>)}
           {(hasMap || dayStart || dayEnd) && (
             <div className="col-span-full flex items-center justify-end gap-3 px-1 pt-0.5">
               {/* Where and when the day was started (te_0104). */}
               {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">{clock(dayStart.at)}</span></span>}
+              {restarts.map(rs => (
+                <span key={rs.at} className="inline-flex shrink-0 items-center gap-1.5 text-xs text-ink-600"><Sunset className="h-3.5 w-3.5 text-orange-500" />{clockOf({ day: d.day, shot_at: rs.ended_at })}<RotateCcw className="ml-1 h-3.5 w-3.5 text-amber-600" /><span className="font-semibold text-amber-800">{clock(rs.at)}</span></span>
+              ))}
               {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">{clockOf({ day: d.day, shot_at: dayEnd.at })}</span></span>}
               {hasMap && <button type="button" className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> <span className="sm:hidden">Map</span><span className="max-sm:hidden">View on map</span></button>}
             </div>

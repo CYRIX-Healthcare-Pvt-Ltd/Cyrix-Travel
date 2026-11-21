@@ -3,7 +3,7 @@ import { Navigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Camera, CloudUpload, LayoutGrid, MapPin, Moon, Trash2, X } from 'lucide-react'
 import VisitCamera from '@/components/VisitCamera'
-import { EndDayButton, StartArt, StartDayButton, startPreview, startTitle, useMyEnds, useMyStarts } from '@/components/StartDay'
+import { EndDayButton, RestartDayButton, StartArt, StartDayButton, startPreview, startTitle, useMyEnds, useMyStarts } from '@/components/StartDay'
 import { openPreview, shortDay, startName, useMyDay, type DayStart } from '@/lib/dayStart'
 import { useAsk } from '@/components/Ask'
 import { Alert, PageLoader } from '@/components/ui'
@@ -110,6 +110,7 @@ export default function VisitPhotos() {
           {(myDay?.required || startPreview) && <EndDayButton />}
         </div>
       )}
+      {myDay && !mustStart && ended && !tripDay && <RestartDayButton />}
       {note && <Alert kind={note.kind}>{note.text}</Alert>}
       {waiting > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 ring-1 ring-amber-200">

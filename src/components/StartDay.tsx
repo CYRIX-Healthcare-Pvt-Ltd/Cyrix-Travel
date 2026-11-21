@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Sunrise, Sunset } from 'lucide-react'
+import { RefreshCw, RotateCcw, Sunrise, Sunset } from 'lucide-react'
 import Dialog from '@/components/Dialog'
 import { useAsk } from '@/components/Ask'
 import { Alert, Spinner } from '@/components/ui'
@@ -52,7 +52,9 @@ async function saveStart(fix: Fix, place: string | null, end: boolean): Promise<
   where the phone is; a rough or wrong fix is read again with Try again.
 */
 /** `end`: End my day (te_0109), with `day` when it ends the day before after midnight ("End 3 Nov"). */
-export function StartConfirm({ onStarted, onClose, end = false, day }: { onStarted?: (s: DayStart) => void; onClose: () => void; end?: boolean; day?: string | null }) {
+/** `restart`: Restart my day after it was ended (te_0170), with why (required). */
+export function StartConfirm({ onStarted, onClose, end = false, day, restart = false }: { onStarted?: (s: DayStart) => void; onClose: () => void; end?: boolean; day?: string | null; restart?: boolean }) {
+  const [why, setWhy] = useState('')
   const qc = useQueryClient()
   const box = useRef<HTMLDivElement>(null)
   const mapRef = useRef<import('leaflet').Map | null>(null)
@@ -99,9 +101,16 @@ export function StartConfirm({ onStarted, onClose, end = false, day }: { onStart
 
   const start = async () => {
     if (!fix) return
+    if (restart && !why.trim()) { setErr('Write why you are going out again'); return }
     setBusy(true); setErr(null)
     try {
-      const s = await saveStart(fix, place, end)
+      let s: DayStart
+      if (restart) {
+        const { error } = await supabase.rpc('te_restart_day', { p_lat: fix.lat, p_lng: fix.lng, p_accuracy: fix.accuracy, p_place: place, p_reason: why.trim() })
+        if (error) throw new Error(friendlyError(error))
+        s = { day: new Date().toLocaleDateString('en-CA'), at: new Date().toISOString(), lat: fix.lat, lng: fix.lng, place, home_m: null }
+        await qc.invalidateQueries({ queryKey: ['te_my_restarts'] })
+      } else s = await saveStart(fix, place, end)
       await Promise.all(['te_my_day', 'te_my_starts', 'te_my_ends', 'te_claim'].map(k => qc.invalidateQueries({ queryKey: [k] })))
       onStarted?.(s)
       onClose()
@@ -112,7 +121,7 @@ export function StartConfirm({ onStarted, onClose, end = false, day }: { onStart
   const tooRough = !!fix && fix.accuracy > 500
 
   return (
-    <Dialog title={end ? (day ? `End ${shortDay(day)}` : 'End my day') : 'Start my day'} icon={end ? <Sunset className="h-5 w-5 text-orange-500" /> : <Sunrise className="h-5 w-5 text-amber-500" />} onClose={onClose}>
+    <Dialog title={restart ? 'Restart my day' : end ? (day ? `End ${shortDay(day)}` : 'End my day') : 'Start my day'} icon={restart ? <RotateCcw className="h-5 w-5 text-amber-600" /> : end ? <Sunset className="h-5 w-5 text-orange-500" /> : <Sunrise className="h-5 w-5 text-amber-500" />} onClose={onClose}>
       <div className="space-y-3">
         {morning ? (
           lastTo && <p className="text-base text-ink-700">Last ride to <span className="font-semibold text-ink-900">{lastTo}</span></p>
@@ -127,6 +136,7 @@ export function StartConfirm({ onStarted, onClose, end = false, day }: { onStart
             )}
           </>
         )}
+        {restart && <input className={`input h-12 w-full text-base ${why.trim() ? '' : '!border-cyrixRed-400'}`} aria-label="Why" placeholder="Ticket no. or reason" value={why} onChange={e => { setWhy(e.target.value); setErr(null) }} />}
         {tooRough ? <Alert kind="error">Location is not exact enough. Press Try again</Alert>
           : rough && <Alert kind="warning">Location is rough. Try again</Alert>}
         {err && <Alert kind="error">{err}</Alert>}
@@ -139,7 +149,7 @@ export function StartConfirm({ onStarted, onClose, end = false, day }: { onStart
             </button>
           )}
           <button type="button" className="btn-primary btn-go h-12 flex-[2] justify-center text-base" disabled={!fix || tooRough || busy} onClick={() => void start()}>
-            {busy ? <Spinner className="h-5 w-5" /> : end ? <Sunset className="h-5 w-5" /> : <Sunrise className="h-5 w-5" />} {end ? (day ? (morning ? `End ${shortDay(day)}` : `End ${shortDay(day)} here`) : 'End my day here') : 'Start my day here'}
+            {busy ? <Spinner className="h-5 w-5" /> : restart ? <RotateCcw className="h-5 w-5" /> : end ? <Sunset className="h-5 w-5" /> : <Sunrise className="h-5 w-5" />} {restart ? 'Restart here' : end ? (day ? (morning ? `End ${shortDay(day)}` : `End ${shortDay(day)} here`) : 'End my day here') : 'Start my day here'}
           </button>
         </div>
       </div>
@@ -156,6 +166,22 @@ export function StartDayButton({ onStarted }: { onStarted?: (s: DayStart) => voi
       </button>
       {open && <StartConfirm onStarted={onStarted} onClose={() => setOpen(false)} />}
     </div>
+  )
+}
+
+/*
+  Restart my day (te_0170; the user, 21 Nov: ended at 6 pm, a ticket came, out again at 9 pm): where he is now and why;
+  the day opens again, the camera comes back, and End my day is pressed again later. No limit.
+*/
+export function RestartDayButton() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" className="h-12 w-full rounded-xl border border-amber-300 bg-amber-50 px-4 text-base font-semibold text-amber-900 hover:bg-amber-100 sm:w-auto sm:px-6" onClick={() => setOpen(true)}>
+        <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap"><RotateCcw className="h-5 w-5" /> Restart my day</span>
+      </button>
+      {open && <StartConfirm restart onClose={() => setOpen(false)} />}
+    </>
   )
 }
 

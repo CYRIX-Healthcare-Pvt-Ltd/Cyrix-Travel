@@ -27,7 +27,8 @@ export default function ApprovalPerson() {
   const act = useClaimAction()
   const [fail, setFail] = useState<string | null>(null)
   const failRef = useRef<HTMLParagraphElement>(null)
-  const all = (data ?? []).filter(c => c.employee_id === id)
+  // By id from Approvals, by employee code from Summary (the user, 21 Nov: Sunil's row opened Approvals, not Sunil).
+  const all = (data ?? []).filter(c => c.employee_id === id || c.ecode === id)
   const list = all.filter(c => (tab === 'waiting' ? c.waiting : tab === 'pending' ? !c.waiting && c.status !== 'paid' : !c.waiting && c.status === 'paid'))
   // Each claim whole, opened out under its row (the user, 29 Oct: the director found it "very blank").
   const full = useClaimsData(list.map(c => c.id))

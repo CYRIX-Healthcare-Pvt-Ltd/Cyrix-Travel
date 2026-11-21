@@ -251,6 +251,8 @@ export interface ClaimData {
   day_start_from?: string | null; day_starts?: DayStart[]
   /** End my day (te_0109): the day it is asked from, and the claim month's ends. */
   day_end_from?: string | null; day_ends?: DayStart[]
+  /** Restart my day (te_0170): when, where, why, and the end it replaced. */
+  day_restarts?: Array<DayStart & { reason: string; ended_at: string }>
   /** From this day a day started or photographed is ended before it is claimed (te_0150). */
   end_first_from?: string | null
   claim: {
@@ -1292,11 +1294,11 @@ export const useMyClaims = () => useQuery({
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
-  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id }), rpc<{ from: string | null; starts: DayStart[]; end_from?: string | null; end_first_from?: string | null; ends?: DayStart[] }>('te_claim_starts', { p_claim: id }), rpc<string[]>('te_ticket_purposes')]).then(([d, v, s, tp]) => {
+  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id }), rpc<{ from: string | null; starts: DayStart[]; end_from?: string | null; end_first_from?: string | null; ends?: DayStart[]; restarts?: Array<DayStart & { reason: string; ended_at: string }> }>('te_claim_starts', { p_claim: id }), rpc<string[]>('te_ticket_purposes')]).then(([d, v, s, tp]) => {
     setTicketPurposes(tp ?? null)
     d.vehicles = v ?? []
     d.day_start_from = s?.from ?? null; d.day_starts = s?.starts ?? []
-    d.day_end_from = s?.end_from ?? null; d.day_ends = s?.ends ?? []; d.end_first_from = s?.end_first_from ?? null
+    d.day_end_from = s?.end_from ?? null; d.day_ends = s?.ends ?? []; d.day_restarts = s?.restarts ?? []; d.end_first_from = s?.end_first_from ?? null
     d.purposes = alphabetical(d.purposes ?? [], p => p)
     if (d.expense_kinds) d.expense_kinds = alphabetical(d.expense_kinds, k => k.label)
     setExpenseKinds(d.expense_kinds)
