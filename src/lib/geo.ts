@@ -5,24 +5,46 @@ export interface Point { lat: number; lng: number }
 /** A reading from the phone: the point, and how many metres it may be out by. */
 export interface Fix extends Point { accuracy: number }
 
-/** Asked for afresh each time: a place remembered from ten minutes ago is not where a press was made. */
+/**
+ * Asked for afresh each time: a place remembered from ten minutes ago is not where a press was made.
+ * The first reading on Android is often the network's rough guess, so it keeps listening for up to
+ * 12 s and gives the closest reading, stopping early once within 50 m (Start my day, 23 Nov: ±2000 m).
+ */
 export function whereAmI(): Promise<Fix> {
   return new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) {
       reject(new Error('This phone or browser does not give its location.'))
       return
     }
-    navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
-      e => reject(new Error(
-        e.code === e.PERMISSION_DENIED
-          ? 'Location is switched off for this page. Allow location in the browser, then try again.'
-          : 'Your location could not be read. Step outside or wait a moment, then try again.',
-      )),
+    let best: Fix | null = null
+    let done = false
+    const finish = (err?: Error) => {
+      if (done) return
+      done = true
+      navigator.geolocation.clearWatch(watch)
+      clearTimeout(timer)
+      if (best) resolve(best)
+      else reject(err ?? new Error('Your location could not be read. Step outside or wait a moment, then try again.'))
+    }
+    const watch = navigator.geolocation.watchPosition(
+      p => {
+        const f = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }
+        if (!best || f.accuracy < best.accuracy) best = f
+        if (f.accuracy <= 50) finish()
+      },
+      e => {
+        if (e.code === e.PERMISSION_DENIED) { best = null; finish(new Error('Location is switched off for this page. Allow location in the browser, then try again.')) }
+        else if (e.code !== e.TIMEOUT) finish()
+      },
       { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
     )
+    const timer = setTimeout(() => finish(), 12_000)
   })
 }
+
+/** Android's Approximate location gives about ±2 km whatever the GPS can do; the person must switch on Precise. */
+export const onlyApproximate = (f: Fix | null) => !!f && f.accuracy >= 1000 && f.accuracy <= 3500
+export const PRECISE_HELP = 'Your phone gives only an approximate location. Open Settings › Apps › Chrome › Permissions › Location, turn on Use precise location, then press Try again.'
 
 /** Straight-line kilometres (haversine) — the floor under any road distance. */
 export function lineKm(a: Point, b: Point): number {

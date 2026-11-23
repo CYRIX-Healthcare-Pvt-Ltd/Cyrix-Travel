@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, Loader2, LocateFixed, RotateCcw, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Spinner } from '@/components/ui'
-import type { Fix } from '@/lib/geo'
+import { onlyApproximate, PRECISE_HELP, type Fix } from '@/lib/geo'
 import { deviceId, deviceName, grab, onComputer, newPending, queuePhoto, sendPhoto, stamp, stampPlace } from '@/lib/visits'
 
 /*
@@ -96,6 +96,7 @@ export default function VisitCamera({ onClose, onDone, forDay }: { forDay?: stri
         {!live && !err && !shot && <div className="absolute inset-0 grid place-items-center"><Spinner /></div>}
       </div>
       <div className="space-y-3 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
+        {!err && !exact && onlyApproximate(fix) && <p role="alert" className="rounded-lg bg-cyrixRed-600/90 px-3 py-2 text-center text-sm font-medium">{PRECISE_HELP.replace(', then press Try again', '')}</p>}
         {err && <p role="alert" className="rounded-lg bg-cyrixRed-600/90 px-3 py-2 text-center text-sm font-medium">{err}</p>}
         {shot ? (
           <div className="grid grid-cols-2 gap-3">

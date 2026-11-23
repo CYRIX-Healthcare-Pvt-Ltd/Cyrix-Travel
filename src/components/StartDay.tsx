@@ -6,7 +6,7 @@ import Dialog from '@/components/Dialog'
 import { useAsk } from '@/components/Ask'
 import { Alert, Spinner } from '@/components/ui'
 import { supabase, friendlyError } from '@/lib/supabase'
-import { placeName, whereAmI, type Fix } from '@/lib/geo'
+import { onlyApproximate, placeName, PRECISE_HELP, whereAmI, type Fix } from '@/lib/geo'
 import { endPreview, endingNextMorning, latePreview, openPreview, shortDay, startName, useMyDay, type DayStart } from '@/lib/dayStart'
 
 /*
@@ -137,7 +137,7 @@ export function StartConfirm({ onStarted, onClose, end = false, day, restart = f
           </>
         )}
         {restart && <input className={`input h-12 w-full text-base ${why.trim() ? '' : '!border-cyrixRed-400'}`} aria-label="Why" placeholder="Ticket no. or reason" value={why} onChange={e => { setWhy(e.target.value); setErr(null) }} />}
-        {tooRough ? <Alert kind="error">Location is not exact enough. Press Try again</Alert>
+        {tooRough ? <Alert kind="error">{onlyApproximate(fix) ? PRECISE_HELP : 'Location is not exact enough. Press Try again'}</Alert>
           : rough && <Alert kind="warning">Location is rough. Try again</Alert>}
         {err && <Alert kind="error">{err}</Alert>}
         <div className="flex gap-2">
