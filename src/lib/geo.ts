@@ -7,8 +7,8 @@ export interface Fix extends Point { accuracy: number }
 
 /**
  * Asked for afresh each time: a place remembered from ten minutes ago is not where a press was made.
- * The first reading on Android is often the network's rough guess, so it keeps listening for up to
- * 12 s and gives the closest reading, stopping early once within 50 m (Start my day, 23 Nov: ±2000 m).
+ * One reading, at once (the user, 23 Nov: listening 12 s for a closer one was too long); a rough one is read
+ * again with Try again.
  */
 export function whereAmI(): Promise<Fix> {
   return new Promise((resolve, reject) => {
@@ -16,29 +16,15 @@ export function whereAmI(): Promise<Fix> {
       reject(new Error('This phone or browser does not give its location.'))
       return
     }
-    let best: Fix | null = null
-    let done = false
-    const finish = (err?: Error) => {
-      if (done) return
-      done = true
-      navigator.geolocation.clearWatch(watch)
-      clearTimeout(timer)
-      if (best) resolve(best)
-      else reject(err ?? new Error('Your location could not be read. Step outside or wait a moment, then try again.'))
-    }
-    const watch = navigator.geolocation.watchPosition(
-      p => {
-        const f = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }
-        if (!best || f.accuracy < best.accuracy) best = f
-        if (f.accuracy <= 50) finish()
-      },
-      e => {
-        if (e.code === e.PERMISSION_DENIED) { best = null; finish(new Error('Location is switched off for this page. Allow location in the browser, then try again.')) }
-        else if (e.code !== e.TIMEOUT) finish()
-      },
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+      e => reject(new Error(
+        e.code === e.PERMISSION_DENIED
+          ? 'Location is switched off for this page. Allow location in the browser, then try again.'
+          : 'Your location could not be read. Step outside or wait a moment, then try again.',
+      )),
       { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
     )
-    const timer = setTimeout(() => finish(), 12_000)
   })
 }
 
