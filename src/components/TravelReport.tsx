@@ -36,6 +36,8 @@ const LOOK: Record<Weight, string> = { red: 'bg-cyrixRed-100 text-cyrixRed-800',
 interface Person {
   id: string; ecode: string; name: string; function: string | null; designation: string | null; grade: string | null; location: string | null
   manager: string | null; rides: number; checked: number; map_km: number; claimed_km: number; amount: number; extra_amount: number; over10: number
+  /** Another road over Google's quickest (te_0171): rides, km longer, Google's km on those rides. */
+  longer_n: number; longer_km: number; quick_km: number
   signs: Partial<Record<Kind, number>>; cut: number
 }
 interface Ride {
@@ -45,7 +47,7 @@ interface Ride {
 interface Sign { employee_id: string; day: string; kind: Kind; what: string; amount: number | null }
 interface Report { tolerance: number; people: Person[]; rides: Ride[] | null; signs: Sign[] | null }
 type Row = Person & { pct: number | null; flags: number }
-type SortKey = 'name' | 'function' | 'manager' | 'rides' | 'map' | 'claimed' | 'pct' | 'extra' | 'signs'
+type SortKey = 'name' | 'function' | 'manager' | 'rides' | 'map' | 'claimed' | 'pct' | 'extra' | 'longer' | 'signs'
 
 const PERIODS = [['all', 'All time'], ['this', 'This month'], ['custom', 'Custom']] as const
 type Period = typeof PERIODS[number][0]
@@ -61,6 +63,8 @@ const kmText = (v: number | null) => (v == null ? '—' : `${(Math.round(v * 10)
 const rupee = (v: number | null) => (v == null ? '—' : `₹${Math.round(v).toLocaleString('en-IN')}`)
 const pctText = (v: number | null) => (v == null ? '—' : `${v > 0.05 ? '+' : ''}${v.toFixed(1)}%`)
 const pctTone = (v: number | null) => (v == null || v <= 10 ? 'text-ink-900' : v <= 25 ? 'text-amber-700' : 'text-cyrixRed-700')
+/** How much longer the roads picked were than Google's quickest on the same rides (the user, 23 Nov). */
+const longerPct = (km: number, quick: number) => (quick > 0 ? (km / quick) * 100 : null)
 const MODE: Record<string, string> = { bike: 'Bike', car: 'Car' }
 
 export default function TravelReport() {
@@ -92,7 +96,7 @@ export default function TravelReport() {
     const list = rows.filter(r => (!fn || r.function === fn) && (!mgr || r.manager === mgr) && (!onlySigns || r.flags > 0)
       && words.every(w => [r.name, r.ecode, r.function, r.manager, r.designation, r.location].join(' ').toLowerCase().includes(w)))
     const v = (r: Row): string | number | null => ({
-      name: r.name, function: r.function, manager: r.manager, rides: r.rides, map: r.map_km, claimed: r.claimed_km, pct: r.pct, extra: r.extra_amount, signs: r.flags,
+      name: r.name, function: r.function, manager: r.manager, rides: r.rides, map: r.map_km, claimed: r.claimed_km, pct: r.pct, extra: r.extra_amount, longer: r.longer_n ? r.longer_km : null, signs: r.flags,
     })[sort]
     // Blanks last whichever way it is sorted.
     return [...list].sort((a, b) => {
@@ -104,7 +108,8 @@ export default function TravelReport() {
   }, [rows, q, fn, mgr, onlySigns, sort, asc])
   const onSort = (k: SortKey) => { if (k === sort) setAsc(!asc); else { setSort(k); setAsc(k === 'name' || k === 'function' || k === 'manager') } }
 
-  const t = shown.reduce((s, r) => ({ map: s.map + r.map_km, claimed: s.claimed + r.claimed_km, extra: s.extra + r.extra_amount }), { map: 0, claimed: 0, extra: 0 })
+  const t = shown.reduce((s, r) => ({ map: s.map + r.map_km, claimed: s.claimed + r.claimed_km, extra: s.extra + r.extra_amount,
+    ln: s.ln + r.longer_n, lk: s.lk + r.longer_km, lq: s.lq + r.quick_km }), { map: 0, claimed: 0, extra: 0, ln: 0, lk: 0, lq: 0 })
   const download = async () => {
     setXl('busy')
     try {
@@ -165,12 +170,13 @@ export default function TravelReport() {
 
       {isLoading ? <PageLoader /> : error ? <Alert kind="error">{(error as Error).message}</Alert> : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <div className="col-span-2 sm:col-span-1"><StatTile tone="brand" label="Extra over map" value={<span className={pctTone(extraPct(t.map, t.claimed))}>{pctText(extraPct(t.map, t.claimed))}</span>} /></div>
             <StatTile label="Map km" value={kmText(t.map)} />
             <StatTile label="Claimed km" value={kmText(t.claimed)} />
             <StatTile label="Extra km" value={kmText(t.claimed - t.map)} />
             <StatTile label="Extra ₹" value={rupee(t.extra)} />
+            <StatTile label="Other road" value={t.ln ? <>{kmText(t.lk)} <span className="text-base font-semibold text-amber-700">{pctText(longerPct(t.lk, t.lq))}</span></> : '—'} sub={t.ln ? `${t.ln} ${t.ln === 1 ? 'ride' : 'rides'}` : undefined} />
           </div>
 
           {!shown.length ? (
@@ -193,6 +199,7 @@ export default function TravelReport() {
                       </span>
                     </span>
                     <span className="mt-1 block text-xs text-ink-600">Map {kmText(r.map_km)} · Claimed {kmText(r.claimed_km)} · {r.rides} rides</span>
+                    {r.longer_n > 0 && <span className="block text-xs font-medium text-amber-700">Other road {r.longer_n}× · +{kmText(r.longer_km)} · {pctText(longerPct(r.longer_km, r.quick_km))}</span>}
                     <Chips signs={r.signs} className="mt-2" />
                   </button>
                 ))}
@@ -209,6 +216,7 @@ export default function TravelReport() {
                       <SortHeader label="Claimed km" col="claimed" align="right" sortKey={sort} asc={asc} onSort={onSort} />
                       <SortHeader label="Extra" col="pct" align="right" sortKey={sort} asc={asc} onSort={onSort} />
                       <SortHeader label="Extra ₹" col="extra" align="right" sortKey={sort} asc={asc} onSort={onSort} />
+                      <SortHeader label="Other road" col="longer" align="right" sortKey={sort} asc={asc} onSort={onSort} />
                       <SortHeader label="Signs" col="signs" sortKey={sort} asc={asc} onSort={onSort} />
                     </tr>
                   </thead>
@@ -223,6 +231,10 @@ export default function TravelReport() {
                         <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{kmText(r.claimed_km)}</td>
                         <td className={clsx('whitespace-nowrap px-4 py-2.5 text-right font-semibold tabular-nums', pctTone(r.pct))}>{pctText(r.pct)}</td>
                         <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{rupee(r.extra_amount)}</td>
+                        <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{r.longer_n ? <>
+                          <p><span className="font-semibold text-ink-900">{kmText(r.longer_km)}</span> <span className="font-semibold text-amber-700">{pctText(longerPct(r.longer_km, r.quick_km))}</span></p>
+                          <p className="text-xs text-ink-500">{r.longer_n} {r.longer_n === 1 ? 'ride' : 'rides'}</p>
+                        </> : <span className="text-ink-400">—</span>}</td>
                         <td className="min-w-[10rem] px-4 py-2.5"><Chips signs={r.signs} /></td>
                       </tr>
                     ))}
@@ -277,8 +289,9 @@ function PersonPage({ row, from, to, label, onClose }: { row: Row; from: string;
           <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-ink-500 hover:bg-ink-100" aria-label="Close" onClick={onClose}><X className="h-5 w-5" /></button>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {([['Extra over map', <span key="p" className={pctTone(row.pct)}>{pctText(row.pct)}</span>], ['Map km', kmText(row.map_km)], ['Claimed km', kmText(row.claimed_km)], ['Extra ₹', rupee(row.extra_amount)]] as const).map(([l, v]) => (
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {([['Extra over map', <span key="p" className={pctTone(row.pct)}>{pctText(row.pct)}</span>], ['Map km', kmText(row.map_km)], ['Claimed km', kmText(row.claimed_km)], ['Extra ₹', rupee(row.extra_amount)],
+            ['Other road', row.longer_n ? <span key="o">{kmText(row.longer_km)} <span className="text-sm text-amber-700">{pctText(longerPct(row.longer_km, row.quick_km))} · {row.longer_n}×</span></span> : '—']] as const).map(([l, v]) => (
             <div key={l} className="rounded-xl border border-ink-200 px-3 py-2">
               <p className="text-xs font-medium text-ink-500">{l}</p>
               <p className="text-lg font-semibold tabular-nums text-ink-900">{v}</p>
@@ -380,14 +393,18 @@ async function exportReport(label: string, people: Row[], rides: Ride[], signs: 
   sheet('By person', [
     ['E-code', 'text'], ['Name', 'text'], ['Function', 'text'], ['Designation', 'text'], ['Grade', 'text'], ['Location', 'text'], ['Reporting manager', 'text'],
     ['Rides', 'int'], ['Map km', 'km'], ['Claimed km', 'km'], ['Extra km', 'km'], ['Extra %', 'pct'], ['Extra ₹', 'int'], ['Rides over map +10%', 'int'],
+    ['Other road rides', 'int'], ['Other road km longer', 'km'], ['Other road %', 'pct'],
     ...SIGNS.map(([, l]) => [l, 'int'] as [string, Fmt]), ['Cut ₹', 'int'],
   ], people.map(p => [
     p.ecode, p.name, p.function, p.designation, p.grade, p.location, p.manager,
     p.rides, one(p.map_km), one(p.claimed_km), one(p.claimed_km - p.map_km), p.pct == null ? null : Math.round(p.pct * 10) / 10, Math.round(p.extra_amount), p.over10,
+    p.longer_n, one(p.longer_km), p.longer_n ? Math.round((longerPct(p.longer_km, p.quick_km) ?? 0) * 10) / 10 : null,
     ...SIGNS.map(([k]) => p.signs[k] ?? 0), Math.round(p.cut),
   ]), ['TOTAL', null, null, null, null, null, null,
     sum(people, p => p.rides), one(map), one(claimed), one(claimed - map), map > 0 ? Math.round(((claimed - map) / map) * 1000) / 10 : null,
     Math.round(sum(people, p => p.extra_amount)), sum(people, p => p.over10),
+    sum(people, p => p.longer_n), one(sum(people, p => p.longer_km)),
+    sum(people, p => p.quick_km) > 0 ? Math.round((longerPct(sum(people, p => p.longer_km), sum(people, p => p.quick_km)) ?? 0) * 10) / 10 : null,
     ...SIGNS.map(([k]) => sum(people, p => p.signs[k] ?? 0)), Math.round(sum(people, p => p.cut))])
 
   const rMap = sum(rides, r => (r.map_km && r.claimed_km != null ? r.map_km : null)), rClaimed = sum(rides, r => (r.map_km && r.claimed_km != null ? r.claimed_km : null))
