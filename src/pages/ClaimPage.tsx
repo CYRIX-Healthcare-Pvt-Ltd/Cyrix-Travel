@@ -386,13 +386,13 @@ export default function ClaimPage() {
             <button type="button" onClick={() => nav('/photos?end=1')}
               className="mb-3 flex w-full items-center gap-2 rounded-xl border-2 border-cyrixRed-300 bg-cyrixRed-50 px-3 py-2 text-left hover:bg-cyrixRed-100">
               <TriangleAlert className="h-4 w-4 shrink-0 text-cyrixRed-700" />
-              <span className="min-w-0 flex-1 text-sm font-medium text-cyrixRed-800">{sendFail}</span>
+              <span className="min-w-0 flex-1 text-xs font-medium text-cyrixRed-800">{sendFail}</span>
               <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-cyrixRed-600 px-2.5 py-1 text-xs font-semibold text-white">
                 End now <ChevronRight className="h-3.5 w-3.5" />
               </span>
             </button>
           ) : (
-            <p className="mb-3 flex items-start gap-2 rounded-xl border border-cyrixRed-300 bg-cyrixRed-50 px-3 py-2 text-sm font-medium text-cyrixRed-800">
+            <p className="mb-3 flex items-start gap-2 rounded-xl border border-cyrixRed-300 bg-cyrixRed-50 px-3 py-2 text-xs font-medium text-cyrixRed-800">
               <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-cyrixRed-700" /> {sendFail}
             </p>
           ))}
@@ -774,7 +774,7 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
       <label className="block"><span className="label">UTR</span>
         <input className="input mt-1 w-56 font-mono uppercase" value={utr} onChange={e => setUtr(e.target.value)} placeholder="Transaction reference" /></label>
       <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); if (!(await ask.confirm({ title: `Mark ${c.number ?? 'this claim'} paid?`, body: `${c.name} · UTR ${utr.trim().toUpperCase()}`, yes: 'Mark paid', icon: Wallet, go: true }))) return; try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>
-      {err && <span className="text-sm text-cyrixRed-700">{err}</span>}
+      {err && <span className="text-xs text-cyrixRed-700">{err}</span>}
     </div>
   )
 }

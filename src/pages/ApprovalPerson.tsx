@@ -223,7 +223,7 @@ export default function ApprovalPerson() {
             </table>
           </div>
         )}
-        {fail && <p ref={failRef} className="rounded-lg bg-cyrixRed-50 px-3 py-2 text-sm text-cyrixRed-700 ring-1 ring-cyrixRed-200">{fail}</p>}
+        {fail && <p ref={failRef} className="rounded-lg bg-cyrixRed-50 px-3 py-2 text-xs text-cyrixRed-700 ring-1 ring-cyrixRed-200">{fail}</p>}
 
         {approving && <ApproveAll list={managerOnes} onClose={() => setApproving(false)} />}
       </>}

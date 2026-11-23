@@ -1946,3 +1946,7 @@
   50% { box-shadow: 0 0 0 4px rgb(16 185 129 / .22), 0 0 12px rgb(16 185 129 / .35); }
 }
 @media (prefers-reduced-motion: reduce) { .ring-glow { animation: none; } }
+
+/* A ride card: its mode colour on the border only (the user, 23 Nov), softer in dark ("too bright in dark mode"). */
+.ride-edge { border-color: color-mix(in srgb, var(--rc) 70%, transparent); }
+.dark .ride-edge { border-color: color-mix(in srgb, var(--rc) 38%, transparent); }

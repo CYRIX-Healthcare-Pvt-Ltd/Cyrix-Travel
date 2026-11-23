@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import VisitCamera from '@/components/VisitCamera'
 import VisitThumb from '@/components/VisitThumb'
 import { clock, lastGoing, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
 import { homeLimit, endedNextMorning, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
 import { StartConfirm } from '@/components/StartDay'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, Map as MapIcon, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -104,12 +104,13 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     button and the box itself ringed, shaken and brought into view.
   */
   const [nudge, setNudge] = useState<{ ride: string; what: 'to' | 'purpose' } | null>(null)
+  const [tried, setTried] = useState(false)
   const nudged = (id: string, what: 'to' | 'purpose') => {
     const r = nudge?.ride === id && nudge.what === what ? d.rides.find(x => x.id === id) : undefined
     return !!r && (what === 'to' ? r.to_lat == null : !r.purpose)
   }
   const nudgeLine = (id: string, what: 'to' | 'purpose', n: number, pad = '') => nudged(id, what) && (
-    <p className={`mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-cyrixRed-700 ${pad}`}>
+    <p className={`mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-cyrixRed-700 ${pad}`}>
       <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>
       {what === 'to' ? `Choose where ride ${n} went` : `Choose the purpose of ride ${n}`}
     </p>
@@ -709,6 +710,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const save = async () => {
     setErr(null)
     if (blockers.length) {
+      setTried(true)
       await ask.alert('To save, still needed', blockers.map(b => `• ${b.text}`).join('\n'), 'warn')
       goTo(blockers[0].to)
       return
@@ -850,8 +852,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 const locked = i === 0 && !!startPlace
                 const endLocked = r.id === endRideId
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
-                  <button type="button" id={`${end}-${r.id}`} disabled={(end === 'from' && locked) || (end === 'to' && endLocked)} onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
-                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'text-ink-700'} ${end === 'to' && nudged(r.id, 'to') ? 'ring-2 ring-cyrixRed-500' : ''}`}>
+                  <button type="button" id={`${end}-${r.id}`} disabled={(end === 'from' && locked) || (end === 'to' && endLocked)} onClick={() => setPicking({ ride: r.id, end })}
+                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-ink-200 px-3 text-left text-sm ${name ? 'text-ink-900' : 'text-ink-500'} ${end === 'to' && nudged(r.id, 'to') ? 'ring-2 ring-cyrixRed-500' : ''}`}>
                     <span className="grid w-4 shrink-0 place-items-center">{end === 'from' ? <span className="h-2.5 w-2.5 rounded-full bg-teal-500" /> : <MapPin className="h-4 w-4 text-cyrixRed-600" />}</span>
                     <span className="w-9 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{end === 'from' ? 'From' : 'To'}</span>
                     <span className="truncate">{name ?? (end === 'from' ? 'Choose where you started' : 'Choose where you went')}</span>
@@ -862,8 +864,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                 return (
                   // A soft line and tint in its mode's colour (the user, 17 Oct: "not this much color, like neon").
                   // "Ride 1" and the bin sit on the card's top border, so the places get the full width (the user, 18 Nov: B).
-                  <div key={r.id} id={'ride-' + r.id} className={`relative scroll-mt-24 rounded-xl border p-3 pt-4 transition-shadow ${i === 0 ? 'mt-4' : '!mt-6'}`} style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
-                    <span className="absolute -top-3 left-3 rounded-full border px-2.5 py-0.5 text-xs font-semibold text-ink-800" style={{ borderColor: m.color + '99', background: `color-mix(in srgb, ${m.color} 16%, rgb(var(--surface)))` }}>Ride {i + 1}</span>
+                  <div key={r.id} id={'ride-' + r.id} className={`relative scroll-mt-24 rounded-xl border p-3 pt-4 transition-shadow ride-edge ${i === 0 ? 'mt-4' : '!mt-6'}`} style={{ '--rc': m.color } as CSSProperties}>
+                    <span className="absolute -top-2.5 left-3 bg-surface px-1.5 text-sm font-semibold leading-5" style={{ color: m.color }}>Ride {i + 1}</span>
                     <button type="button" className="absolute -top-3.5 right-3 grid h-7 w-7 place-items-center rounded-full border border-ink-200 bg-surface text-ink-400 transition-colors duration-150 hover:border-cyrixRed-200 hover:bg-cyrixRed-50 hover:text-cyrixRed-700 focus-visible:border-cyrixRed-200 focus-visible:text-cyrixRed-700 active:scale-95" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-3.5 w-3.5" /></button>
                     <div className="space-y-1.5">{placeBtn('from', r.from_name)}
                       {i === 0 && noProof && (
@@ -927,23 +929,25 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     {/* One short line about the map, under the km it checks (the user, 2 Nov), amber when the km is over (no chips). */}
                     {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
                     {r.map_km != null && (
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <p className={`flex-auto text-xs ${m.perKm && kmChanged(r) && !googleBand(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{roadsExtra && m.perKm && shortExtra(r) && <b className="font-semibold text-cyrixRed-700"> · {shortExtra(r)!.pct}% · {km(shortExtra(r)!.km)} more</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
+                      <div className="mt-1.5 flex items-center gap-x-2">
+                        <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) && !googleBand(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
+                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{roadsExtra && m.perKm && shortExtra(r) && <b className="font-semibold text-cyrixRed-700"> · {shortExtra(r)!.pct}%</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
                             : m.perKm && kmOff(r) && typingKm !== r.id ? ' · km does not match'
                             : m.perKm && kmChanged(r) && !googleBand(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
+                          {/* The % beside the km, the km more under it (the user, 23 Nov). */}
+                          {roadsExtra && m.perKm && shortExtra(r) && <b className="block font-semibold text-cyrixRed-700">{km(shortExtra(r)!.km)} more</b>}
                         </p>
                         {/*
-                          View on map at the right of the map's km; with Other routes, both on their own line, Other routes at
-                          the left and View on map at the right (the user, 18 Nov: "view on map in same row as other").
+                          The map's km, Other routes and View on map on one row (the user, 23 Nov: "all on same row"); a long
+                          km line breaks inside its own space.
                         */}
-                        <div data-roads={r.id} className="ml-auto flex items-center gap-3 has-[[data-other]]:ml-0 has-[[data-other]]:basis-full">
+                        <div data-roads={r.id} className="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
                           {m.perKm && r.from_lat != null && r.to_lat != null && (
                             <RoadsButton ride={r} hidden={!roadsExtra} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
                               onRouteKm={k => setRide(r.id, { route_km: k })} onKeep={k => setRide(r.id, { route_alts: k })} />
                           )}
                           <button type="button" className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
-                            <MapIcon className="h-3.5 w-3.5" /> View on map
+                            View on map
                           </button>
                         </div>
                       </div>
@@ -968,12 +972,12 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                           onKm={k => setRide(r.id, { claimed_km: k ?? r.map_km })} />
                       </div>
                     )}
-                    {/* Why, and for which call centre — each ride its own (te_0060). */}
-                    <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <PickList id={'purpose-' + r.id} label="Purpose" title={`Purpose of ride ${i + 1}`} placeholder="Purpose…" alarm={nudged(r.id, 'purpose')} value={r.purpose}
+                    {/* Why, and for which call centre — each ride its own (te_0060); side by side on a phone too (the user, 23 Nov). */}
+                    <div className="mt-2.5 grid grid-cols-2 gap-2">
+                      <PickList plain id={'purpose-' + r.id} label="Purpose" title={`Purpose of ride ${i + 1}`} placeholder="Purpose…" alarm={nudged(r.id, 'purpose')} value={r.purpose}
                         options={[...new Set([...data.purposes, ...(r.purpose ? [r.purpose] : [])])].map(p => ({ value: p, label: p, ...purposeLook(p) }))}
                         onChange={v => setRide(r.id, { purpose: v })} />
-                      <PickList label="Call centre" title={`Call centre of ride ${i + 1}`} placeholder="Call centre…" value={r.project}
+                      <PickList plain label="Call centre" title={`Call centre of ride ${i + 1}`} placeholder="Call centre…" value={r.project}
                         options={[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => ({ value: x, label: x, icon: Headset, tone: 'cyan' as const }))}
                         onChange={v => setRide(r.id, v === r.project ? { project: v } : { project: v, ticket_no: '' })} />
                     </div>
@@ -1058,7 +1062,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     )}
                     {/* Anything about the ride, in the engineer's words (the user, 21 Oct). */}
                     <div className="mt-2">
-                      <input className={`input h-10 w-full text-sm ${(REMARKS_NEEDED.has(r.mode) || autoAfterBike(d.rides, r)) && !r.note?.trim() ? '!border-amber-400' : ''}`} aria-label="Remarks" placeholder={autoAfterBike(d.rides, r) ? `Why ${(m.short ?? m.label).toLowerCase()} after the bike? (required)` : REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
+                      <input className="input h-10 w-full text-sm" aria-label="Remarks" placeholder={autoAfterBike(d.rides, r) ? `Why ${(m.short ?? m.label).toLowerCase()} after the bike? (required)` : REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
                     </div>
                     {/* A ticket the company booked: shown, and not claimed (te_0042). */}
                     {(() => { const co = companyOf(data.bills, r); return co && <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
@@ -1136,7 +1140,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                   onChange={v => set({ da_kind: v as DaKind })} />
               </div>
               {d.da_kind === 'aurum_per_diem' && (d.hotel?.amount ?? 0) > 0 && (
-                <p className="mt-1.5 text-sm font-medium text-cyrixRed-700">Per diem is paid only without a room stay. Choose food at actual, or remove the room.</p>
+                <p className="mt-1.5 text-xs font-medium text-cyrixRed-700">Per diem is paid only without a room stay. Choose food at actual, or remove the room.</p>
               )}
           </section>
           )}
@@ -1252,11 +1256,10 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             was squeezed into four short lines beside Save); beside Save on a wider screen. Save claim stays on one line
             (the user, 28 Oct: it broke into "Save / claim").
           */}
-          {err ? <span className="order-last w-full text-sm font-medium text-cyrixRed-700 sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:text-right">{err}</span>
-            : blockers.length > 0 && (
-              <button type="button" onClick={() => goTo(blockers[0].to)} className="order-last flex w-full items-start gap-1.5 text-left text-sm font-semibold leading-snug text-amber-800 underline-offset-2 hover:underline sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:justify-end sm:text-right">
-                <span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white sm:hidden">!</span>
-                <span>{blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}</span>
+          {err ? <span className="order-last w-full text-xs font-medium text-cyrixRed-700 sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:text-right">{err}</span>
+            : tried && blockers.length > 0 && (
+              <button type="button" onClick={() => goTo(blockers[0].to)} className="order-last w-full text-left text-xs font-medium leading-snug text-amber-800 underline-offset-2 hover:underline sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:text-right">
+                {blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}
               </button>
             )}
           <button type="button" className={`btn-primary h-11 shrink-0 whitespace-nowrap px-5 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>

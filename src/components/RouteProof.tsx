@@ -94,7 +94,7 @@ export default function RouteProof({ ride, shot, band, claimId, onChange, onKm }
         </div>
       </div>
       <input ref={file} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void add(f) }} />
-      {err && <p role="alert" className="mt-2 text-sm font-semibold text-cyrixRed-700">{err}</p>}
+      {err && <p role="alert" className="mt-2 text-xs font-semibold text-cyrixRed-700">{err}</p>}
       {open && shot && <ShotView url={url} title={status} tone={ink} vars={inkVars(mc)} onClose={() => setOpen(false)} />}
     </div>
   )

@@ -102,7 +102,7 @@ export default function AdvanceForm({ home, advance, left, monthCount = 0, ownCe
         <div className="min-w-0">
           <span className="label">Travel Destination (To)</span>
           <AreaField value={dest} onChange={a => { setDest(a); setErr(null) }} onText={setTyped} />
-          {sameState && <p className="mt-1 text-sm text-cyrixRed-700">An advance is only for travel outside {baseState}</p>}
+          {sameState && <p className="mt-1 text-xs text-cyrixRed-700">An advance is only for travel outside {baseState}</p>}
         </div>
       </div>
       <label className="block sm:max-w-xs"><span className="label">Project or Cost Centre</span>

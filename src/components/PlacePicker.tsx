@@ -328,17 +328,17 @@ export default function PlacePicker({ title, start, near, other, quick, photos, 
           </div>
           )}
         </div>
-        {pasteErr && <p className="shrink-0 text-sm text-cyrixRed-700">{pasteErr}</p>}
+        {pasteErr && <p className="shrink-0 text-xs text-cyrixRed-700">{pasteErr}</p>}
         {none && !busy && <p className="shrink-0 text-sm text-ink-500">No match. Try another spelling, or tap the place on the map.</p>}
         <div ref={box} className="min-h-[10rem] w-full flex-1 overflow-hidden rounded-xl border border-ink-200" />
-        {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
+        {err && <p className="text-xs text-cyrixRed-700">{err}</p>}
         {picked && picked.name !== '…' && !plain && (saveAs === null ? (
           <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-teal-700 hover:underline" onClick={() => setSaveAs(picked.name.split(',')[0])}><Star className="h-4 w-4" /> Save to my places</button>
         ) : (
           <label className="block"><span className="label">{askName ? 'Name this place' : 'Save to my places as'}</span>
             <input className="input mt-1" value={saveAs} onChange={e => setSaveAs(e.target.value)} placeholder="Home, Kochi office, ESI Hospital" autoFocus={askName} /></label>
         ))}
-        {saveErr && <p className="text-sm text-cyrixRed-700">{saveErr}</p>}
+        {saveErr && <p className="text-xs text-cyrixRed-700">{saveErr}</p>}
         {/* One row (the user, 20 Nov): my location, Cancel, Use this place; the map takes the room the line under it had. */}
         <div className="flex shrink-0 items-center gap-2">
           <button type="button" className="btn-secondary !px-3" onClick={here} aria-label="Use my location" title="Use my location"><Crosshair className="h-5 w-5" /></button>

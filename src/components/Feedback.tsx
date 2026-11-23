@@ -186,7 +186,7 @@ function FeedbackSheet({ onClose }: { onClose: () => void }) {
           <button type="button" onClick={() => void send()} disabled={busy} className="btn-primary w-full">
             {busy ? 'Sending…' : 'Send'}
           </button>
-          {err && <p role="alert" className="mt-2 text-sm font-medium text-cyrixRed-700">{err}</p>}
+          {err && <p role="alert" className="mt-2 text-xs font-medium text-cyrixRed-700">{err}</p>}
         </div>
         {!!mine?.length && (
           <div>

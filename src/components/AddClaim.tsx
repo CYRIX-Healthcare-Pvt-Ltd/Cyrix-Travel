@@ -88,7 +88,7 @@ export default function AddClaim() {
                 ? <p className="text-sm font-semibold text-blue-800">{new Date(pickDay + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} is in your {drafts[pickDay].name}</p>
                 : <p className="text-sm text-ink-600">{new Date(pickDay + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>}
             {late?.pct ? <p className="text-sm text-amber-800">{monthName(late.month)} is late: {late.pct}% comes off that month's claim.</p> : null}
-            {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
+            {err && <p className="text-xs text-cyrixRed-700">{err}</p>}
             {openDay && pickDay > openDay && !claimedIn ? (
               // Continue first, End beside it, as Visit of <day> | End <day> on the Photo tab (the user, 12 Nov: "swap buttons").
               <div className="grid grid-cols-2 gap-2">

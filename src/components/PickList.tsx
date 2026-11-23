@@ -11,7 +11,7 @@ export interface PickOption { value: string; label: string; icon: LucideIcon; to
   and colour. On a phone the list rises from the bottom as large rows a thumb can hit; on a computer it drops under the
   box, and the arrow keys and Enter work as in a plain dropdown.
 */
-export default function PickList({ id, value, options, placeholder, title, onChange, alarm = false, tall = false, label }: {
+export default function PickList({ id, value, options, placeholder, title, onChange, alarm = false, tall = false, label, plain = false }: {
   /** For the form's "bring it into view": the box itself carries it. */
   id?: string
   value: string | null | undefined
@@ -22,6 +22,7 @@ export default function PickList({ id, value, options, placeholder, title, onCha
   onChange: (value: string) => void
   /** Pointed at by the form (Add another ride): red. */
   alarm?: boolean
+  plain?: boolean
   tall?: boolean
   label: string
 }) {
@@ -82,7 +83,7 @@ export default function PickList({ id, value, options, placeholder, title, onCha
         aria-expanded={!!open}
         onClick={() => (open ? close() : show())}
         onKeyDown={onKey}
-        className={`input flex w-full min-w-0 items-center gap-2 !pr-2 text-left text-sm pick-field ${tall ? 'h-11' : 'h-10'} ${chosen ? '' : '!border-amber-400'} ${alarm ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-500' : ''}`}
+        className={`input flex w-full min-w-0 items-center gap-2 !pr-2 text-left text-sm pick-field ${tall ? 'h-11' : 'h-10'} ${chosen || plain ? '' : '!border-amber-400'} ${alarm ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-500' : ''}`}
       >
         {chosen && Icon
           ? <span aria-hidden className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${TONE_SOFT[chosen.tone]}`}><Icon className="h-3.5 w-3.5" /></span>

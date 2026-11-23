@@ -76,7 +76,7 @@ export default function AdjustDialog({ claimId, target, onClose }: { claimId: st
         </button>
         <label className="block"><span className="label">Why</span>
           <textarea rows={2} className="input mt-1" value={why} onChange={e => setWhy(e.target.value)} placeholder="Reason for the change" /></label>
-        {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
+        {err && <p className="text-xs text-cyrixRed-700">{err}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
           <button type="button" className="btn-primary" disabled={act.isPending} onClick={() => void save()}>{act.isPending && <Spinner className="h-4 w-4" />} Save change</button>

@@ -114,7 +114,7 @@ export default function ApproveAll({ list, onClose }: { list: Row[]; onClose: ()
 
   return (
     <Dialog title="Approve all" icon={<CheckCheck className="h-5 w-5 text-green-600" />} onClose={step === 'approving' ? () => undefined : onClose}>
-      {err ? <p className="text-sm text-cyrixRed-700">{err}</p>
+      {err ? <p className="text-xs text-cyrixRed-700">{err}</p>
         : step === 'reading' ? (
           <div className="space-y-2 py-2">
             <p className="flex items-center gap-2 text-sm text-ink-700"><Spinner className="h-4 w-4" /> Checking {read} of {list.length} claims…</p>
@@ -159,7 +159,7 @@ export default function ApproveAll({ list, onClose }: { list: Row[]; onClose: ()
                 <p className="text-xs font-medium tabular-nums text-green-800">{money(ready.filter(c => !failed.some(f => f.startsWith(`${c.number ?? c.name}:`))).reduce((t, c) => t + c.total, 0))}</p>
               </div>
             </div>
-            {failed.length > 0 && <p className="text-sm text-cyrixRed-700">{failed.length} could not be approved: {failed.slice(0, 3).join('; ')}{failed.length > 3 ? '…' : ''}</p>}
+            {failed.length > 0 && <p className="text-xs text-cyrixRed-700">{failed.length} could not be approved: {failed.slice(0, 3).join('; ')}{failed.length > 3 ? '…' : ''}</p>}
             {heldCard}
             <div className="flex justify-end pt-1"><button type="button" className="btn-primary" onClick={onClose}>Done</button></div>
           </>

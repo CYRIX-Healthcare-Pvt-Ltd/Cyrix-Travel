@@ -194,7 +194,7 @@ function TravelTime({ policy, call }: { policy: Record<string, unknown>; call: C
         ))}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {err && <span className="text-sm text-cyrixRed-700">{err}</span>}
+        {err && <span className="text-xs text-cyrixRed-700">{err}</span>}
         <button type="button" className="btn-primary !py-1.5 text-sm" disabled={!changed || SPEED_MODES.some(([m]) => !v[m])} onClick={() => void save()}>Save speeds</button>
       </div>
     </div>

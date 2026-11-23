@@ -144,12 +144,12 @@ export default function PlaceMapDialog({ place, title, onSave, onClose }: {
             </div>
           )}
         </div>
-        {findErr && <p className="shrink-0 text-sm text-cyrixRed-700">{findErr}</p>}
+        {findErr && <p className="shrink-0 text-xs text-cyrixRed-700">{findErr}</p>}
         {none && !finding && <p className="shrink-0 text-sm text-ink-500">No match. Try another spelling, or tap the place on the map.</p>}
         <div ref={box} className="min-h-[10rem] w-full flex-1 overflow-hidden rounded-xl border border-ink-200" />
         <label className="block"><span className="label">Name</span>
           <input className="input mt-1" value={name} onChange={e => setName(e.target.value)} /></label>
-        {err && <p className="text-sm text-cyrixRed-700">{err}</p>}
+        {err && <p className="text-xs text-cyrixRed-700">{err}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
           <button type="button" className="btn-primary" disabled={busy || name.trim().length < 2 || (!moved && (!place.id || name.trim() === place.name))} onClick={() => void save()}>
