@@ -828,6 +828,7 @@ export const OBS = {
   endfar:   { title: 'Day ended away from home', level: 'check', icon: Sunset, group: 'start' },
   // Ended the next morning far from the day's last ride (te_0150; the user, 12 Nov: "just observation").
   endnext:  { title: 'Ended next morning, away from last ride', level: 'check', icon: Sunset, group: 'start' },
+  notbill:  { title: 'Not a bill',               level: 'approve', icon: ReceiptText, group: 'bills' },
   billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
   unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
   typed:    { title: 'Bill amount typed in',     level: 'check',   icon: PencilLine, group: 'bills' },
@@ -895,7 +896,8 @@ export function claimObservations(data: ClaimData): Obs[] {
     detail: `${b.mode === 'hotel' ? `Room stay ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
   const billed = new Set(data.bills.map(b => b.owner_id))
   // Bills on a line, none of whose amounts could be read.
-  const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null && b.typed_amount == null) }
+  const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return !nb(owner) && mine.length > 0 && mine.every(b => b.ocr_amount == null && b.typed_amount == null) }
+  const nb = (owner: string) => data.bills.some(b => b.owner_id === owner && b.not_bill)
   // The amount the person typed from a line's bill that could not be read (te_0133), said with what was claimed.
   const keyed = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null) ? mine.map(b => b.typed_amount).filter((x): x is number => x != null).map(Number).pop() ?? null : null }
   const keyedText = (claimed: number, t: number) => `${billMatches(t, claimed) ? `${money(t)} typed from the bill` : `claimed ${money(claimed)}, ${money(t)} typed from the bill`}, which could not be read — open it and compare`
@@ -987,6 +989,7 @@ export function claimObservations(data: ClaimData): Obs[] {
         const usual = Math.max(Number(data.policy.auto_min_fare ?? 30), r.auto_norm.per_km * r.map_km)
         if (r.fare > usual * 1.4) items.push({ kind: 'autofare', day, to: r.id, detail: `${leg} · ${money(r.fare)} for ${km(r.map_km)} · ${r.auto_norm.from === 'nearby' ? 'around here' : 'the usual fare is'} about ${money(Math.round(usual / 5) * 5)}` })
       }
+      if (nb(r.id)) items.push({ kind: 'notbill', day, to: r.id, detail: `${leg} · the photo shows no bill` })
       if (read != null && !billMatches(read, r.fare ?? 0)) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
       // A bill whose amount the reader was not sure of (a dark GPay screenshot, a handwritten bill): said, so it is opened (the user, 22 Oct: typed 650, GPay showed 500).
       if (unread(r.id) && (r.fare ?? 0) > 0) items.push({ kind: 'unread', day, to: r.id, detail: `${leg} · ${money(r.fare)} claimed — the bill's amount could not be read; open it and compare` })
@@ -1029,6 +1032,7 @@ export function claimObservations(data: ClaimData): Obs[] {
         if (from && (d.day < from || (to ? d.day >= to : d.day !== from))) items.push({ kind: 'cdate', day, to: d.hotel.id, detail: `Room stay · booked ${dn(from)}${to ? ' – ' + dn(to) : ''}, claimed on ${day}` })
       }
       const hr = billRead(data.bills, d.hotel.id)
+      if (nb(d.hotel.id)) items.push({ kind: 'notbill', day, to: d.hotel.id, detail: 'Room stay · the photo shows no bill' })
       if (hr != null && !billMatches(hr, d.hotel.amount)) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Room stay · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
       if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Room stay · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
       const hk = keyed(d.hotel.id)
@@ -1095,6 +1099,7 @@ export function claimObservations(data: ClaimData): Obs[] {
     if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ kind: 'da', day, to: d.id, detail: `Claimed ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
     for (const x of d.expenses) {
       const xr = billRead(data.bills, x.id)
+      if (nb(x.id)) items.push({ kind: 'notbill', day, to: x.id, detail: `${x.category} · the photo shows no bill` })
       if (xr != null && !billMatches(xr, x.amount)) items.push({ kind: 'billdiff', day, to: x.id, detail: `${x.category} · claimed ${money(x.amount)}, the bill reads ${money(xr)}` })
       if (unread(x.id) && x.amount > 0) items.push({ kind: 'unread', day, to: x.id, detail: `${x.category} · ${money(x.amount)} claimed — the bill's amount could not be read; open it and compare` })
       const xk = keyed(x.id)

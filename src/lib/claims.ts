@@ -202,6 +202,8 @@ export interface Bill {
   /** A ticket's service report is kept with the bills (te_0037). */
   id: string; owner_kind: 'ride' | 'hotel' | 'expense' | 'report'; owner_id: string; path: string; name: string | null
   ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
+  /** No bill in the photo — blank paper, a floor (te_0173). */
+  not_bill?: boolean
   /** Typed off the bill by the person when the reader could not read it (te_0133). */
   typed_amount?: number | null
   /** When a payment screen says it was paid (te_0135). */
@@ -1228,7 +1230,7 @@ export function billMatches(amount: number | null | undefined, claimed: number |
 }
 /** The amount read off the last bill of a ride, hotel night or expense that could be read. */
 export function billRead(bills: Bill[], ownerId: string): number | null {
-  const read = bills.filter(b => b.owner_id === ownerId && b.ocr_amount != null)
+  const read = bills.filter(b => b.owner_id === ownerId && b.ocr_amount != null && !b.not_bill)
   return read.length ? Number(read[read.length - 1].ocr_amount) : null
 }
 /** A mode the grade's policy does not give (a car below MM3, a flight, a taxi…): it needs prior approval. */

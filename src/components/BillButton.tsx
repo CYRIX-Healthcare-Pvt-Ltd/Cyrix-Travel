@@ -190,15 +190,15 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
           amount fetched"): green when it matches the claim, amber with a mark when it does not. */}
       {part !== 'attach' && mine.map(b => {
         // Read, or typed by the person (a pencil); a ₹ read as a first digit is the amount claimed.
-        const { amount: read, typed } = billSays(b)
+        const { amount: read, typed } = b.not_bill ? { amount: null, typed: false } : billSays(b)
         const off = read != null && claimed != null && !billMatches(read, claimed)
         const shown = read != null && claimed != null && !off && rupeeAsDigit(read, claimed) ? claimed : read
         return (
           <span key={b.id} className="inline-flex items-center">
           <button type="button" onClick={() => void open(b)}
-            title={b.twin ? `Looks like ${b.twin}` : off ? `The bill ${typed ? 'is typed as' : 'reads'} ${money(read)} · claimed ${money(claimed)}` : typed ? `Typed from the bill: ${money(read)}` : read != null ? `The bill reads ${money(shown)}` : 'Bill · the amount could not be read'}
-            className={`btn-lift inline-flex shrink-0 items-center gap-1 font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} ${b.twin ? 'bg-cyrixRed-100 text-cyrixRed-800 hover:bg-cyrixRed-200' : off ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-400 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'}`}>
-            {typed ? <PencilLine className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}{read != null ? money(shown) : 'Bill'}{off && <TriangleAlert className="h-3.5 w-3.5" />}
+            title={b.not_bill ? 'Not a bill' : b.twin ? `Looks like ${b.twin}` : off ? `The bill ${typed ? 'is typed as' : 'reads'} ${money(read)} · claimed ${money(claimed)}` : typed ? `Typed from the bill: ${money(read)}` : read != null ? `The bill reads ${money(shown)}` : 'Bill · the amount could not be read'}
+            className={`btn-lift inline-flex shrink-0 items-center gap-1 font-semibold ${large ? 'h-10 rounded-lg px-2.5 text-sm' : 'h-7 rounded-md px-2 text-xs'} ${b.twin || b.not_bill ? 'bg-cyrixRed-100 text-cyrixRed-800 hover:bg-cyrixRed-200' : off ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-400 hover:bg-amber-200' : 'bg-green-100 text-green-800 hover:bg-green-200'}`}>
+            {typed ? <PencilLine className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}{b.not_bill ? 'Not a bill' : read != null ? money(shown) : 'Bill'}{off && <TriangleAlert className="h-3.5 w-3.5" />}
           </button>
           {editable && (
             <button type="button" onClick={() => void remove(b)} title="Remove this bill" aria-label="Remove this bill"
