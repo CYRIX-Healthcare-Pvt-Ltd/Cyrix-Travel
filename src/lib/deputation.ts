@@ -20,7 +20,7 @@ export interface Deputation {
 export interface MyDeputations { items: Deputation[]; manager: string | null; da: number }
 export type InboxDeputation = Deputation & { waiting: boolean }
 /** An approved deputation over a claim's month, as te_claim gives it. */
-export interface DepSpan { state: string; from_day: string; to_day: string }
+export interface DepSpan { state: string; from_day: string; to_day: string; letter_path?: string | null; letter_name?: string | null }
 
 export const DEP_STATUS: Record<Deputation['status'], { label: string; tone: string }> = {
   with_manager: { label: 'With manager', tone: 'bg-amber-100 text-amber-900' },

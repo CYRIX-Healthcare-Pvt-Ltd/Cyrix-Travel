@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import BillView from '@/components/BillView'
 import { useAsk } from '@/components/Ask'
 import { toJpegIfHeic } from '../lib/heic'
+import { looksBlank } from '../lib/blank'
 
 /*
   The bills on one ride, hotel night or expense. Attaching reads the amount off a photo with the
@@ -102,6 +103,7 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     setErr(null)
     try {
       setBusy('Reading the bill…')
+      if (await looksBlank(f)) throw new Error('This photo is blank. Take a photo of the bill.')
       const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null, refs: [] as string[], route: null, stay: null }))
       // A hotel's bill on a ride is the wrong line (the user, 22 Oct): said, and not attached.
       // Only a hotel's own signs: its night-stay line or an NH booking id; a 'Booking Voucher' heading alone is on bus and train vouchers too.

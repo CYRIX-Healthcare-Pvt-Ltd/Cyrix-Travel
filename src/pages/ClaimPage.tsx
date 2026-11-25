@@ -3,9 +3,10 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, RotateCcw, Route, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users, ChevronRight } from 'lucide-react'
+import { type LucideIcon, RotateCcw, Route, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users, ChevronRight, FileText } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
-import { depOn } from '@/lib/deputation'
+import BillView from '@/components/BillView'
+import { depOn, letterUrl } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
 import VisitThumb from '@/components/VisitThumb'
 import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
@@ -496,6 +497,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
   const outOfState = d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
   const dep = depOn(data.deputations, d.day)
+  const [letter, setLetter] = useState<{ url: string; name: string } | null>(null)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
   const shots = matchPhotos(d.rides, d.day, data.visit_photos, data.photo_setup)
   // Each photo's place in the day's order taken, as the engineer sees it in the picker (the user, 20 Nov).
@@ -748,11 +750,15 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {(d.da_kind !== 'none' || d.da_amount > 0) && (
             <div id={'bill-' + d.id} className={row + mark(d.id)} style={lit(d.id, '#0D9488')}>
               <span className={name}>{lead(HandCoins, 'text-teal-600', 'DA', 'bg-teal-100 text-teal-800', daLabel ?? '', `DA · ${daLabel?.toLowerCase()}`)}</span>
+              {d.da_kind === 'deputation' && dep?.letter_path && <span className={billCell}>
+                <button type="button" onClick={async () => { const u = await letterUrl(dep.letter_path!); if (u) setLetter({ url: u, name: dep.letter_name ?? 'Deputation letter' }) }} className="inline-flex items-center gap-1 rounded-lg bg-violet-100 px-2 py-1 text-xs font-semibold text-violet-800"><FileText className="h-3.5 w-3.5" />Letter</button>
+              </span>}
               {amt(d.id, d.da_amount, 'text-ink-900', amtAt)}
-              {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount }, penAt(2))}
+              {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount }, penAt(d.da_kind === 'deputation' && dep?.letter_path ? 3 : 2))}
             </div>
           )}
           {d.remarks && <p className="col-span-full px-1 py-1 text-sm text-ink-600">{d.remarks}</p>}
+          {letter && <BillView url={letter.url} name={letter.name} onClose={() => setLetter(null)} />}
         </div>
       )}
     </div>
