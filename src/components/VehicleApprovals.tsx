@@ -9,6 +9,7 @@ import { MODES, rpc } from '@/lib/claims'
 import { clockTime } from '@/lib/when'
 import { depDays, depRange, dropLetter, letterUrl, uploadLetter } from '@/lib/deputation'
 import { VA_STATUS, useMyVehicles, useVehicleInbox, useVehicleRefresh, type InboxVehicle, type VehicleApproval, type VehicleMode } from '@/lib/vehicles'
+import { toJpegIfHeic } from '../lib/heic'
 
 /*
   Vehicle approval, a tab of My profile (te_0096; the user, 2 Nov: "for some grades some vehicles may be out of policy
@@ -178,7 +179,7 @@ function VehicleForm({ modes, manager, onClose, onSent }: { modes: VehicleMode[]
         </label>
         <div>
           <span className="label">Letter (if any)</span>
-          <input ref={pick} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f); e.target.value = '' }} />
+          <input ref={pick} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void toJpegIfHeic(f).catch(() => f).then(setFile); e.target.value = '' }} />
           <button type="button" onClick={() => pick.current?.click()}
             className={`mt-1 flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3 text-left text-sm ${file ? 'border-violet-300 bg-violet-50 text-ink-900' : 'border-ink-300 text-ink-600 hover:border-ink-400'}`}>
             {file ? <FileText className="h-5 w-5 shrink-0 text-violet-600" /> : <Upload className="h-5 w-5 shrink-0" />}

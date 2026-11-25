@@ -1,3 +1,4 @@
+import { toJpegIfHeic } from '../lib/heic'
 import { useRef, useState } from 'react'
 import { BriefcaseBusiness, ChevronDown, FileText, History, Pencil, Plus, Send, TriangleAlert, Undo2, Upload } from 'lucide-react'
 import Dialog from '@/components/Dialog'
@@ -227,7 +228,7 @@ function DeputationForm({ base, replaces, edits, after, manager, onClose, onSent
         </div>
         <div>
           <span className="label">Deputation letter</span>
-          <input ref={pick} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f); e.target.value = '' }} />
+          <input ref={pick} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void toJpegIfHeic(f).catch(() => f).then(setFile); e.target.value = '' }} />
           <button type="button" onClick={() => pick.current?.click()}
             className={`mt-1 flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3 text-left text-sm ${letterName ? 'border-violet-300 bg-violet-50 text-ink-900' : 'border-ink-300 text-ink-600 hover:border-ink-400'}`}>
             {letterName ? <FileText className="h-5 w-5 shrink-0 text-violet-600" /> : <Upload className="h-5 w-5 shrink-0" />}

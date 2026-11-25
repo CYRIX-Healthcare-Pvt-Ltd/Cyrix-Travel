@@ -5,6 +5,7 @@ import BillView from '@/components/BillView'
 import { useAsk } from '@/components/Ask'
 import { billUrl, uploadReport, type Bill } from '@/lib/claims'
 import { supabase } from '@/lib/supabase'
+import { toJpegIfHeic } from '../lib/heic'
 
 /*
   A ticket's service report, a PDF or a photo (te_0037; the user, 21 Oct: "need option to update
@@ -59,7 +60,7 @@ export default function ReportButton({ claimId, ticketId, bills, editable, onCha
           {busy ? <Spinner className="h-3.5 w-3.5" /> : <FileUp className="h-3.5 w-3.5" />}Service report
         </button>
       )}
-      <input ref={input} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void pick(f) }} />
+      <input ref={input} type="file" accept="image/*,application/pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void toJpegIfHeic(f).catch(() => f).then(pick) }} />
       {viewing && <BillView url={viewing.url} name={viewing.name} onClose={() => setViewing(null)} />}
     </span>
   )

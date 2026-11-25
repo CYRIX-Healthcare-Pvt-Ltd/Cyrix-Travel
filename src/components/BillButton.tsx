@@ -7,6 +7,7 @@ import type { HotelStay, TicketRoute } from '@/lib/ticket'
 import { supabase } from '@/lib/supabase'
 import BillView from '@/components/BillView'
 import { useAsk } from '@/components/Ask'
+import { toJpegIfHeic } from '../lib/heic'
 
 /*
   The bills on one ride, hotel night or expense. Attaching reads the amount off a photo with the
@@ -95,8 +96,9 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     } catch (e) { setErr((e as Error).message); if (compact) void ask.alert('Amount not saved', (e as Error).message, 'warn') }
   }
 
-  const pick = async (f: File | undefined) => {
-    if (!f) return
+  const pick = async (picked: File | undefined) => {
+    if (!picked) return
+    const f = await toJpegIfHeic(picked).catch(() => picked)
     setErr(null)
     try {
       setBusy('Reading the bill…')
