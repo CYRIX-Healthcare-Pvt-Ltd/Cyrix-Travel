@@ -104,7 +104,9 @@ export default function BillButton({ claimId, kind, ownerId, bills, needed, edit
     try {
       setBusy('Reading the bill…')
       if (await looksBlank(f)) throw new Error('This photo is blank. Take a photo of the bill.')
-      const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null, refs: [] as string[], route: null, stay: null }))
+      const read = await readBill(f).catch(() => ({ amount: null, date: null, billno: null, refs: [] as string[], route: null, stay: null, words: -1 }))
+      // A photo of no bill at all (a floor, TE-217): almost no words read — refused (the user, 25 Nov).
+      if (f.type.startsWith('image/') && (read.words ?? 0) >= 0 && (read.words ?? 0) < 4 && !read.date && !read.billno) throw new Error('This photo is not a bill. Take a photo of the bill.')
       // A hotel's bill on a ride is the wrong line (the user, 22 Oct): said, and not attached.
       // Only a hotel's own signs: its night-stay line or an NH booking id; a 'Booking Voucher' heading alone is on bus and train vouchers too.
       if (kind === 'ride' && (read.stay?.name || read.refs.some(x => x.toUpperCase().startsWith('NH')))) {

@@ -991,7 +991,7 @@ async function pdfText(file: Blob): Promise<string> {
   }
   return text
 }
-export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null; paidAt?: string | null }> {
+export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null; paidAt?: string | null; words?: number }> {
   let raw = ''
   if (file.type === 'application/pdf') raw = await pdfText(file).catch(() => '')
   // A photo is read word by word, each with how sure the reader is of it (0–100), letter by letter.
@@ -1076,7 +1076,7 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm && /\d/.test(bm[1]) ? bm[1] : null)
   // When a payment screen says it was paid (te_0135), to set against the ride's own times.
   const paidAt = isPayment(raw) ? paidAtIn(raw) : null
-  return { amount: said != null || sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay, paidAt }
+  return { amount: said != null || sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay, paidAt, words: (raw.match(/[A-Za-z]{3,}/g) ?? []).length }
 }
 /*
   A bill's amount written in words, Indian style: "Rupees One Lakh Twenty Thousand Five Hundred and Seventy Five Only".
