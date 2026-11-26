@@ -1333,6 +1333,26 @@ export function useClaimAction() {
 export { rpc }
 
 /** An auto or taxi after the day's first bike ride (the user, 20 Nov): its remarks say why, and it is red for the manager and the Travel Desk. */
+/**
+  Auto rides over the month's auto limit (the user, 26 Nov: "it can go after 1000, but each should be in red obs, ie
+  auto limit exceeded, and … need reason"): the month's auto fares counted in date order, then ride order; the ride
+  that takes the total past the limit and every auto ride after it. `before` is auto from the month's other claims.
+  Returns each such ride's id with the month's total once it is counted.
+*/
+export function autoOver(days: Array<{ day: string; rides: Array<{ id: string; mode: string; fare: number | null }> }>, cap: number, before = 0) {
+  const out = new Map<string, number>()
+  if (!(cap > 0)) return out
+  let run = before
+  for (const d of [...days].sort((a, b) => a.day.localeCompare(b.day))) {
+    for (const r of d.rides) {
+      if (r.mode !== 'auto' || !((r.fare ?? 0) > 0)) continue
+      run += r.fare ?? 0
+      if (run > cap) out.set(r.id, run)
+    }
+  }
+  return out
+}
+
 export function autoAfterBike(rides: Array<{ id: string; mode: string; fare: number | null }>, r: { id: string; mode: string; fare: number | null }) {
   if (!(r.mode === 'auto' || r.mode === 'taxi') || !((r.fare ?? 0) > 0)) return false
   const bike = rides.findIndex(x => x.mode === 'bike')

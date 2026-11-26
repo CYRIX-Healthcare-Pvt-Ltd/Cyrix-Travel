@@ -23,7 +23,7 @@ import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
   DA_KINDS, DA_RANK, isAurum, MODES, billMatches, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
   useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide, shortExtra, dayExtra, roadWhyPct, setRoadRules,
-  autoAfterBike,
+  autoAfterBike, autoOver,
 } from '@/lib/claims'
 
 /*
@@ -842,6 +842,7 @@ export const OBS = {
   cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2, group: 'tickets' },
   autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront, group: 'km' },
   autobike: { title: 'Auto after bike',          level: 'approve',   icon: CarTaxiFront, group: 'km' },
+  autoover: { title: 'Auto limit exceeded',      level: 'approve',   icon: CarTaxiFront, group: 'km' },
   tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange, group: 'tickets' },
   retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon, group: 'tickets' },
   da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins, group: 'policy' },
@@ -1141,8 +1142,15 @@ export function claimObservations(data: ClaimData): Obs[] {
   }
   if (rule.bike_km_month && data.km_month.bike > rule.bike_km_month) items.push({ kind: 'month', detail: `Bike ${km(data.km_month.bike)} this month, over ${rule.bike_km_month} km` })
   if (rule.car_km_month && data.km_month.car > rule.car_km_month) items.push({ kind: 'month', detail: `Car ${km(data.km_month.car)} this month, over ${rule.car_km_month} km` })
+  // Each auto ride past the month's auto limit: red, with the reason written (the user, 26 Nov).
   const autoCap = Number(data.policy.auto_month ?? 1000)
-  if (data.km_month.auto > autoCap) items.push({ kind: 'month', detail: `Auto ${money(data.km_month.auto)} this month, over ${money(autoCap)}` })
+  const autoElse = Math.max(0, data.km_month.auto - data.days.reduce((t, x) => t + x.rides.reduce((u, r) => u + (r.mode === 'auto' ? r.fare ?? 0 : 0), 0), 0))
+  const overs = autoOver(data.days, autoCap, autoElse)
+  for (const d of data.days) d.rides.forEach((r, i) => {
+    if (!overs.has(r.id)) return
+    items.push({ kind: 'autoover', day: dn(d.day), to: r.id,
+      detail: `Ride ${i + 1} · ${money(r.fare)} · ${money(overs.get(r.id)!)} of ${money(autoCap)}${r.note?.trim() ? ` · “${r.note.trim()}”` : ''}` })
+  })
   // Day started and ended, away from home, late night: the manager's, not the Travel Desk's (the user, 10 Nov).
   return deskOnly(data.claim) ? items.filter(i => OBS[i.kind].group !== 'start') : items
 }
@@ -1159,8 +1167,8 @@ function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => v
   // Past the manager, what needed approval has been approved: grey, not red (the user, 20 Nov: "for travel desk it is in red").
   const past = !['draft', 'with_manager', 'returned'].includes(data.claim.status)
   const lv = LEVEL
-  // Auto after bike stays red at every step (the user, 20 Nov).
-  const lvOf = (i: Obs): keyof typeof LEVEL => past && OBS[i.kind].level === 'approve' && i.kind !== 'autobike' && i.kind !== 'startskip' ? 'passed' : OBS[i.kind].level
+  // Auto after bike and over the auto limit stay red at every step (the user, 20 Nov).
+  const lvOf = (i: Obs): keyof typeof LEVEL => past && OBS[i.kind].level === 'approve' && i.kind !== 'autobike' && i.kind !== 'autoover' && i.kind !== 'startskip' ? 'passed' : OBS[i.kind].level
   const items = claimObservations(data)
   if (!items.length) return data.days.length ? <p className="text-sm text-green-800"><Check className="mr-1 inline h-4 w-4" />Nothing to look at twice on this claim.</p> : null
 

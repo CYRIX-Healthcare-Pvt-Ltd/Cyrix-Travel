@@ -5,7 +5,7 @@ import { clock, lastGoing, lateBy, matchPhotos, metres, needsPhoto, photoNear, p
 import { homeLimit, endedNextMorning, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
 import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
 import { StartConfirm } from '@/components/StartDay'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2, TriangleAlert } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
@@ -28,7 +28,7 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  autoAfterBike, DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmRange, money, monthName, needsBill, newId,
+  autoAfterBike, autoOver, DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmRange, money, monthName, needsBill, newId,
   rpc, kmOutFromHome, areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, mapBand, dayExtra, roadWhyPct, setRoadRules } from '@/lib/claims'
 import { depOn, sameState } from '@/lib/deputation'
 
@@ -471,6 +471,10 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     bike: km0.bike - was.bike + now.bike, car: km0.car - was.car + now.car,
     auto: km0.auto - was.auto + now.auto, phone: (km0.phone ?? 0) - was.phone + now.phone,
   }), ...(adv ? [adv] : [])]
+  // Auto rides over the month's auto limit, with this day as it is now: red, and a reason each (the user, 26 Nov).
+  const autoCap = Number(data.policy.auto_month ?? 0)
+  const autoElse = Math.max(0, km0.auto - data.days.reduce((t, x) => t + x.rides.reduce((u, r) => u + (r.mode === 'auto' ? r.fare ?? 0 : 0), 0), 0))
+  const overs = autoOver([...data.days.filter(x => x.id !== initial.id), d], autoCap, autoElse)
 
   // Road km once both ends of a ride are picked.
   /*
@@ -679,6 +683,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     if (roadWhy(r) && !r.route_why?.trim()) blockers.push({ text: `Write why ${n} took the longer road`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
     else if (autoAfterBike(d.rides, r) && !r.note?.trim()) blockers.push({ text: `Write why ${n} was by ${(m.short ?? m.label).toLowerCase()} after the bike`, to })
+    else if (overs.has(r.id) && !r.note?.trim()) blockers.push({ text: `Write why ${n} goes over the auto limit`, to })
     // No visit photo: the photo or why not, before the day saves — today too, so Send finds nothing left (the user, 30 Oct).
     if (photoNeeded(r) && !r.photo_skip?.trim()) {
       const out = r.photo_skip == null && (setup!.skips - skipsUsed) <= 0 && setup!.after === 'block'
@@ -1061,8 +1066,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                       </div>
                     )}
                     {/* Anything about the ride, in the engineer's words (the user, 21 Oct). */}
+                    {overs.has(r.id) && (
+                      <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-cyrixRed-50 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800">
+                        <TriangleAlert className="h-3.5 w-3.5 shrink-0" />Auto limit exceeded
+                        <span className="ml-auto font-medium">{money(overs.get(r.id)!)} of {money(autoCap)}</span>
+                      </p>
+                    )}
                     <div className="mt-2">
-                      <input className="input h-10 w-full text-sm" aria-label="Remarks" placeholder={autoAfterBike(d.rides, r) ? `Why ${(m.short ?? m.label).toLowerCase()} after the bike? (required)` : REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
+                      <input className={`input h-10 w-full text-sm ${overs.has(r.id) && !r.note?.trim() ? '!border-cyrixRed-500' : ''}`} aria-label="Remarks" placeholder={overs.has(r.id) && !autoAfterBike(d.rides, r) ? 'Why over the auto limit? (required)' : autoAfterBike(d.rides, r) ? `Why ${(m.short ?? m.label).toLowerCase()} after the bike? (required)` : REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
                     </div>
                     {/* A ticket the company booked: shown, and not claimed (te_0042). */}
                     {(() => { const co = companyOf(data.bills, r); return co && <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
