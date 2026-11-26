@@ -12,18 +12,19 @@ export interface BookingLine {
 }
 
 type Cols = { [K in keyof Omit<BookingLine, 'mode'>]?: string[] }
-const COMMON: Cols = { booking_id: ['booking_id'], action: ['booking_action'], created: ['created'], booker: ['booker_name'] }
+const COMMON: Cols = { booking_id: ['booking_id'], action: ['booking_action'], created: ['created', 'created_date', 'created_updated_date'], booker: ['booker_name'] }
 const SHEETS: Array<{ sheet: string; mode: string; cols: Cols }> = [
-  { sheet: 'flight', mode: 'flight', cols: { pnr: ['pnr_no'], travel_date: ['departure_date'], end_date: ['arrival_date'], from: ['from_city'], to: ['to_city'],
-    passengers: ['passenger_name'], passenger_ids: ['passenger_employee_id'], amount: ['net_amount_charged'] } },
-  { sheet: 'hotel', mode: 'hotel', cols: { travel_date: ['checkin_date'], end_date: ['checkout_date'], to: ['hotelcityname'], hotel: ['hotelname'],
-    passengers: ['guest_name'], passenger_ids: ['guest_employee_id'], amount: ['net_amount_charged'] } },
+  // Two report layouts (the user, 17 Nov: the Ledger report has Flight_Report sheets and headings like "Booking ID", "PNR No(s)").
+  { sheet: 'flight', mode: 'flight', cols: { pnr: ['pnr_no', 'pnr_no_s'], travel_date: ['departure_date'], end_date: ['arrival_date'], from: ['from_city'], to: ['to_city'],
+    passengers: ['passenger_name', 'passenger_name_s'], passenger_ids: ['passenger_employee_id', 'passenger_employee_id_s'], amount: ['net_amount_charged'] } },
+  { sheet: 'hotel', mode: 'hotel', cols: { pnr: ['ticket_pnr_no'], travel_date: ['checkin_date'], end_date: ['checkout_date'], to: ['hotelcityname', 'hotel_city'], hotel: ['hotelname', 'hotel_name'],
+    passengers: ['guest_name', 'guest_name_s'], passenger_ids: ['guest_employee_id', 'guest_employee_id_s'], amount: ['net_amount_charged'] } },
   { sheet: 'bus', mode: 'bus', cols: { pnr: ['pnr_no'], travel_date: ['journey_date'], from: ['departure_city'], to: ['arrival_city'],
-    passengers: ['passenger_names'], passenger_ids: ['passenger_employee_ids'], amount: ['net_amount_charged'] } },
-  { sheet: 'rail', mode: 'train', cols: { pnr: ['pnr_no'], travel_date: ['departure_date'], end_date: ['arrival_date'], from: ['source_station'], to: ['destination_station'],
-    passengers: ['passenger_names'], passenger_ids: ['passenger_employee_ids'], amount: ['net_amount_charged'] } },
+    passengers: ['passenger_names', 'passenger_name_s'], passenger_ids: ['passenger_employee_ids', 'passenger_employee_id_s'], amount: ['net_amount_charged'] } },
+  { sheet: 'rail', mode: 'train', cols: { pnr: ['pnr_no'], travel_date: ['departure_date', 'travel_date'], end_date: ['arrival_date'], from: ['source_station', 'departure_city_station'], to: ['destination_station', 'arrival_city_station'],
+    passengers: ['passenger_names', 'passenger_name_s'], passenger_ids: ['passenger_employee_ids', 'passenger_employee_id_s'], amount: ['net_amount_charged'] } },
   { sheet: 'cab', mode: 'cab', cols: { travel_date: ['travel_date'], from: ['departure_city'], to: ['arrival_city'],
-    passengers: ['passenger_name'], passenger_ids: ['passenger_employee_id'], amount: ['net_amount_charged'] } },
+    passengers: ['passenger_name'], passenger_ids: ['passenger_employee_id', 'passenger_employeeid'], amount: ['net_amount_charged', 'net_booking_amount'] } },
   { sheet: 'offline', mode: 'other', cols: { booking_id: ['booking_id'], created: ['booking_date'], pnr: ['pnr_no'], travel_date: ['travel_date'], end_date: ['arrival_date'],
     to: ['sector'], passengers: ['customer_name'], amount: ['amount'] } },
 ]
@@ -44,10 +45,16 @@ const asDate = (v: unknown): string | null => {
   if (p instanceof Date) return `${p.getUTCFullYear()}-${String(p.getUTCMonth() + 1).padStart(2, '0')}-${String(p.getUTCDate()).padStart(2, '0')}`
   const s = asText(p); if (!s) return null
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  // "08-Sep-2026 10:30:00" and "13:46 02-Sep-2026" (the Ledger report)
+  const mon = s.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/)
+  if (mon) { const m = 'janfebmaraprmayjunjulaugsepoctnovdec'.indexOf(mon[2].toLowerCase()) / 3 + 1; if (m >= 1) return `${mon[3]}-${String(m).padStart(2, '0')}-${mon[1].padStart(2, '0')}` }
   const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/); if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`
   return null
 }
 const asNumber = (v: unknown) => { const p = plain(v); const n = typeof p === 'number' ? p : Number(String(p ?? '').replace(/[,₹\s]/g, '')); return Number.isFinite(n) && String(p ?? '').trim() !== '' ? n : null }
+
+/** The action as the old report wrote it: BOOKING, CANCELLATION, OFFLINE_MODIFICATION, but Date_Change (the Ledger report writes Booking, Cancellation). */
+const actionOf = (a: string | null) => { const u = (a ?? 'BOOKING').toUpperCase().replace(/\s+/g, '_'); return u === 'DATE_CHANGE' ? 'Date_Change' : u }
 
 export async function readBookings(file: File): Promise<{ lines: BookingLine[]; bySheet: Record<string, number> }> {
   const { default: ExcelJS } = await import('exceljs')
@@ -55,12 +62,13 @@ export async function readBookings(file: File): Promise<{ lines: BookingLine[]; 
   await wb.xlsx.load(await file.arrayBuffer())
   const lines: BookingLine[] = [], bySheet: Record<string, number> = {}
   for (const ws of wb.worksheets) {
-    const def = SHEETS.find(x => x.sheet === ws.name.trim().toLowerCase())
+    const sheet = ws.name.trim().toLowerCase().replace(/[\s_]*report$/, '').replace(/^train$/, 'rail')
+    const def = SHEETS.find(x => x.sheet === sheet)
     if (!def) continue
     // The heading row is the one with a booking id column, among the first few.
     let head = 0, names: string[] = []
     for (let i = 1; i <= 5 && !head; i++) {
-      const v = (ws.getRow(i).values as unknown[]).slice(1).map(x => String(plain(x) ?? '').trim().toLowerCase())
+      const v = (ws.getRow(i).values as unknown[]).slice(1).map(x => String(plain(x) ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''))
       if (v.includes('booking_id')) { head = i; names = v }
     }
     if (!head) continue
@@ -74,7 +82,7 @@ export async function readBookings(file: File): Promise<{ lines: BookingLine[]; 
       const id = asText(get('booking_id'))
       if (!id) return
       lines.push({
-        booking_id: id.toUpperCase(), mode: def.mode, action: asText(get('action')) ?? 'BOOKING', pnr: asText(get('pnr')),
+        booking_id: id.toUpperCase(), mode: def.mode, action: actionOf(asText(get('action'))), pnr: asText(get('pnr')),
         created: asDate(get('created')), travel_date: asDate(get('travel_date')), end_date: asDate(get('end_date')),
         from: asText(get('from')), to: asText(get('to')), hotel: asText(get('hotel')), passengers: asText(get('passengers')),
         passenger_ids: asText(get('passenger_ids')), booker: asText(get('booker')), amount: asNumber(get('amount')),

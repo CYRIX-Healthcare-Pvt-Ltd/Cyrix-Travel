@@ -5,7 +5,11 @@ export interface Point { lat: number; lng: number }
 /** A reading from the phone: the point, and how many metres it may be out by. */
 export interface Fix extends Point { accuracy: number }
 
-/** Asked for afresh each time: a place remembered from ten minutes ago is not where a press was made. */
+/**
+ * Asked for afresh each time: a place remembered from ten minutes ago is not where a press was made.
+ * One reading, at once (the user, 23 Nov: listening 12 s for a closer one was too long); a rough one is read
+ * again with Try again.
+ */
 export function whereAmI(): Promise<Fix> {
   return new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) {
@@ -23,6 +27,10 @@ export function whereAmI(): Promise<Fix> {
     )
   })
 }
+
+/** Android's Approximate location gives about ±2 km whatever the GPS can do; the person must switch on Precise. */
+export const onlyApproximate = (f: Fix | null) => !!f && f.accuracy >= 1000 && f.accuracy <= 3500
+export const PRECISE_HELP = 'Your phone gives only an approximate location. Open Settings › Apps › Chrome › Permissions › Location, turn on Use precise location, then press Try again.'
 
 /** Straight-line kilometres (haversine) — the floor under any road distance. */
 export function lineKm(a: Point, b: Point): number {

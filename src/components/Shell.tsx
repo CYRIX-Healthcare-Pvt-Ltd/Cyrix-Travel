@@ -1,9 +1,15 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import HomeGate from '@/components/HomeGate'
 import clsx from 'clsx'
-import { BarChart3, Building2, ClipboardCheck, Grid2x2, HandCoins, LogOut, MapPin, Navigation, ReceiptText, Settings2 } from 'lucide-react'
+import Bell from '@/components/Bell'
+import FeedbackButton from '@/components/Feedback'
+import { BarChart3, Building2, Camera, ClipboardCheck, Grid2x2, IdCard, LogOut, Navigation, ReceiptText, Settings2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useInbox } from '@/lib/claims'
 import { useAdvanceInbox } from '@/lib/advances'
+import { useDepInbox } from '@/lib/deputation'
+import { useVehicleInbox } from '@/lib/vehicles'
+import { useVisitSetup } from '@/lib/visits'
 import { TONE_TEXT, type Tone } from '@/lib/tones'
 import { Logo } from '@/components/Logo'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -18,15 +24,22 @@ export default function Shell() {
   const { data: inbox } = useInbox()
   // Claims and advances of other people's that wait on this person: as manager, coordinator or Travel Desk.
   const { data: advances } = useAdvanceInbox()
-  const waiting = (inbox ?? []).filter(c => c.waiting).length + (advances ?? []).filter(a => a.waiting).length
-  const manages = (inbox ?? []).length > 0 || (advances ?? []).length > 0 || isDesk
+  const { data: deputations } = useDepInbox()
+  const { data: vehicles } = useVehicleInbox()
+  const photos = useVisitSetup().data?.on
+  const waiting = (inbox ?? []).filter(c => c.waiting).length + (advances ?? []).filter(a => a.waiting).length + (deputations ?? []).filter(d => d.waiting).length + (vehicles ?? []).filter(v => v.waiting).length
+  const manages = (inbox ?? []).length > 0 || (advances ?? []).length > 0 || (deputations ?? []).length > 0 || (vehicles ?? []).length > 0 || isDesk
 
   const items: Array<{ to: string; label: string; short: string; icon: typeof Navigation; tone: Tone; end?: boolean; badge?: number }> = [
     { to: '/', label: 'Summary', short: 'Summary', icon: BarChart3, tone: 'sky', end: true },
     { to: '/claims', label: 'My claims', short: 'Claims', icon: ReceiptText, tone: 'amber' },
-    // Expense advances (te_0063; the user, 24 Oct: "after my claim add my advance").
-    { to: '/advances', label: 'My advance', short: 'Advance', icon: HandCoins, tone: 'indigo' },
-    { to: '/places', label: 'My places', short: 'Places', icon: MapPin, tone: 'teal' },
+    /*
+      Visit photos where the advance was (te_0082; the user, 28 Oct: "better move advance to My profile before
+      deputation"), only while SW Admin has them switched on.
+    */
+    ...(photos ? [{ to: '/photos', label: 'Visit photos', short: 'Photo', icon: Camera, tone: 'rose' as Tone }] : []),
+    // Home, cost centre, deputation and saved places (te_0075; the user, 26 Oct: "make about changing my place tab to my details", then "ok then my profile").
+    { to: '/profile', label: 'My profile', short: 'Profile', icon: IdCard, tone: 'teal' },
     ...(manages || isAdmin ? [{ to: '/approvals', label: 'Approvals', short: 'Approve', icon: ClipboardCheck, tone: 'green' as Tone, badge: waiting }] : []),
     // The Travel Desk's MakeMyTrip report (te_0042).
     ...(isDesk || isAdmin ? [{ to: '/bookings', label: 'Bookings', short: 'Bookings', icon: Building2, tone: 'sky' as Tone }] : []),
@@ -44,7 +57,8 @@ export default function Shell() {
       <header className="sticky top-0 z-30 border-b border-ink-200 bg-surface">
         <div className="flex h-14 items-center gap-3 px-4 sm:h-16">
           <a href="/" className="btn-press flex shrink-0 items-center gap-2.5 rounded-lg py-1 pr-1" aria-label="All Cyrix modules" title="All Cyrix modules">
-            <Logo className="h-9 sm:h-11" />
+            {/* Its width stated (300 x 92 art): Safari otherwise lays the link out at the picture's own 300 px and the header overflows. */}
+            <Logo className="h-9 w-[calc(2.25rem*300/92)] sm:h-11 sm:w-[calc(2.75rem*300/92)]" />
           </a>
           <div className="relative ml-6 hidden min-w-0 flex-1 lg:block">
             <nav className="nav-scroll flex items-center gap-1 overflow-x-auto">
@@ -62,15 +76,17 @@ export default function Shell() {
             </nav>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
-            {/* Who is signed in. */}
-            <div className="nav-profile flex items-center gap-3 rounded-lg py-1 pl-2 pr-1">
+            {/* Who is signed in: it opens My profile (the user, 26 Oct: "on click my name … it should come to my profile tab"). */}
+            <NavLink to="/profile" aria-label="My profile" title="My profile" className="nav-profile flex items-center gap-3 rounded-lg py-1 pl-2 pr-1">
               <span className="hidden text-right lg:block">
                 <span className="block text-sm font-medium leading-tight text-ink-900">{employee?.full_name}</span>
                 <span className="block text-xs leading-tight text-ink-500">{employee?.ecode}</span>
               </span>
               <Avatar name={employee?.full_name} src={employee?.avatar} size="header" />
-            </div>
+            </NavLink>
             <ThemeToggle />
+            <FeedbackButton />
+            <Bell />
             <button onClick={handleSignOut} className="btn-icon" aria-label="Sign out" title="Sign out">
               <LogOut className="h-4.5 w-4.5 text-cyrixRed-600" />
             </button>
@@ -79,7 +95,7 @@ export default function Shell() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-6 pb-28 lg:pb-6">
-        <Outlet />
+        <HomeGate><Outlet /></HomeGate>
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-200 bg-surface lg:hidden">

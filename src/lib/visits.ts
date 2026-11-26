@@ -1,0 +1,333 @@
+import { useQuery } from '@tanstack/react-query'
+import { supabase, friendlyError } from './supabase'
+import { lineKm, placeName, type Fix } from './geo'
+import { hospitalAt, newId, sha256 } from './claims'
+
+/*
+  Visit photos (te_0082; the user, 28 Oct: "when he reaches a hospital … he can take a photo of the facility, so no
+  upload option only camera and in that photo date, time a location should be watermarked"). Taken in the app's own
+  camera, stamped on the phone, kept in the private bucket te-visits; a ride for a purpose that needs one finds the
+  photo taken that day nearest where it went.
+*/
+export interface VisitSetup {
+  on: boolean; near_m: number; skips: number; after: 'block' | 'send'; keep_days: number; needs: string[]
+  /** The travel time check between photos and the km/h each way of travel can do (te_0089). */
+  speed_on?: boolean; speeds?: Record<string, number>
+  /** From this day the ride home needs its photo too (te_0108). */
+  home_from?: string | null
+}
+export interface VisitPhoto {
+  id: string; day: string; shot_at: string; taken_at: string; lat: number; lng: number; accuracy: number | null
+  place: string | null; path: string | null
+  /** The phone it was taken on: the app's own id for that phone and its model (te_0086). */
+  device_id?: string | null; device?: string | null
+  /** The claim it stands on: its number, 'draft', or none (te_my_photos only). */
+  on?: string | null
+}
+
+const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
+  const { data, error } = await supabase.rpc(fn, args)
+  if (error) throw new Error(friendlyError(error))
+  return data as T
+}
+
+export const useVisitSetup = () => useQuery({ queryKey: ['te_visit_setup'], queryFn: () => rpc<VisitSetup>('te_visit_setup'), staleTime: 5 * 60_000 })
+export const useMyPhotos = (from: string, to: string) =>
+  useQuery({ queryKey: ['te_my_photos', from, to], queryFn: () => rpc<VisitPhoto[]>('te_my_photos', { p_from: from, p_to: to }) })
+
+const firstPart = (s: string | null | undefined) => (s ?? '').split(',')[0].trim()
+
+/** A ride whose purpose asks for a visit photo, to somewhere that is not home. */
+/*
+  A ride to Home needs its photo too, unless it is the day's last ride — End my day stands for that one (te_0121; the
+  user, 4 Nov: a ride home in the middle of the day without a photo "is a loop hole").
+*/
+/** The day's last ride that goes somewhere: an empty ride added after it does not make it a ride in the middle of the day (the user, 4 Nov). */
+export const lastGoing = (rides: Array<{ id: string; to_lat: number | null }>) => [...rides].reverse().find(x => x.to_lat != null)?.id
+export const needsPhoto = (r: { purpose?: string | null; to_name: string | null; to_lat: number | null }, s?: VisitSetup | null, day?: string | null, last = false) =>
+  !!s?.on && !!r.purpose && s.needs.includes(r.purpose) && r.to_lat != null
+    && (firstPart(r.to_name).toLowerCase() !== 'home' || (!last && !!s.home_from && !!day && day >= s.home_from))
+
+/** The photo taken that day nearest where the ride went, within reach: which photos the place picker marks as used. */
+export function photoNear(r: { to_lat: number | null; to_lng: number | null }, day: string, photos: VisitPhoto[] | undefined, nearM: number) {
+  if (r.to_lat == null || r.to_lng == null) return null
+  let best: { photo: VisitPhoto; m: number } | null = null
+  for (const p of photos ?? []) {
+    if (p.day !== day) continue
+    const m = lineKm({ lat: p.lat, lng: p.lng }, { lat: r.to_lat, lng: r.to_lng }) * 1000
+    if (m <= nearM && (!best || m < best.m)) best = { photo: p, m }
+  }
+  return best
+}
+
+/*
+  Each visit its own photo (te_0092; the user, 30 Oct: "yes, one photo per visit"): the day's rides needing a photo take
+  them in ride order, each one no ride before it took, at the nearest place (within 150 m of the nearest) — the earliest
+  taken after the ride before's photo, else the earliest (and photoOrder says the rides are out of order). A hospital
+  gone to twice needs two photos. te_rides_without_photo does the same on Send; change both.
+*/
+type PhotoRide = { id: string; purpose?: string | null; to_name: string | null; to_lat: number | null; to_lng: number | null }
+export function matchPhotos(rides: PhotoRide[], day: string, photos: VisitPhoto[] | undefined, s: VisitSetup | null | undefined) {
+  const out = new Map<string, { photo: VisitPhoto; m: number }>()
+  const taken = new Set<string>()
+  let after = -Infinity
+  const lastId = lastGoing(rides)
+  for (const r of rides) {
+    if (!needsPhoto(r, s, day, r.id === lastId) || r.to_lat == null || r.to_lng == null) continue
+    const at = { lat: r.to_lat, lng: r.to_lng }
+    const free = (photos ?? []).filter(p => p.day === day && !taken.has(p.id)).map(p => ({ photo: p, m: lineKm(p, at) * 1000 }))
+    const nearest = Math.min(...free.map(x => x.m))
+    const fits = free.filter(x => x.m <= s!.near_m && x.m <= nearest + 150).sort((a, b) => Date.parse(a.photo.shot_at) - Date.parse(b.photo.shot_at))
+    const hit = fits.find(x => Date.parse(x.photo.shot_at) >= after) ?? fits[0]
+    if (!hit) continue
+    out.set(r.id, hit); taken.add(hit.photo.id); after = Date.parse(hit.photo.shot_at)
+  }
+  return out
+}
+
+/*
+  The rides in the order their visit photos were taken (the user, 30 Oct: DH Aluva's photo at 1 PM and GH Ernakulam's
+  at 3 PM, but the rides claimed GH Ernakulam first; "can check previous visit image time with trip 3 image"): the
+  first ride whose own photo is older than the photo of the ride before it.
+*/
+export function photoOrder<R extends PhotoRide>(rides: R[], day: string, photos: VisitPhoto[] | undefined, s: VisitSetup | null | undefined) {
+  const shots = matchPhotos(rides, day, photos, s)
+  const seen = rides.flatMap((ride, i) => { const hit = shots.get(ride.id); return hit ? [{ n: i + 1, ride, photo: hit.photo }] : [] })
+  for (let k = 1; k < seen.length; k++) {
+    if (Date.parse(seen[k].photo.shot_at) < Date.parse(seen[k - 1].photo.shot_at)) return { late: seen[k], early: seen[k - 1] }
+  }
+  return null
+}
+
+/*
+  Two visit photos of a day too far apart for the time between them (the user, 30 Oct: "do the travel time check between
+  photos"; SW Admin sets the km/h each way of travel can do, te_0089): the km claimed on the rides between the two
+  photos' places — never less than the straight line — over the minutes between the photos. The server's time is used
+  when both went up within 10 minutes of being taken; else the phone's, as photos kept for a signal go up together.
+  Photos under 2 km apart, a location worse than 500 m and a flight between are left out.
+*/
+const SPEEDS: Record<string, number> = { bike: 60, car: 80, bus: 60, train: 100, metro: 80, auto: 40, taxi: 80, taxi_bike: 60 }
+export interface Rush { from: VisitPhoto; to: VisitPhoto; fromRide: number; toRide: number; km: number; min: number; kmh: number; limit: number; modes: string[] }
+export function photoRush<R extends { mode: string; from_lat: number | null; from_lng: number | null; to_lat: number | null; to_lng: number | null; claimed_km: number | null; map_km: number | null }>(
+  rides: R[], day: string, photos: VisitPhoto[] | undefined, setup: VisitSetup | null | undefined,
+): Rush[] {
+  if (!setup?.on || setup.speed_on === false) return []
+  const speeds = { ...SPEEDS, ...(setup.speeds ?? {}) }
+  const shot = (p: VisitPhoto) => Date.parse(p.shot_at)
+  const sent = (p: VisitPhoto) => Date.parse(p.taken_at) - shot(p) <= 10 * 60_000
+  const list = (photos ?? []).filter(p => p.day === day && (p.accuracy == null || p.accuracy <= 500)).sort((a, b) => shot(a) - shot(b))
+  // The ride a photo was taken at the end of: the nearest To within the photo distance.
+  const rideAt = (p: VisitPhoto) => {
+    let best = -1, bm = Infinity
+    rides.forEach((r, i) => {
+      if (r.to_lat == null || r.to_lng == null) return
+      const m = lineKm(p, { lat: r.to_lat, lng: r.to_lng }) * 1000
+      if (m <= setup.near_m && m < bm) { best = i; bm = m }
+    })
+    return best
+  }
+  const rideKm = (r: R) => r.claimed_km ?? r.map_km
+    ?? (r.from_lat != null && r.from_lng != null && r.to_lat != null && r.to_lng != null ? lineKm({ lat: r.from_lat, lng: r.from_lng }, { lat: r.to_lat, lng: r.to_lng }) : 0)
+  const out: Rush[] = []
+  for (let k = 1; k < list.length; k++) {
+    const a = list[k - 1], b = list[k], line = lineKm(a, b)
+    if (line < 2) continue
+    const ia = rideAt(a), ib = rideAt(b), ridden = ia >= 0 && ib > ia
+    // The rides between the two places; photos not at a ride's end weigh the day's rides, at the fastest of them.
+    const between = ridden ? rides.slice(ia + 1, ib + 1) : rides
+    if (between.some(r => r.mode === 'flight')) continue
+    const modes = [...new Set(between.map(r => r.mode))]
+    const limit = Math.max(0, ...(modes.length ? modes : Object.keys(speeds)).map(m => speeds[m] ?? 0))
+    if (!limit) continue
+    const km = Math.max(line, ridden ? between.reduce((s, r) => s + rideKm(r), 0) : 0)
+    const min = Math.max(1, ((sent(a) && sent(b) ? Date.parse(b.taken_at) - Date.parse(a.taken_at) : shot(b) - shot(a)) / 60_000))
+    const kmh = km / (min / 60)
+    if (kmh > limit) out.push({ from: a, to: b, fromRide: ia, toRide: ib, km, min, kmh, limit, modes: ridden ? modes : [] })
+  }
+  return out
+}
+
+/** Uploaded this long after it was taken, said beside it (a phone with no signal at the hospital sends it later). */
+export const lateBy = (p: VisitPhoto) => {
+  const h = (new Date(p.taken_at).getTime() - new Date(p.shot_at).getTime()) / 3_600_000
+  return h >= 2 ? `uploaded ${h >= 48 ? `${Math.round(h / 24)} days` : `${Math.round(h)} h`} later` : null
+}
+
+export const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s/g, ' ')
+/** A photo of a day's trip taken after its midnight (te_0108): the date it was really taken, "4 Nov"; else null. */
+export const nightOf = (p: { day: string; shot_at: string }) => {
+  const at = new Date(p.shot_at)
+  return at.toLocaleDateString('en-CA') > p.day ? at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null
+}
+/** The time a photo was taken, with its date when that is after the day it is kept on. */
+export const clockOf = (p: { day: string; shot_at: string }) => { const n = nightOf(p); return n ? `${clock(p.shot_at)} · ${n}` : clock(p.shot_at) }
+export const metres = (m: number) => (m < 1000 ? `${Math.round(m / 10) * 10 || Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`)
+
+/** Short-lived links for pictures this person may see (the bucket's own rule decides). */
+export function usePhotoUrls(paths: Array<string | null | undefined>) {
+  const list = [...new Set(paths.filter((p): p is string => !!p))].sort()
+  return useQuery({
+    queryKey: ['te_visit_urls', list],
+    enabled: list.length > 0,
+    staleTime: 8 * 60_000,
+    queryFn: async () => {
+      const { data } = await supabase.storage.from('te-visits').createSignedUrls(list, 600)
+      return Object.fromEntries((data ?? []).filter(x => x.signedUrl).map(x => [x.path, x.signedUrl])) as Record<string, string>
+    },
+  })
+}
+
+/**
+ * The place for the stamp: a hospital we have learned within 500 m, else a hospital or health centre on the map within
+ * 150 m with the spot's area, else what the map calls the spot (a canteen or a helipad inside the hospital, at times).
+ */
+export async function stampPlace(fix: Fix) {
+  const { data } = await supabase.rpc('te_visit_place', { p_lat: fix.lat, p_lng: fix.lng })
+  if (typeof data === 'string' && data.trim()) return data.trim()
+  const [hospital, n] = await Promise.all([hospitalAt(fix), placeName(fix)])
+  const area = n?.split(', ')[1]
+  if (hospital) return area && !hospital.toLowerCase().includes(area.toLowerCase()) ? `${hospital}, ${area}` : hospital
+  return n ? n.split(', ').slice(0, 2).join(', ') : null
+}
+
+/** The frame at the press, at most 1600 px on its long side. */
+export function grab(video: HTMLVideoElement) {
+  const w0 = video.videoWidth, h0 = video.videoHeight, k = Math.min(1, 1600 / Math.max(w0, h0))
+  const cv = document.createElement('canvas')
+  cv.width = Math.round(w0 * k); cv.height = Math.round(h0 * k)
+  cv.getContext('2d')!.drawImage(video, 0, 0, cv.width, cv.height)
+  return cv
+}
+
+/** The date, time, place, point, who and on which phone, printed along the frame's foot. */
+/** `trip`: the day before, for a visit of its trip after midnight ("Trip of 3 Nov"). */
+export function stamp(cv: HTMLCanvasElement, at: Date, fix: Fix, place: string | null, who: string, phone?: string | null, trip?: string | null) {
+  const w = cv.width, h = cv.height, g = cv.getContext('2d')!
+  const lines = [
+    ...(trip ? [`Trip of ${new Date(trip + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`] : []),
+    `${at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · ${at.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })}`,
+    place ?? 'Place not named',
+    `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)} · ±${Math.round(fix.accuracy)} m`,
+    who,
+    ...(phone ? [phone] : []),
+  ]
+  const fs = Math.max(14, Math.round(Math.min(w, h) * 0.034)), pad = Math.round(fs * 0.6), lh = Math.round(fs * 1.3)
+  const band = pad * 2 + lh * lines.length
+  g.fillStyle = 'rgba(0,0,0,0.55)'
+  g.fillRect(0, h - band, w, band)
+  g.fillStyle = '#fff'
+  g.textBaseline = 'top'
+  lines.forEach((t, i) => {
+    g.font = `${i === 0 ? 600 : 400} ${fs}px system-ui, sans-serif`
+    let s = t
+    while (g.measureText(s).width > w - pad * 2 && s.length > 4) s = s.slice(0, -2)
+    g.fillText(s === t ? t : s + '…', pad, h - band + pad + i * lh)
+  })
+  return new Promise<Blob>((ok, no) => cv.toBlob(b => (b ? ok(b) : no(new Error('The photo could not be made'))), 'image/jpeg', 0.82))
+}
+
+/*
+  Which phone (te_0086; the user, 30 Oct: a friend signed in as someone takes the photo at another hospital). A website
+  cannot read a phone's IMEI, so the app gives each phone an id of its own on first use, kept on the phone, and names
+  its model where the browser tells it.
+*/
+const DEVICE_KEY = 'te.device'
+export function deviceId() {
+  try {
+    const had = localStorage.getItem(DEVICE_KEY)
+    if (had) return had
+    const id = newId()
+    localStorage.setItem(DEVICE_KEY, id)
+    return id
+  } catch { return null }
+}
+/** A computer, not a phone or tablet: its place is a guess from its network, so it takes no visit photos (te_0147). */
+export const onComputer = () => {
+  const ua = navigator.userAgent
+  return !/Android|iPhone|iPad|iPod/i.test(ua) && !(/Mac OS/.test(ua) && navigator.maxTouchPoints > 1)
+}
+export async function deviceName() {
+  const ua = navigator.userAgent
+  // An iPad that calls itself a Mac has a touch screen.
+  if (/Mac OS/.test(ua) && !/iPhone|iPad/.test(ua) && navigator.maxTouchPoints > 1) return 'iPad'
+  type Hints = { getHighEntropyValues?: (h: string[]) => Promise<{ model?: string; platform?: string; platformVersion?: string }> }
+  try {
+    const hints = await (navigator as Navigator & { userAgentData?: Hints }).userAgentData?.getHighEntropyValues?.(['model', 'platform', 'platformVersion'])
+    if (hints?.model) return `${hints.model} (${hints.platform ?? 'Android'}${hints.platform === 'Android' && hints.platformVersion ? ' ' + hints.platformVersion.split('.')[0] : ''})`
+    if (hints?.platform) return hints.platform
+  } catch { /* only a name */ }
+  const ios = ua.match(/(iPhone|iPad).*?OS (\d+)/)
+  if (ios) return `${ios[1]} (iOS ${ios[2]})`
+  const android = ua.match(/Android (\d+)(?:; ([^;)]+))?/)
+  if (android) return android[2] && android[2] !== 'K' ? `${android[2].trim()} (Android ${android[1]})` : `Android ${android[1]}`
+  return /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : null
+}
+
+export interface Pending { id: string; blob: Blob; employee: string; fix: Fix; shot_at: string; place: string | null; for_day?: string | null }
+
+/** Into the bucket, then recorded; a refusal from the database takes the picture back out. */
+export async function sendPhoto(p: Pending) {
+  const path = `${p.employee}/${p.id}.jpg`
+  const hash = await sha256(p.blob)
+  const { error: up } = await supabase.storage.from('te-visits').upload(path, p.blob, { contentType: 'image/jpeg', upsert: false })
+  if (up && !/exists|duplicate/i.test(up.message)) throw new Error(friendlyError(up))
+  const { error } = await supabase.rpc('te_photo_add', {
+    p_path: path, p_lat: p.fix.lat, p_lng: p.fix.lng, p_acc: Math.round(p.fix.accuracy), p_shot_at: p.shot_at, p_place: p.place, p_sha256: hash,
+    p_device_id: deviceId(), p_device: await deviceName(), ...(p.for_day ? { p_day: p.for_day } : {}),
+    // The phone's own time as it sends, set against ours: a wrong clock is found out, a date set back refused (te_0147).
+    p_sent_at: new Date().toISOString(),
+  })
+  if (error) {
+    await supabase.storage.from('te-visits').remove([path])
+    const e = new Error(friendlyError(error)) as Error & { refused?: boolean }
+    e.refused = true
+    throw e
+  }
+}
+
+export async function deletePhoto(id: string) {
+  const path = await rpc<string>('te_photo_delete', { p_id: id })
+  await supabase.storage.from('te-visits').remove([path])
+}
+
+export const newPending = (blob: Blob, employee: string, fix: Fix, at: Date, place: string | null, forDay?: string | null): Pending =>
+  ({ id: newId(), blob, employee, fix, shot_at: at.toISOString(), place, for_day: forDay ?? null })
+
+/*
+  Photos taken with no signal wait on the phone (IndexedDB) and go when it is back. A browser that refuses the store
+  keeps them for as long as the page is open.
+*/
+const memory: Pending[] = []
+const db = () => new Promise<IDBDatabase>((ok, no) => {
+  const r = indexedDB.open('te-visits', 1)
+  r.onupgradeneeded = () => r.result.createObjectStore('queue', { keyPath: 'id' })
+  r.onsuccess = () => ok(r.result)
+  r.onerror = () => no(r.error)
+})
+async function store<T>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>) {
+  const d = await db()
+  return new Promise<T>((ok, no) => { const q = f(d.transaction('queue', mode).objectStore('queue')); q.onsuccess = () => ok(q.result); q.onerror = () => no(q.error) })
+}
+export async function queuePhoto(p: Pending) {
+  try { await store('readwrite', s => s.put(p)) } catch { memory.push(p) }
+}
+export async function queued(employee: string): Promise<Pending[]> {
+  let saved: Pending[] = []
+  try { saved = await store<Pending[]>('readonly', s => s.getAll() as IDBRequest<Pending[]>) } catch { /* memory only */ }
+  return [...saved, ...memory].filter(p => p.employee === employee)
+}
+async function unqueue(id: string) {
+  try { await store('readwrite', s => s.delete(id)) } catch { /* memory only */ }
+  const i = memory.findIndex(p => p.id === id)
+  if (i >= 0) memory.splice(i, 1)
+}
+/** Sends what waits; a photo the database refuses is dropped with its reason, one that fails for the network waits on. */
+export async function flushQueue(employee: string) {
+  const refused: string[] = []
+  let sent = 0
+  for (const p of await queued(employee)) {
+    try { await sendPhoto(p); await unqueue(p.id); sent++ }
+    catch (e) { if ((e as { refused?: boolean }).refused) { await unqueue(p.id); refused.push((e as Error).message) } }
+  }
+  return { sent, refused }
+}

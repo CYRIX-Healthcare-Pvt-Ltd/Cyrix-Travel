@@ -12,9 +12,15 @@ import { X } from 'lucide-react'
  * the page behind does not scroll while it is open.
  */
 export default function Dialog({
-  title, icon, children, onClose, wide = false, huge = false,
+  title, icon, children, onClose, wide = false, huge = false, bare = false, cross = true,
 }: {
-  /** A map: much wider on a computer (the user, 17 Oct). */
+  /** A bare message ("Claim approved") has only its OK: a cross on it read as Cancel (the user, 26 Oct). */
+  cross?: boolean
+  /** No title row: the app's questions and messages (Ask) draw their own centred head, and slide up on a phone. */
+  bare?: boolean
+  /** A map: much wider on a computer (the user, 17 Oct), and one screen tall with no scroll — the map takes what the
+      rest leaves, so the buttons under it are always in sight (the user, 26 Oct: "we dont need scroll in map pop up,
+      bcz something the below buttons not visible, same for mobile also"). */
   huge?: boolean
   title: string
   icon?: ReactNode
@@ -23,33 +29,50 @@ export default function Dialog({
   wide?: boolean
 }) {
   const panel = useRef<HTMLDivElement>(null)
+  const close = useRef(onClose)
+  close.current = onClose
 
+  // Once when it opens: run again on every redraw, it took the cursor out of a box after each key (7 Nov).
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
-    // The first field, so a date or an amount can be typed straight away.
-    panel.current?.querySelector<HTMLElement>('input, select, textarea, button')?.focus()
+    // The box marked for it, else the first field, so a date or an amount can be typed straight away.
+    ;(panel.current?.querySelector<HTMLElement>('[data-autofocus]') ?? panel.current?.querySelector<HTMLElement>('input, select, textarea, button'))?.focus()
     const overflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current() }
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = overflow
       opener?.focus?.()
     }
-  }, [onClose])
+  }, [])
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-shade/60 sm:items-center sm:p-4"
+      className={`fixed inset-0 z-50 flex items-end justify-center bg-shade/60 sm:items-center sm:p-4 ${bare ? 'ask-shade' : ''}`}
     >
+      {bare ? (
+        <div ref={panel} onClick={e => e.stopPropagation()}
+          className="ask-panel relative max-h-[90vh] w-full overflow-y-auto rounded-t-3xl bg-surface px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-8 shadow-2xl sm:max-w-[26rem] sm:rounded-3xl sm:pb-6">
+          {cross && <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="btn-press absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full text-ink-400 hover:bg-ink-100 hover:text-ink-900"
+          >
+            <X className="h-5 w-5" />
+          </button>}
+          {children}
+        </div>
+      ) : (
       <div
         ref={panel}
         onClick={e => e.stopPropagation()}
-        className={`animate-pop-in max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl ${huge ? 'sm:max-w-5xl' : wide ? 'sm:max-w-xl' : 'sm:max-w-md'}`}
+        className={`animate-pop-in w-full rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-2xl ${huge ? 'flex h-[90dvh] flex-col overflow-y-auto sm:max-w-5xl' : wide ? 'max-h-[90vh] overflow-y-auto sm:max-w-xl' : 'max-h-[90vh] overflow-y-auto sm:max-w-md'}`}
       >
         <div className="flex items-start justify-between gap-3">
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-ink-900">{icon}{title}</h2>
@@ -62,8 +85,9 @@ export default function Dialog({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="mt-4 space-y-3">{children}</div>
+        <div className={huge ? 'mt-4 flex min-h-0 flex-1 flex-col' : 'mt-4 space-y-3'}>{children}</div>
       </div>
+      )}
     </div>,
     document.body,
   )

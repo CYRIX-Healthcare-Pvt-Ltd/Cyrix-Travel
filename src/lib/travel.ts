@@ -211,6 +211,15 @@ export const startTrip = (a: { kind: 'home' | 'new'; at: Point; mode: string; no
 
 export const useStart = () => useMove(startTrip)
 
+// How many home changes a month allows and how many are made (te_0103).
+export const useHomeChanges = () => useQuery({
+  queryKey: ['te_home_changes'],
+  queryFn: async () => {
+    const { data, error } = await supabase.rpc('te_home_changes')
+    if (error) throw error
+    return data as { limit: number; used: number }
+  },
+}).data
 export const useSetHome = () => useMove((a: { at: Point }) => rpc('travel_set_home', { p_lat: a.at.lat, p_lng: a.at.lng }))
 
 /* ------------------------------------------------------------------ saved places */

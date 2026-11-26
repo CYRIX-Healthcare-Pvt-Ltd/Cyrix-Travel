@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { CircleAlert, HandCoins, Smartphone, TriangleAlert, type LucideIcon } from 'lucide-react'
-import { MODES, money, type Day, type Rule } from '@/lib/claims'
+import { MODES, expenseRole, money, type Day, type Rule } from '@/lib/claims'
 
 /*
   The month's budget, as meters (the user, 18 Oct: "this is the budget isn't it? so in each claim
@@ -43,7 +43,7 @@ export function dayUse(d: Day | undefined): Used {
     if (r.mode === 'car') u.car += r.claimed_km ?? 0
     if (r.mode === 'auto') u.auto += r.fare ?? 0
   }
-  for (const x of d.expenses) if (x.category === 'Phone') u.phone += x.amount || 0
+  for (const x of d.expenses) if (expenseRole(x.category) === 'phone') u.phone += x.amount || 0
   return u
 }
 
@@ -52,11 +52,11 @@ export const monthLong = (iso: string) => new Date(iso.slice(0, 7) + '-01T00:00:
 export default function Budget({ title, lines }: { title: string; lines: BudgetLine[] }) {
   if (!lines.length) return null
   return (
-    <div className="card p-3 sm:p-4">
-      <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-ink-500">{title}</p>
-      {/* As many columns as meters, so they fill the card (the user, 18 Oct: "stretch this to fit the container"); on a phone two a row, an odd last one full width. */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-6 sm:[grid-template-columns:repeat(var(--n),minmax(0,1fr))]" style={{ '--n': lines.length } as CSSProperties}>
-        {lines.map((l, i) => <div key={l.key} className={lines.length % 2 && i === lines.length - 1 ? 'col-span-2 sm:col-span-1' : ''}><Meter l={l} /></div>)}
+    <div className="card px-3 py-2.5 sm:p-4">
+      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500">{title}</p>
+      {/* One row, a column each (the user, 20 Nov: "it is using more space in mobile", A): icon, what is left, a thin bar. */}
+      <div className="grid gap-x-3 [grid-template-columns:repeat(var(--n),minmax(0,1fr))] sm:gap-x-6" style={{ '--n': lines.length } as CSSProperties}>
+        {lines.map(l => <Meter key={l.key} l={l} />)}
       </div>
     </div>
   )
@@ -69,18 +69,15 @@ function Meter({ l }: { l: BudgetLine }) {
   const fmt = (n: number) => (l.unit === 'km' ? `${(Math.round(n * 10) / 10).toLocaleString('en-IN')} km` : money(n))
   const I = l.icon
   return (
-    <div className="min-w-0" title={`${l.label}: ${fmt(l.used)} of ${fmt(l.limit)} used`}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-ink-800"><I className="h-4 w-4 shrink-0" style={{ color: l.color }} />{l.label}</span>
-        <span className={`flex shrink-0 items-center gap-1 text-sm font-semibold ${state === 'over' ? 'text-cyrixRed-700' : state === 'near' ? 'text-amber-800' : 'text-ink-900'}`}>
-          {state === 'over' ? <><TriangleAlert className="h-3.5 w-3.5" />Over {fmt(-left)}</> : <>{state === 'near' && <CircleAlert className="h-3.5 w-3.5" />}{fmt(left)} left</>}
-        </span>
+    <div className="min-w-0" title={`${l.label}: ${fmt(l.used)} of ${fmt(l.limit)} used`} aria-label={`${l.label} ${state === 'over' ? 'over by ' + fmt(-left) : fmt(left) + ' left'}`}>
+      <span className={`flex min-w-0 items-center gap-1 text-sm font-semibold ${state === 'over' ? 'text-cyrixRed-700' : state === 'near' ? 'text-amber-800' : 'text-ink-900'}`}>
+        <I className="h-4 w-4 shrink-0" style={{ color: l.color }} />
+        <span className="truncate">{state === 'over' ? <>−{fmt(-left)}</> : fmt(left)}</span>
+        {state === 'over' ? <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> : state === 'near' && <CircleAlert className="h-3.5 w-3.5 shrink-0" />}
+      </span>
+      <div className="mt-1 h-1 overflow-hidden rounded-full" style={{ background: l.color + '33' }}>
+        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct * 100)}%`, minWidth: l.used > 0 ? 3 : 0, background: l.color }} />
       </div>
-      {/* The fill in the mode's own colour, on a pale track of it (the user, 18 Oct); near or over is said in words above. */}
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full" style={{ background: l.color + '33' }}>
-        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct * 100)}%`, minWidth: l.used > 0 ? 4 : 0, background: l.color }} />
-      </div>
-      <p className="mt-1 text-xs text-ink-500">{fmt(l.used)} of {fmt(l.limit)}</p>
     </div>
   )
 }

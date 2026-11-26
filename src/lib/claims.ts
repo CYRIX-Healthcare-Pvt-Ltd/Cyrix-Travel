@@ -1,8 +1,16 @@
+import { googleKnown, googleRoutes, googleRoutesOn, keyOf, type KeptRoads, type RouteAlt } from '@/lib/googleRoutes'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bike, Bus, Car, CarTaxiFront, Cog, Construction, Package, Plane, Printer, ReceiptIndianRupee, Smartphone, TrainFront, TramFront, Truck, Users, Utensils, Wrench, type LucideIcon } from 'lucide-react'
+import type { VehicleSpan } from '@/lib/vehicles'
+import {
+  ArrowLeftRight, Ban, BedDouble, Bike, Briefcase, Building2, Bus, Car, CarTaxiFront, ClipboardCheck, Cog, createLucideIcon, Construction, GraduationCap, Handshake, Hospital, House,
+  Map as MapIcon, MapPin, Package, PackageOpen, Plane, Printer, ReceiptIndianRupee, Route, Smartphone, TrainFront, TramFront, Users, Utensils, Wrench, type LucideIcon,
+} from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { supabase, friendlyError } from './supabase'
 import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
+import type { VisitPhoto, VisitSetup } from './visits'
+import type { DayStart } from './dayStart'
+import type { Tone } from './tones'
 
 /*
   The month's claim by the day (te_0012; the user, 17 Oct 2026): the expense reimbursement Excel
@@ -10,25 +18,45 @@ import { hotelIn, routeIn, type HotelStay, type TicketRoute } from './ticket'
   and other expenses, each with its bills.
 */
 
-export type ModeCode = 'bike' | 'car' | 'bus' | 'train' | 'metro' | 'auto' | 'taxi' | 'flight'
+export type ModeCode = 'bike' | 'car' | 'bus' | 'train' | 'metro' | 'auto' | 'taxi' | 'taxi_bike' | 'flight'
+/** A motorbike with its rider, drawn as the icon set draws (it has no motorbike): Rapido, Uber Moto, Ola Bike. */
+const TaxiBike = createLucideIcon('TaxiBike', [
+  ['circle', { cx: '5', cy: '17', r: '3', key: 'rear' }],
+  ['circle', { cx: '19', cy: '17', r: '3', key: 'front' }],
+  ['path', { d: 'M5 17h6l3-5h3', key: 'frame' }],
+  ['path', { d: 'm19 17-3.5-8H13', key: 'fork' }],
+  ['path', { d: 'M6 12h6', key: 'seat' }],
+  ['circle', { cx: '10', cy: '5', r: '2', key: 'rider' }],
+])
+
+/** An auto-rickshaw side on (the user, 20 Nov: "this is auto"): canopy, open side, driver's seat, one front wheel, two behind. */
+const AutoRickshaw = createLucideIcon('AutoRickshaw', [
+  ['path', { d: 'M3 16V9a4 4 0 0 1 4-4h9l3 5 2 2v4', key: 'body' }],
+  ['path', { d: 'M8 8h7v6H8z', key: 'door' }],
+  ['path', { d: 'M3 16h2m5 0h7', key: 'floor' }],
+  ['circle', { cx: '7.5', cy: '17', r: '2', key: 'rear' }],
+  ['circle', { cx: '19', cy: '17', r: '2', key: 'front' }],
+])
 
 /*
   One colour per mode, never two alike (the user, 17 Oct: "avoid look alike colors for modes"),
   the same in the chips, the drawn route and the map. Red is the hospitals' pins, so no mode is red.
 */
-export const MODES: Record<ModeCode, { label: string; color: string; onDark: string; bg: string; fg: string; icon: LucideIcon; perKm: boolean }> = {
+export const MODES: Record<ModeCode, { label: string; short?: string; color: string; onDark: string; bg: string; fg: string; icon: LucideIcon; perKm: boolean }> = {
   bike:   { label: 'Bike', color: '#EF9F27', onDark: '#F6B95A', bg: '#FEF3C7', fg: '#78350F', icon: Bike, perKm: true },
   car:    { label: 'Car', color: '#2563EB', onDark: '#7AA7FF', bg: '#DBEAFE', fg: '#1E3A8A', icon: Car, perKm: true },
+  auto:   { label: 'Auto', color: '#DB2777', onDark: '#F472B6', bg: '#FCE7F3', fg: '#831843', icon: AutoRickshaw, perKm: false },
   bus:    { label: 'Bus', color: '#16A34A', onDark: '#4ADE80', bg: '#DCFCE7', fg: '#14532D', icon: Bus, perKm: false },
   train:  { label: 'Train', color: '#7C3AED', onDark: '#B197FC', bg: '#EDE9FE', fg: '#4C1D95', icon: TrainFront, perKm: false },
   metro:  { label: 'Metro', color: '#06B6D4', onDark: '#22D3EE', bg: '#CFFAFE', fg: '#164E63', icon: TramFront, perKm: false },
-  auto:   { label: 'Auto', color: '#DB2777', onDark: '#F472B6', bg: '#FCE7F3', fg: '#831843', icon: Truck, perKm: false },
-  taxi:   { label: 'Uber / Taxi', color: '#374151', onDark: '#B8C0CC', bg: '#E5E7EB', fg: '#111827', icon: CarTaxiFront, perKm: false },
+  // Uber / Taxi as a car (from MM3, by the grade's taxi rule) or a bike (any grade, bill always) — the user, 26 Oct.
+  taxi:   { label: 'Uber / Taxi · Car', short: 'Taxi · Car', color: '#374151', onDark: '#B8C0CC', bg: '#E5E7EB', fg: '#111827', icon: CarTaxiFront, perKm: false },
+  taxi_bike: { label: 'Uber / Taxi · Bike', short: 'Taxi · Bike', color: '#0D9488', onDark: '#2DD4BF', bg: '#CCFBF1', fg: '#134E4A', icon: TaxiBike, perKm: false },
   flight: { label: 'Flight', color: '#92400E', onDark: '#E0A46E', bg: '#FDE7D3', fg: '#7C2D12', icon: Plane, perKm: false },
 }
 /** A mode's colour for text and icons, its lighter shade on a dark page: with the class "mode-ink" (or "mode-fill" in a drawing). */
 export const inkVars = (m: { color: string; onDark: string }) => ({ '--mc': m.color, '--mcd': m.onDark }) as CSSProperties
-export const MODE_ORDER: ModeCode[] = ['bike', 'car', 'bus', 'train', 'metro', 'auto', 'taxi', 'flight']
+export const MODE_ORDER: ModeCode[] = ['bike', 'car', 'auto', 'bus', 'train', 'metro', 'taxi_bike', 'taxi', 'flight']
 
 export const DA_KINDS = [
   { code: 'none', label: 'No DA' },
@@ -37,16 +65,63 @@ export const DA_KINDS = [
   // The ₹300 DA is out of district with a night away; ₹400 out of state with one (the user, 23 Oct).
   { code: 'out_state', label: 'Out of district, staying' },
   { code: 'out_state_stay', label: 'Out of state, staying' },
+  // Inside an approved deputation, in its state: the same for every grade (te_0075, te_policy deputation_da).
+  { code: 'deputation', label: 'Deputation' },
+  // Aurum (te_0123): outstation is per diem or actual food, each with a day's fixed misc; local has none.
+  { code: 'aurum_actual', label: 'Outstation · food at actual' },
+  { code: 'aurum_per_diem', label: 'Outstation · per diem' },
+  { code: 'aurum_per_diem_lodging', label: 'Per diem · lodging given' },
+  { code: 'aurum_per_diem_board', label: 'Per diem · lodging and food given' },
 ] as const
+/** The Daily allowance choices of an Aurum grade (one with a per diem), and of every other grade. */
+export const AURUM_DA = new Set<string>(['none', 'aurum_actual', 'aurum_per_diem', 'aurum_per_diem_lodging', 'aurum_per_diem_board'])
+export const isAurum = (rule: Pick<Rule, 'per_diem'> | undefined) => rule?.per_diem != null
+export const daKindsFor = (rule: Rule | undefined) => DA_KINDS.filter(k => isAurum(rule) ? AURUM_DA.has(k.code) : !k.code.startsWith('aurum_'))
 export type DaKind = typeof DA_KINDS[number]['code']
 
-export const EXPENSE_CATEGORIES = ['Courier', 'Printing & stationery', 'Tools', 'Toll', 'Client meal', 'Team meal', 'Phone', 'Spare purchase', 'Other']
+/*
+  The expense types SW Admin keeps (te_0091), as the claim brings them; these until it has. Three carry a rule by their role,
+  so a renamed one keeps it: phone (the month's allowance), tools (petty cash above the limit), spare (its own Excel column).
+*/
+export interface ExpenseKind { label: string; role: 'phone' | 'tools' | 'spare' | null; bill_always: boolean; active: boolean }
+let kinds: ExpenseKind[] = [
+  ['Courier', null, true], ['Printing & stationery', null, false], ['Tools', 'tools', true], ['Toll', null, false], ['Client meal', null, false],
+  ['Team meal', null, false], ['Phone', 'phone', false], ['Spare purchase', 'spare', false], ['Other', null, false],
+].map(([label, role, bill]) => ({ label, role, bill_always: bill, active: true }) as ExpenseKind)
+export const setExpenseKinds = (k?: ExpenseKind[] | null) => { if (k?.length) kinds = k }
+/** Purposes and expense types read A to Z wherever they are listed, "Other" last (the user, 2 Nov). */
+const az = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
+export const alphabetical = <T>(list: readonly T[], label: (x: T) => string): T[] =>
+  [...list].sort((a, b) => Number(label(a) === 'Other') - Number(label(b) === 'Other') || az.compare(label(a), label(b)))
+export const expenseKinds = () => kinds
+export const expenseRole = (category: string) => kinds.find(k => k.label === category)?.role ?? null
 // Each kind of expense its own picture (the user, 21 Oct: "courier and phone having same icon?").
 const EXPENSE_ICONS: Record<string, LucideIcon> = {
   Courier: Package, 'Printing & stationery': Printer, Tools: Wrench, Toll: Construction,
-  'Client meal': Utensils, 'Team meal': Users, Phone: Smartphone, 'Spare purchase': Cog,
+  'Client meal': Utensils, 'Team meal': Users, Phone: Smartphone, 'Spare purchase': Cog, Food: Utensils,
 }
-export const expenseIcon = (category: string): LucideIcon => EXPENSE_ICONS[category] ?? ReceiptIndianRupee
+const ROLE_ICONS: Record<string, LucideIcon> = { phone: Smartphone, tools: Wrench, spare: Cog }
+export const expenseIcon = (category: string): LucideIcon => EXPENSE_ICONS[category] ?? ROLE_ICONS[expenseRole(category) ?? ''] ?? ReceiptIndianRupee
+const EXPENSE_TONES: Record<string, Tone> = {
+  Courier: 'amber', 'Printing & stationery': 'slate', Tools: 'orange', Toll: 'sky', Food: 'green', 'Client meal': 'green', 'Team meal': 'teal',
+  Phone: 'violet', 'Spare purchase': 'indigo',
+}
+export const expenseTone = (category: string): Tone => EXPENSE_TONES[category] ?? 'slate'
+/** Each purpose its own picture and colour in the dropdown (the user, 2 Nov: "Make dropdown beautiful"); one SW Admin adds later gets a pin. */
+const PURPOSE_LOOKS: Array<[RegExp, LucideIcon, Tone]> = [
+  [/hospital|clinic|phc|chc/i, Hospital, 'rose'], [/breakdown|repair|complaint|service/i, Wrench, 'orange'], [/meeting/i, Users, 'violet'],
+  [/office|work/i, Building2, 'blue'], [/home/i, House, 'green'], [/mode/i, ArrowLeftRight, 'sky'], [/customer|client/i, Handshake, 'indigo'],
+  [/spare|collect|deliver/i, PackageOpen, 'teal'], [/training/i, GraduationCap, 'amber'], [/install|preventive|calibrat/i, ClipboardCheck, 'cyan'],
+]
+export const purposeLook = (purpose: string): { icon: LucideIcon; tone: Tone } => {
+  const m = PURPOSE_LOOKS.find(([re]) => re.test(purpose))
+  return m ? { icon: m[1], tone: m[2] } : { icon: MapPin, tone: 'slate' }
+}
+export const DA_LOOKS: Record<DaKind, { icon: LucideIcon; tone: Tone }> = {
+  none: { icon: Ban, tone: 'slate' }, in_district: { icon: MapPin, tone: 'green' }, out_district: { icon: Route, tone: 'sky' },
+  out_state: { icon: BedDouble, tone: 'indigo' }, out_state_stay: { icon: MapIcon, tone: 'violet' }, deputation: { icon: Briefcase, tone: 'amber' },
+  aurum_actual: { icon: Route, tone: 'sky' }, aurum_per_diem: { icon: MapIcon, tone: 'violet' }, aurum_per_diem_lodging: { icon: BedDouble, tone: 'indigo' }, aurum_per_diem_board: { icon: BedDouble, tone: 'green' },
+}
 
 /** Each status as one strong hue: the claim header's stripe, and a claim row's edge. */
 export const STATUS_HUE: Record<string, string> = {
@@ -72,7 +147,15 @@ export interface Ride {
   id: string; mode: ModeCode
   from_name: string | null; from_lat: number | null; from_lng: number | null
   to_name: string | null; to_lat: number | null; to_lng: number | null
+  /** An end the map does not have, named by hand: learned for everyone once the day is saved (te_0071). Not stored. */
+  from_named?: boolean; to_named?: boolean
   claimed_km: number | null; map_km: number | null; fare: number | null; amount?: number; note?: string | null
+  /** Google's own road km when the engineer picked another of its roads (te_0162); empty when Google's was kept. */
+  route_km?: number | null
+  /** Google's roads for the ride's From and To, kept until the Travel Desk approves (te_0164). */
+  route_alts?: KeptRoads | null
+  /** Why a road more than the tolerance longer than Google's own was taken (te_0165). */
+  route_why?: string | null
   /** Booked by the company (te_0042): it claims nothing, and its company cost is kept beside it. */
   company_booking?: string | null; company_amount?: number | null
   /** The return of a round-trip ticket whose fare is on another ride (te_0056): claims nothing, needs no bill. */
@@ -85,12 +168,18 @@ export interface Ride {
   inter?: boolean | null
   /** Why, and for which call centre (project): each ride its own, the next starting with the last one's (te_0060). */
   purpose?: string | null; project?: string | null
+  /** Why there is no visit photo, when its purpose needs one (te_0082); '' while it is being written. */
+  photo_skip?: string | null
   /** A breakdown call's ticket ID, kept in te_tickets under the ride's id (te_0060). */
   ticket_no?: string
+  /** Aurum service calls: the asset / MPT number and the service report number, kept on the ticket (te_0168). */
+  asset_no?: string; service_report?: string
+  /** Home to work or work to home: the daily commute, claiming nothing (te_0085). */
+  commute?: boolean
   /** What autos usually cost a km where this one started: nearby rides, or the policy's rate (te_0051). */
   auto_norm?: { per_km: number; n: number; from: 'nearby' | 'policy' } | null
 }
-export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null }
+export interface Ticket { id: string; ticket_no: string; service_report: string | null; place: string | null; asset_no?: string | null }
 export interface Hotel {
   id: string; name: string | null; amount: number; occupancy: 'single' | 'double'; metro: boolean
   shared_ecode?: string | null; shared_name?: string | null
@@ -101,18 +190,37 @@ export interface Day {
   id: string; day: string; place: string | null; district: string | null; purpose: string | null
   da_kind: DaKind; da_amount: number; continues_day: string | null; remarks: string | null
   rides: Ride[]; tickets: Ticket[]; hotel: Hotel | null; expenses: Expense[]
+  /** A past day with no Start my day and no visit photo: why, counted as one Photo not possible (te_0169). */
+  start_skip?: string | null
   /** The hospital's pin, and the DA the map gave for the day's places (te_0025). */
   place_lat?: number | null; place_lng?: number | null; da_auto?: DaKind | null
   room_by?: { name: string; ecode: string; amount: number; number: string | null } | null
+  /** A place of the day outside its deputation's state, as the map named it (te_0075). */
+  dep_off?: string | null
 }
 export interface Bill {
   /** A ticket's service report is kept with the bills (te_0037). */
   id: string; owner_kind: 'ride' | 'hotel' | 'expense' | 'report'; owner_id: string; path: string; name: string | null
   ocr_amount: number | null; ocr_date: string | null; ocr_billno: string | null; twin: string | null
+  /** No bill in the photo — blank paper, a floor (te_0173). */
+  not_bill?: boolean
+  /** Typed off the bill by the person when the reader could not read it (te_0133). */
+  typed_amount?: number | null
+  /** When a payment screen says it was paid (te_0135). */
+  paid_at?: string | null
   /** The line and claim of the bill it looks like (te_0036). */
   twin_owner?: string | null; twin_claim?: string | null
   /** What was read off it (booking ids, PNRs), and the company booking it is (te_0042). */
   refs?: string[]; company?: CompanyBooking | null
+}
+/**
+  The same trip on another person's claim (te_0134): who, on which claim (none while a draft), what they claimed for it,
+  and the two people's visit photos together at its start or end, which is the proof it is said on.
+*/
+export interface SharedRide {
+  ride: string; kind: 'vehicle' | 'ticket'; name: string; ecode: string; number: string | null; status: string
+  mode: ModeCode; from: string | null; to: string | null; amount: number; note: string | null; bill: boolean
+  mine_at: string; other_at: string; place: string | null; at: 'start' | 'end'
 }
 /** A booking the company made (MakeMyTrip myBiz), from the Travel Desk's monthly report (te_0042). */
 export interface CompanyBooking {
@@ -130,9 +238,25 @@ export interface Rule {
   grade: string; da_in_district: number; da_out_district: number; da_out_state: number; da_out_state_stay: number
   hotel_in_single: number; hotel_in_double: number; hotel_out_single: number; hotel_out_double: number
   bike_rate: number | null; bike_km_month: number | null; car_rate: number | null; car_km_month: number | null
+  /** Aurum E1–E3 (te_0122): the car is paid at car_rate, with a vehicle request first. */
+  car_approval?: boolean
+  /** The room limit in a metro city (Aurum, te_0122); else the out-of-state limit plus the metro extra. */
+  hotel_metro?: number | null
+  /** Aurum (te_0123): per diem and fixed misc a day, and a day trip's limit at actual, metro and other cities. */
+  per_diem?: number | null; misc_day?: number | null; day_trip_metro?: number | null; day_trip_other?: number | null
   flight: boolean; taxi: boolean
 }
 export interface ClaimData {
+  /** Out-of-policy vehicles approved over the claim's days (te_0096). */
+  vehicles?: VehicleSpan[]
+  /** Start my day (te_0104): the day it is asked from, and the claim month's starts. */
+  day_start_from?: string | null; day_starts?: DayStart[]
+  /** End my day (te_0109): the day it is asked from, and the claim month's ends. */
+  day_end_from?: string | null; day_ends?: DayStart[]
+  /** Restart my day (te_0170): when, where, why, and the end it replaced. */
+  day_restarts?: Array<DayStart & { reason: string; ended_at: string }>
+  /** From this day a day started or photographed is ended before it is claimed (te_0150). */
+  end_first_from?: string | null
   claim: {
     id: string; employee_id: string; month: string; part: number; status: string; number: string | null
     grade: string | null; designation: string | null; base_location: string | null; project: string | null; mobile: string | null
@@ -149,6 +273,8 @@ export interface ClaimData {
     name: string; ecode: string; manager: string | null; coordinator: string | null
     mine: boolean; can_edit: boolean; can_decide: boolean; is_desk: boolean; is_manager: boolean
     delete_requested_at: string | null; delete_reason: string | null
+    /** Asking the manager to edit a claim the manager has approved (te_0094). */
+    recall_requested_at?: string | null; recall_reason?: string | null
     recalls: number; last_recalled_at: string | null
     /** The date "Add a claim" started it on, while it has no saved day (te_0069). */
     picked_day?: string | null
@@ -156,10 +282,19 @@ export interface ClaimData {
   rule: Rule
   days: Day[]
   bills: Bill[]
+  /** Google Maps screenshots of rides well over the map (te_0140). */
+  routes?: import('./routeShots').RouteShot[]
   km_month: { bike: number; car: number; auto: number; phone?: number }
   policy: Record<string, number | number[]>
   purposes: string[]
   office_purposes: string[]
+  expense_kinds?: ExpenseKind[]
+  /** Visit photos (te_0082): the setup, the person's photos of the month, and "Photo not possible" on their other claims that month. */
+  photo_setup?: VisitSetup; visit_photos?: VisitPhoto[]; photo_skips_other?: number
+  /** The phone most of the person's visit photos came from (te_0086). */
+  usual_device?: { device_id: string; device: string | null } | null
+  /** The same trip on another person's claim, with both people's photos together at its start or end (te_0134). */
+  shared?: SharedRide[]
   history: HistoryStep[]
   /** Figures an approver changed (te_0027), oldest first. */
   adjustments?: Array<{ item_id: string; unit: string; old_value: number | null; new_value: number; old_amount: number | null; new_amount: number; reason: string; by: string | null; at: string }>
@@ -169,6 +304,8 @@ export interface ClaimData {
   home?: { how: 'here' | 'map'; set_at: string } | null
   /** The company's bookings for this person in the month that no bill carries (te_0042). */
   company_unlinked?: CompanyBooking[]
+  /** The person's approved deputations over the month (te_0075). */
+  deputations?: Array<{ state: string; from_day: string; to_day: string }>
 }
 /** One step of a claim's history (te_0025): who did what, when, and the note given. */
 export interface HistoryStep {
@@ -201,7 +338,9 @@ export const dayName = (iso: string) =>
 export const newId = () => crypto.randomUUID()
 
 /** What a ride is paid: km x the grade's rate on a bike or a car, else its fare. As the database works it out. */
-export function rideAmount(r: Pick<Ride, 'mode' | 'claimed_km' | 'fare'> & { company_booking?: string | null }, rule: Rule | undefined) {
+export function rideAmount(r: Pick<Ride, 'mode' | 'claimed_km' | 'fare'> & { company_booking?: string | null; commute?: boolean }, rule: Rule | undefined) {
+  // Home to work and back claims nothing (te_0085).
+  if (r.commute) return 0
   // What the company booked is not claimed (te_0042).
   if (r.company_booking) return 0
   if (r.mode === 'bike') return (r.claimed_km ?? 0) * (rule?.bike_rate ?? 5)
@@ -212,10 +351,15 @@ export function dayTotal(d: Day, rule: Rule | undefined) {
   return d.rides.reduce((t, r) => t + rideAmount(r, rule), 0) + (d.da_amount ?? 0) + (d.hotel?.amount ?? 0)
     + d.expenses.reduce((t, x) => t + (x.amount ?? 0), 0)
 }
-export function daFor(rule: Rule | undefined, kind: DaKind, purpose: string | null, office: string[]) {
+export function daFor(rule: Rule | undefined, kind: DaKind, purpose: string | null, office: string[], depDa = 800) {
   if (!rule || (purpose && office.includes(purpose))) return 0
   return kind === 'in_district' ? rule.da_in_district : kind === 'out_district' ? rule.da_out_district
-    : kind === 'out_state' ? rule.da_out_state : kind === 'out_state_stay' ? rule.da_out_state_stay : 0
+    : kind === 'out_state' ? rule.da_out_state : kind === 'out_state_stay' ? rule.da_out_state_stay
+    : kind === 'deputation' ? depDa
+    : kind === 'aurum_actual' ? (rule.misc_day ?? 0)
+    : kind === 'aurum_per_diem' ? (rule.per_diem ?? 0) + (rule.misc_day ?? 0)
+    : kind === 'aurum_per_diem_lodging' ? Math.round((rule.per_diem ?? 0) * 0.5) + (rule.misc_day ?? 0)
+    : kind === 'aurum_per_diem_board' ? Math.round((rule.per_diem ?? 0) * 0.25) + (rule.misc_day ?? 0) : 0
 }
 /** The hotel limit for the night: grade, single or double, in or out of state, +20% in a metropolitan city. */
 export function hotelLimit(rule: Rule | undefined, h: Pick<Hotel, 'occupancy' | 'metro'>, outOfState: boolean, metroPct: number) {
@@ -223,6 +367,7 @@ export function hotelLimit(rule: Rule | undefined, h: Pick<Hotel, 'occupancy' | 
   const base = outOfState
     ? (h.occupancy === 'double' ? rule.hotel_out_double : rule.hotel_out_single)
     : (h.occupancy === 'double' ? rule.hotel_in_double : rule.hotel_in_single)
+  if (h.metro && rule.hotel_metro != null) return rule.hotel_metro
   return h.metro ? Math.round(base * (1 + metroPct / 100)) : base
 }
 /** Claimed km more than the map's road km plus the tolerance (10%, set by the admins). */
@@ -240,21 +385,121 @@ export function needsBill(kind: 'ride' | 'hotel' | 'expense', item: Ride | Hotel
   if (kind === 'ride') {
     const r = item as Ride
     if (r.same_ticket || MODES[r.mode].perKm) return false
-    return rideAmount(r, rule) > over
+    // A bike taxi's bill (the Uber or Rapido invoice) whatever the amount (te_0074).
+    return r.mode === 'taxi_bike' || rideAmount(r, rule) > over
   }
-  // A courier or a tool always brings its bill, whatever it cost (the user, 23 Oct).
+  // A courier or a tool always brings its bill, whatever it cost (the user, 23 Oct) — the types SW Admin ticks (te_0091).
   const x = item as Expense
-  return x.amount > over || BILL_ALWAYS.includes(x.category)
+  return x.amount > over || kinds.some(k => k.label === x.category && k.bill_always)
 }
-/** The expenses whose bill is needed even under ₹300. */
-export const BILL_ALWAYS = ['Courier', 'Tools']
-/** A breakdown call: its ride names the ticket (te_0060). */
-export const isBreakdown = (purpose: string | null | undefined) => /breakdown/i.test(purpose ?? '')
+/** A ride whose purpose has Ticket ID ticked names its ticket (te_0060; te_0105, the tick, not the name). */
+let ticketPurposes: string[] | null = null
+export const setTicketPurposes = (l: string[] | null) => { ticketPurposes = l }
+export const isBreakdown = (purpose: string | null | undefined) => (ticketPurposes ? !!purpose && ticketPurposes.includes(purpose) : /breakdown/i.test(purpose ?? ''))
 /** The km typed is not the map's (te_0060: "if any changes in km it should be added in observation"). */
+/*
+  The km a bike or car may claim: the map's road km, up to the tolerance more (10%, set by the admins), never less (the
+  user, 27 Oct: "min should be the same as map km"). Outside it the day does not save.
+*/
+export function kmRange(mapKm: number, tolerance: number) {
+  // To a tenth, outward, past the float noise (10 km and 10% is 11.0, not 11.1).
+  const tenth = (v: number, f: (x: number) => number) => f(Math.round(v * 1e4) / 1e3) / 10
+  return { lo: tenth(mapKm, Math.floor), hi: tenth(mapKm * (1 + tolerance / 100), Math.ceil) }
+}
+/**
+ * Whether the km typed so far can still become one in the band: map 8.8 takes "8" (to 8.8) and "9", not "7"; map 10
+ * takes "1" and "11", not "12" (the user, 27 Oct). "8." or "8.8" is the run of numbers it can still grow into.
+ */
+export function kmCanReach(typed: string, g: { lo: number; hi: number }) {
+  const t = typed.trim()
+  if (t === '') return true
+  const overlaps = (a: number, b: number) => a <= g.hi && b > g.lo
+  const [int, frac] = t.split('.')
+  if (frac !== undefined) { const a = Number(`${int || '0'}.${frac || '0'}`); return overlaps(a, a + 10 ** -frac.length) }
+  const n = Number(int)
+  if (!Number.isFinite(n)) return false
+  if (n === 0) return overlaps(0, 1)
+  for (let k = 0, a = n; a <= g.hi; k++, a = n * 10 ** k) if (overlaps(a, (n + 1) * 10 ** k)) return true
+  return false
+}
+export const kmOutside = (r: Pick<Ride, 'claimed_km' | 'map_km'>, tolerance: number) => {
+  if (r.claimed_km == null || r.map_km == null) return false
+  const { lo, hi } = kmRange(r.map_km, tolerance)
+  return r.claimed_km < lo || r.claimed_km > hi
+}
+/**
+  The longer-road rules, from Settings (te_0166): over pct above Google's own road asks why; the longest road shown is
+  its km (with pct added from fromKm on) rounded up, plus extraKm. Set from the claim's policy before use.
+*/
+const ROAD = { pct: 10, fromKm: 30, extraKm: 3 }
+export const setRoadRules = (p: Record<string, unknown> | undefined) => {
+  const n = (k: string, d: number) => { const v = Number(p?.[k]); return Number.isFinite(v) ? v : d }
+  ROAD.pct = n('road_pct', 10); ROAD.fromKm = n('road_pct_from_km', 30); ROAD.extraKm = n('road_extra_km', 3)
+}
+/** Over this % above Google's own road, the engineer writes why (the user, 18 Nov: "if greater than 10%"). */
+export const roadWhyPct = () => ROAD.pct
+/** Google's roads kept on the ride for its present From and To (te_0164), or none. */
+const keptKms = (r: Pick<Ride, 'route_alts' | 'from_lat' | 'from_lng' | 'to_lat' | 'to_lng'>) => {
+  if (!r.route_alts?.roads?.length || r.from_lat == null || r.to_lat == null) return []
+  if (r.route_alts.key !== keyOf({ lat: r.from_lat, lng: r.from_lng! }, { lat: r.to_lat, lng: r.to_lng! })) return []
+  return r.route_alts.roads.map(x => x.km).filter(k => k > 0)
+}
+/**
+  The longest of Google's roads offered, from its own (fastest) road (the user, 18 Nov): under 30 km, its km rounded up
+  plus 3; from 30 km, its km and 10% rounded up plus 3 (7.1 → 11, 60.5 → 70). The 3 only lets a road just past show.
+  A road's own km is rounded down against it (27.8 shows under 27; the user, 18 Nov: "farthest down also").
+*/
+export const roadLimit = (own: number) => Math.ceil(Math.round((own < ROAD.fromKm ? own : own * (1 + ROAD.pct / 100)) * 1000) / 1000 - 1e-9) + ROAD.extraKm
+/** Google's roads that may be picked: its own, any shorter, and longer ones up to roadLimit. */
+export const roadsShown = <T extends { km: number }>(alts: T[]) => alts.filter((x, i) => i === 0 || Math.floor(x.km + 1e-9) <= roadLimit(alts[0].km))
+/** The km a ride may claim when Google's roads are known: its shortest shown road up to the road picked, never more (the user, 18 Nov). */
+export const roadBand = (r: Pick<Ride, 'route_alts' | 'from_lat' | 'from_lng' | 'to_lat' | 'to_lng' | 'map_km'>) => {
+  const k = keptKms(r)
+  if (!k.length) return null
+  const shown = roadsShown(k.map(km => ({ km }))).map(x => x.km)
+  const lo = Math.min(...shown)
+  return { lo, hi: Math.max(lo, r.map_km ?? k[0]) }
+}
+/** Google's own road km for the ride: the first it gave (kept), or the one kept when another was picked. */
+export const ownKm = (r: Pick<Ride, 'route_km' | 'route_alts' | 'map_km'>) => r.route_alts?.roads?.[0]?.km ?? r.route_km ?? r.map_km ?? null
+/**
+  No Google roads (its free requests used up, or our own map): the same most, from the map's km (the user, 18 Nov:
+  "if google map clicks is expired, same logic needed, in offline also").
+*/
+export const mapBand = (mapKm: number) => ({ lo: mapKm, hi: Math.max(mapKm, roadLimit(mapKm)) })
+/** The km over Google's own (fastest) road, of the km claimed (the map's when none is typed). */
+export const shortExtra = (r: Pick<Ride, 'map_km' | 'claimed_km' | 'route_km' | 'route_alts'>) => {
+  const own = ownKm(r)
+  const got = r.claimed_km ?? r.map_km
+  if (got == null || own == null || !(own > 0)) return null
+  return got > own + 0.05 ? { pct: Math.round(((got - own) / own) * 100), km: Math.round((got - own) * 10) / 10 } : null
+}
+/** The day's km over Google's own roads, all its road rides together (the user, 18 Nov: one % for the day). */
+export const dayExtra = (rides: Array<Pick<Ride, 'mode' | 'map_km' | 'claimed_km' | 'route_km' | 'route_alts'>>) => {
+  let own = 0, got = 0
+  for (const r of rides) {
+    if (!MODES[r.mode].perKm) continue
+    const o = ownKm(r), g = r.claimed_km ?? r.map_km
+    if (g == null) continue
+    own += o ?? g; got += g
+  }
+  return own > 0 && got > own + 0.05 ? { pct: Math.round(((got - own) / own) * 100), km: Math.round((got - own) * 10) / 10 } : null
+}
+/** How much longer the road picked is than the shortest of Google's roads, in % (the user, 18 Nov: "show a % from shortest distance in red"); null when it is the shortest. */
+export const shortPct = (r: Pick<Ride, 'map_km' | 'route_km' | 'route_alts'>) => {
+  const kms = [...(r.route_alts?.roads ?? []).map(x => x.km), ...(r.route_km != null ? [r.route_km] : [])].filter(k => k > 0)
+  if (r.map_km == null || !kms.length) return null
+  const low = Math.min(...kms)
+  const pct = Math.round(((r.map_km - low) / low) * 100)
+  return r.map_km > low + 0.05 && pct >= 1 ? pct : null
+}
 export const kmChanged = (r: Pick<Ride, 'claimed_km' | 'map_km'>) => r.claimed_km != null && r.map_km != null && Math.abs(r.claimed_km - r.map_km) > 0.05
 
 // ---------------------------------------------------------------- maps
 export interface Place { name: string; lat: number; lng: number }
+/** The road a ride took among Google's: the one whose km the ride has. */
+export const takenRoute = (alts: RouteAlt[] | undefined, mapKm: number | null | undefined) =>
+  alts?.length ? (alts.find(x => mapKm != null && Math.abs(x.km - mapKm) < 0.05) ?? alts[0]) : null
 
 /** A train or the metro goes by its tracks, not the road (the user, 23 Oct). */
 export const RAIL_MODES = new Set<ModeCode>(['train', 'metro'])
@@ -276,19 +521,64 @@ export const kmWay = (mode: ModeCode) => (RAIL_MODES.has(mode) ? 'rail' : mode =
  * flight, else by road from the free OSRM router on OpenStreetMap (the same as the trip module used). A rail route not
  * found falls back to the road.
  */
-export async function roadKm(a: Place, b: Place, mode?: ModeCode | null): Promise<{ km: number; line: [number, number][] } | null> {
+export async function roadKm(a: Place, b: Place, mode?: ModeCode | null, opts?: { known?: boolean }): Promise<{ km: number; line: [number, number][]; alts?: RouteAlt[] } | null> {
   if (mode === 'flight') return { km: Math.round(distanceKm(a, b) * 10) / 10, line: [[a.lat, a.lng], [b.lat, b.lng]] }
   if (mode && RAIL_MODES.has(mode)) {
     const rail = await railKm(a, b)
     if (rail) return rail
   }
+  // Google's routes only for the modes paid by the km (bike, car); the rest stay on our free map (the user, 18 Nov).
+  if (googleRoutesOn() && mode && MODES[mode].perKm) {
+    // known: only what Google already said this session (drawing a map asks nothing).
+    const alts = await (opts?.known ? googleKnown(a, b) : googleRoutes(a, b))
+    if (alts) return { km: alts[0].km, line: alts[0].line, alts }
+  }
+  const key = `${a.lat.toFixed(5)},${a.lng.toFixed(5)};${b.lat.toFixed(5)},${b.lng.toFixed(5)}`
+  const kept = roads.get(key)
+  if (kept) return kept
+  const p = hedgedRoad(`${a.lng},${a.lat};${b.lng},${b.lat}`)
+  roads.set(key, p)
+  void p.then(v => { if (!v) roads.delete(key) })
+  return p
+}
+
+/*
+  The road between two places from two public routers (the user, 27 Oct: "it took nearly 1 min to load the km"): the
+  first asked, the second too if the first has not answered in 2.5 s, whichever answers first; each given 12 s. Both
+  read the same map, so they give the same km. Kept for the session, so the same two places again are at once.
+*/
+type Road = { km: number; line: [number, number][] } | null
+const roads = new Map<string, Promise<Road>>()
+const ROUTERS = [
+  (ll: string) => `https://routing.openstreetmap.de/routed-car/route/v1/driving/${ll}?overview=full&geometries=geojson`,
+  (ll: string) => `https://router.project-osrm.org/route/v1/driving/${ll}?overview=full&geometries=geojson`,
+]
+async function askRouter(url: string, ms: number): Promise<Road> {
+  const stop = new AbortController(), t = setTimeout(() => stop.abort(), ms)
   try {
-    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`)
-    const j = await r.json()
+    const j = await (await fetch(url, { signal: stop.signal })).json()
     const route = j.routes?.[0]
     if (!route) return null
     return { km: Math.round((route.distance / 1000) * 10) / 10, line: route.geometry.coordinates.map(([x, y]: [number, number]) => [y, x]) }
-  } catch { return null }
+  } catch { return null } finally { clearTimeout(t) }
+}
+function hedgedRoad(ll: string): Promise<Road> {
+  return new Promise(done => {
+    let over = false, asked = 0, answered = 0
+    const ask = (i: number) => {
+      asked++
+      void askRouter(ROUTERS[i](ll), 12_000).then(v => {
+        answered++
+        if (over) return
+        if (v) { over = true; clearTimeout(slow); done(v) }
+        // One that fails asks the next at once.
+        else if (asked < ROUTERS.length) { clearTimeout(slow); ask(asked) }
+        else if (answered === asked) { over = true; done(null) }
+      })
+    }
+    const slow = setTimeout(() => { if (!over && asked < ROUTERS.length) ask(asked) }, 2500)
+    ask(0)
+  })
 }
 
 /*
@@ -429,6 +719,24 @@ async function photonNear(near: { lat: number; lng: number }, tag: string): Prom
     return { name: [p.name, p.city ?? p.district ?? p.county, p.state].filter(Boolean).slice(0, 3).join(', '), lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }
   }).filter(x => x.name)
 }
+/*
+  The hospital or health centre at a spot, for a visit photo's stamp (the user, 30 Oct: "yes, prefer the hospital on the
+  stamp" — GH Ernakulam's photo read "GH Canteen", Lakeshore's "Lakeshore hospital Helipad"): within 60 m, a hospital
+  before a clinic or health centre, the nearest of each. Not 150 m: a photo on the road named the hospital across it
+  (the user, 9 Nov: "i was not in maj hospital"); further off, the road or area's name.
+*/
+export async function hospitalAt(at: { lat: number; lng: number }, m = 60): Promise<string | null> {
+  try {
+    const tags = ['amenity:hospital', 'amenity:clinic', 'healthcare:hospital', 'healthcare:centre', 'healthcare:clinic'].map(x => `&osm_tag=${x}`).join('')
+    const r = await timed(`https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lng}&radius=${m / 1000}&limit=8&lang=en${tags}`)
+    const j = await r.json() as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }
+    const found = (j.features ?? []).filter(f => (f.properties.countrycode ?? '').toUpperCase() === 'IN').map(f => ({
+      name: (f.properties.name ?? '').trim(), hospital: f.properties.osm_value === 'hospital',
+      km: distanceKm(at, { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] }),
+    })).filter(f => f.name && f.km * 1000 <= m)
+    return found.sort((a, b) => Number(b.hospital) - Number(a.hospital) || a.km - b.km)[0]?.name ?? null
+  } catch { return null }
+}
 const KIND_TAGS: Array<[RegExp, string]> = [
   [/\bair\s*port\b/i, 'aeroway:aerodrome'],
   [/\b(?:railway|train)?\s*station\b|\brailway\b/i, 'railway:station'],
@@ -486,6 +794,46 @@ export async function findLearned(q: string, near?: { lat: number; lng: number }
   return ((data ?? []) as Array<{ id: string; name: string; full_name: string; lat: number; lng: number; district: string | null; visits: number }>)
     .map(x => ({ id: x.id, name: x.full_name, short: x.name, lat: x.lat, lng: x.lng, district: x.district, visits: x.visits }))
 }
+/*
+  Names for a spot being named (te_0071; the user, 26 Oct: "on name type can we show suggestion? like in chrome"):
+  what the map calls the places within 2 km of it — with nothing typed, those within 300 m, nearest first. A short
+  form typed is written out for the map, which knows only the long name, and the written-out name is offered too
+  (the user, 30 Oct: "im typing dh aluva, so automatically it should suggest district hospital aluva"): km null.
+  The map's places of the kind typed come first ("gh ekm": General Hospital Ernakulam), then the name written out,
+  then the rest; in each, the names carrying most of the words typed, then the one with fewest words besides
+  ("District Hospital Aluva" before "OP Block District Hospital Aluva"), then the nearest. Roads and towns left out.
+*/
+export async function namesNear(q: string, at: { lat: number; lng: number }): Promise<Array<{ name: string; km: number | null }>> {
+  const typed = q.trim()
+  const full = typed.length >= 2 ? expandShort(typed).map(capitalised) : []
+  const asks = typed.length >= 2 ? [...new Set([...full, typed])] : ['']
+  const lists = await Promise.all(asks.map(async x => {
+    try {
+      const r = await timed(x
+        ? `https://photon.komoot.io/api/?q=${encodeURIComponent(x)}&lat=${at.lat}&lon=${at.lng}&limit=10&lang=en`
+        : `https://photon.komoot.io/reverse?lat=${at.lat}&lon=${at.lng}&limit=8&radius=0.3&lang=en`)
+      return ((await r.json()) as { features?: Array<{ geometry: { coordinates: [number, number] }; properties: Record<string, string> }> }).features ?? []
+    } catch { return [] }
+  }))
+  const out: Array<{ name: string; km: number | null }> = []
+  for (const f of lists.flat()) {
+    const p = f.properties
+    if (!p.name || p.osm_key === 'highway' || p.osm_key === 'place' || (p.countrycode ?? '').toUpperCase() !== 'IN') continue
+    const km = distanceKm(at, { lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] })
+    if (km > 2 || out.some(o => o.name.toLowerCase() === p.name.toLowerCase())) continue
+    out.push({ name: p.name, km })
+  }
+  for (const n of full) if (!out.some(o => o.name.toLowerCase() === n.toLowerCase())) out.push({ name: n, km: null })
+  const want = [...new Set(asks.flatMap(words).map(w => w.toLowerCase()))].filter(w => w.length >= 3 && !SHORT[w.toUpperCase()] && !NOISE.has(w.toUpperCase()))
+  const hits = (n: string) => want.filter(w => n.toLowerCase().includes(w)).length
+  const kinds = words(typed).map(w => SHORT[w.toUpperCase()]).filter(Boolean)
+  const ofKind = (n: string) => kinds.every(k => k.some(e => n.toLowerCase().includes(e.toLowerCase())))
+  return out.map(o => ({ o, t: o.km == null ? 1 : ofKind(o.name) ? 0 : 2, h: hits(o.name), x: typed ? words(o.name).length - hits(o.name) : 0 }))
+    .sort((a, b) => a.t - b.t || b.h - a.h || a.x - b.x || (a.o.km ?? 0) - (b.o.km ?? 0))
+    .slice(0, 6).map(({ o }) => o)
+}
+// "District Hospital aluva" → "District Hospital Aluva": a word typed in small letters, capitalised.
+const capitalised = (s: string) => s.split(' ').map(w => (/^[a-z]/.test(w) && !['and', 'of', 'the'].includes(w) ? w[0].toUpperCase() + w.slice(1) : w)).join(' ')
 export async function nameOf(lat: number, lng: number): Promise<string> {
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
@@ -533,7 +881,7 @@ export async function autoDa(from: Place | null, places: Place[], stay: boolean)
   if (district) return stay ? 'out_state' : 'out_district'
   return 'in_district'
 }
-export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4 }
+export const DA_RANK: Record<DaKind, number> = { none: 0, in_district: 1, out_district: 2, out_state: 3, out_state_stay: 4, deputation: 5, aurum_actual: 2, aurum_per_diem_board: 3, aurum_per_diem_lodging: 3, aurum_per_diem: 4 }
 
 /** Straight-line km between two points. */
 export function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -645,18 +993,37 @@ async function pdfText(file: Blob): Promise<string> {
   }
   return text
 }
-export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null }> {
+export async function readBill(file: Blob): Promise<{ amount: number | null; date: string | null; billno: string | null; refs: string[]; route?: TicketRoute | null; stay?: HotelStay | null; paidAt?: string | null; words?: number }> {
   let raw = ''
   if (file.type === 'application/pdf') raw = await pdfText(file).catch(() => '')
-  // A photo is read word by word, each with how sure the reader is of it (0–100).
-  let words: Array<{ text: string; confidence: number }> | null = null
+  // A photo is read word by word, each with how sure the reader is of it (0–100), letter by letter.
+  let words: OcrWord[] | null = null
+  let upi: number | null = null
   if (file.type.startsWith('image/')) {
-    const { createWorker } = await import('tesseract.js')
+    const { createWorker, PSM } = await import('tesseract.js')
     const worker = await createWorker('eng')
     try {
-      const { data } = await worker.recognize(await shrink(file), {}, { text: true, blocks: true })
+      const img = await shrink(file)
+      const { data } = await worker.recognize(img, {}, { text: true, blocks: true })
       raw = data.text
-      words = (data.words ?? []).map(w => ({ text: w.text, confidence: w.confidence }))
+      words = ocrWords(data.words)
+      if (isPayment(raw)) {
+        upi = upiAmount(words)
+        /*
+          Read as one block of text, the screen's big amount is passed over; read again for text anywhere. Read again
+          too when the amount starts with a 2, 3 or 7 that may be its ₹ (the user, 6 Nov: Google Pay's ₹375 was read as
+          3375): it comes off when either reading has the smaller figure after a ₹.
+        */
+        if (upi == null || /^[237]\d{2}/.test(String(upi))) {
+          await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT })
+          const again = (await worker.recognize(img, {}, { text: true, blocks: true })).data
+          const two = upiAmount(ocrWords(again.words))
+          // The screen's big figure is the line's without its first digit ("Payment of 3375", a big 375): that digit was the ₹.
+          if (upi != null && two != null && rupeeAsDigit(upi, two)) upi = two
+          upi = upi ?? two
+          if (upi != null) upi = rupeeDigit(upi, [raw, again.text])
+        }
+      }
     } finally { void worker.terminate() }
   }
   if (!raw.trim()) return { amount: null, date: null, billno: null, refs: [] }
@@ -666,14 +1033,31 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   const text = raw.replace(/[Oo](?=\d)/g, '0').replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
   const lines = text.split('\n')
   const figs = (s: string) => [...s.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => n > 0 && n < 200000)
-  let amount: number | null = null
-  for (const l of lines) if (/total|grand|net\s*(amt|amount|payable)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
+  let amount: number | null = upi
+  // The bill's own final line first — NET TOTAL, Grand total, Amount payable — then any line that says total (the
+  // user, 6 Nov: a Kerala Sales Corporation tax invoice read ₹100.01, its first item, for a NET TOTAL of ₹175.00).
+  if (amount == null) for (const l of lines) if (/net\s*total|grand\s*total|net\s*(amt|amount|payable)|(amount|total)\s*payable|bill\s*amount|invoice\s*(total|value)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
+  if (amount == null) for (const l of lines) if (/total|grand|net\s*(amt|amount|payable)/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
   if (amount == null) for (const l of lines) if (/amount|amt|fare|paid|payable|rs\.?|inr|₹/i.test(l)) { const n = figs(l); if (n.length) amount = Math.max(amount ?? 0, ...n) }
   if (amount == null) {
     const paise = [...text.matchAll(/(\d{1,6})\.(\d{2})(?!\d)/g)].map(m => Number(m[1] + '.' + m[2])).filter(n => n > 0 && n < 200000)
     if (paise.length) amount = Math.max(...paise)
   }
-  const bm = text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
+  // A ₹ read as the amount's first digit (the user, 6 Nov: an app receipt's ₹371.00 read as 3371.00), off as the bill's ₹ figures show.
+  if (amount != null && upi == null) amount = rupeeDigit(amount, [text])
+  /*
+    The amount in words ("Rupees one hundred and seventy five only"), which every tax invoice prints, settles it: the
+    figure the words say, with its paise when a figure on the bill agrees, even where the total's own line was missed
+    or another figure looked bigger. Words read are words written, so it counts as read surely.
+  */
+  const said = upi == null ? amountInWords(text) : null
+  if (said != null) {
+    const near = [...text.matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].map(m => Number(m[1])).filter(n => Math.abs(n - said) < 1)
+    amount = near.length ? near.sort((a, b) => Math.abs(a - said) - Math.abs(b - said))[0] : said
+  }
+  // A UPI payment's own number (its UPI transaction ID or UTR, 12 digits), else the bill's.
+  const um = isPayment(raw) ? text.match(/(?:UPI\s*(?:transaction|txn|ref(?:erence)?)\s*(?:id|no\.?|number)?|UTR(?:\s*no\.?)?)\s*[:.-]?\s*(\d{12})(?!\d)/i) : null
+  const bm = um ?? text.match(/(?:bill|invoice|ticket|receipt|txn|no)\s*(?:no\.?|number|#)?\s*[:.-]?\s*([A-Z0-9-]{4,})/i)
   // No date: the person enters the day, and the bill's own date is not needed (the user, 19 Oct).
   /*
     A photo's amount and bill number are used only when the words that hold them were read surely (the
@@ -683,16 +1067,141 @@ export async function readBill(file: Blob): Promise<{ amount: number | null; dat
   */
   const sure = (value: string | number | null) => {
     if (value == null || !words) return value != null
+    if (value === upi) return true
     const want = String(value).replace(/\.0+$/, '').replace(/[^0-9A-Z]/gi, '').toUpperCase()
     if (!want) return false
     const hits = words.filter(w => { const t = w.text.replace(/[^0-9A-Z]/gi, '').toUpperCase(); return t.length > 0 && (t === want || t.includes(want)) })
-    return hits.length > 0 && Math.max(...hits.map(w => w.confidence)) >= SURE
+    // A figure is judged by its own digits: a ₹ read as R or ¥ beside it does not make it unsure.
+    return hits.length > 0 && Math.max(...hits.map(w => (/^\d+$/.test(want) ? digitsSure(w) : w.confidence))) >= SURE
   }
-  const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm ? bm[1] : null)
-  return { amount: sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay }
+  // A bill number has a digit in it: "Ticket Details" gave the word Details (TE-71).
+  const billno = refs.find(x => /^N[A-Z]/.test(x)) ?? (bm && /\d/.test(bm[1]) ? bm[1] : null)
+  // When a payment screen says it was paid (te_0135), to set against the ride's own times.
+  const paidAt = isPayment(raw) ? paidAtIn(raw) : null
+  return { amount: said != null || sure(amount) ? amount : null, date: null, billno: billno && (/^N[A-Z]/.test(billno) || sure(billno)) ? billno : null, refs, route, stay, paidAt, words: (raw.match(/[A-Za-z]{3,}/g) ?? []).length }
+}
+/*
+  A bill's amount written in words, Indian style: "Rupees One Lakh Twenty Thousand Five Hundred and Seventy Five Only".
+  The number words after "rupees" are added up; a word the reader ran into the next one ("FIVEO!" for "FIVE ONLY") still
+  counts by its start, and the first word that is not a number ends it. Paise are left to the figures.
+*/
+const ONES: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 }
+const SCALES: Record<string, number> = { hundred: 100, thousand: 1000, lakh: 100000, lakhs: 100000, lac: 100000, lacs: 100000, crore: 10000000, crores: 10000000 }
+const NUMBER_WORDS = Object.keys({ ...ONES, ...SCALES }).sort((a, b) => b.length - a.length)
+export function amountInWords(text: string): number | null {
+  const m = text.match(/\b(?:rupees|rupee|rs\.?|inr)\s+((?:[a-z]+[\s,-]*){1,16})/i)
+  if (!m) return null
+  let total = 0, part = 0, seen = false
+  for (const raw of m[1].toLowerCase().split(/[\s,-]+/).filter(Boolean)) {
+    if (raw === 'and') continue
+    const w = NUMBER_WORDS.find(n => raw === n || (raw.startsWith(n) && raw.length - n.length <= 2))
+    if (!w) break
+    seen = true
+    if (w in ONES) part += ONES[w]
+    else if (SCALES[w] === 100) part = (part || 1) * 100
+    else { total += (part || 1) * SCALES[w]; part = 0 }
+  }
+  const n = total + part
+  return seen && n > 0 && n < 200000 ? n : null
 }
 /** How sure the reader must be of a photo's figure (0–100) for it to be used. */
 const SURE = 80
+type OcrWord = { text: string; confidence: number; h: number; symbols: Array<{ text: string; confidence: number; h: number }> }
+const ocrWords = (list: Array<{ text: string; confidence: number; bbox: { y0: number; y1: number }; symbols?: Array<{ text: string; confidence: number; bbox: { y0: number; y1: number } }> }> | undefined): OcrWord[] =>
+  (list ?? []).map(w => ({ text: w.text, confidence: w.confidence, h: w.bbox.y1 - w.bbox.y0, symbols: (w.symbols ?? []).map(x => ({ text: x.text, confidence: x.confidence, h: x.bbox.y1 - x.bbox.y0 })) }))
+const digitsSure = (w: OcrWord) => { const d = w.symbols.filter(x => /\d/.test(x.text)); return d.length ? Math.min(...d.map(x => x.confidence)) : w.confidence }
+const median = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : 0 }
+/*
+  A UPI payment screen — Google Pay, PhonePe, Paytm, BHIM (the user, 26 Oct: a Google Pay screenshot's amount was not
+  read at the demo). Its amount is the biggest figure on it, with a smaller ₹ before it ("the rupee sign is small size
+  comparing the numbers isnt? so why taking that?"): the reader takes that ₹ for a letter or a digit, and read ₹30 as
+  "R30", "x30" and "230". What is not a number before the digits is dropped ("what if we can avoid the text that is
+  not a number?"), and so is a first digit much shorter than the rest — the ₹ read as a 2.
+*/
+const PAYMENT_SCREEN = /\bUPI\b|\bUTR\b|transaction\s*id|google\s*pay|\bG\s?Pay\b|phone\s*pe|paytm|\bBHIM\b|paid\s+(?:to|successfully|via)|\bCRED\b|payment\s+(?:of|successful)|money\s+sent/i
+/*
+  A ticket or bill with its own fare lines is not a payment screen, though it names a Transaction ID (the user, 10 Nov:
+  TE-71's IRCTC ticket page, "Total Fare ₹358.60", was read as ₹8 — the payment screen's big figure looked for on it).
+*/
+const OWN_TOTAL = /\b(?:total|base)\s*fare\b|\bIRCTC\b|\bPNR\b/i
+const isPayment = (raw: string) => PAYMENT_SCREEN.test(raw) && !OWN_TOTAL.test(raw)
+// What the reader makes of a ₹ (or Rs, INR); a +91, a # or a masked account's XXXX before digits is not a sign.
+const RUPEE = /^(?:[₹RZFXT%¥&=<€£$]|rs\.?|inr)$/i
+function figureOf(w: OcrWord): { value: number; h: number; sure: number; signed: boolean } | null {
+  let sy = w.symbols.length ? w.symbols : [...w.text].map(t => ({ text: t, confidence: w.confidence, h: w.h }))
+  while (sy.length && /[,.)\]]/.test(sy[sy.length - 1].text)) sy = sy.slice(0, -1)
+  const first = sy.findIndex(x => /\d/.test(x.text))
+  if (first < 0) return null
+  const sign = sy.slice(0, first).map(x => x.text).join('')
+  if (sign && !RUPEE.test(sign)) return null
+  sy = sy.slice(first)
+  let signed = sign !== ''
+  const digitH = (xs: typeof sy) => xs.filter(x => /\d/.test(x.text)).map(x => x.h)
+  // A ₹ read as a digit is a 2, a 3 or a 7 by its shape; a short 0 is a masked number's dot (PhonePe's "•3247").
+  if (digitH(sy).length >= 2 && /^[237]$/.test(sy[0].text) && sy[0].h < 0.8 * median(digitH(sy.slice(1)))) { sy = sy.slice(1); signed = true }
+  const body = sy.map(x => x.text).join('')
+  if (!/^(?:\d{1,3}(?:,\d{2,3})+|\d{1,6})(?:\.\d{1,2})?$/.test(body)) return null
+  const d = sy.filter(x => /\d/.test(x.text))
+  return { value: Number(body.replace(/,/g, '')), h: median(d.map(x => x.h)), sure: Math.min(...d.map(x => x.confidence)), signed }
+}
+/*
+  The screen's amount: the one figure clearly bigger than everything else on it (Google Pay, Paytm), read surely; else,
+  where the amount is no bigger than the rest (PhonePe's details), the figures with a ₹ before them, when they agree.
+  A lone digit with no ₹ is an icon read as one (PhonePe's arrow became a big "8"), never the amount. Anything unsure,
+  or the big figure and the ₹ figures disagreeing, is not read, and the person types it.
+*/
+function upiAmount(words: OcrWord[]): number | null {
+  // Google Pay's "Payment of ₹7 completed" holds the amount even when its ₹ is not read at all.
+  const figs = words.map((w, i) => { const f = figureOf(w); return f && /^payment$/i.test(words[i - 2]?.text ?? '') && /^of$/i.test(words[i - 1]?.text ?? '') ? { ...f, signed: true } : f })
+    .filter((x): x is NonNullable<typeof x> => !!x && x.value > 0 && x.value < 200000 && (x.signed || x.value >= 10))
+  if (!figs.length) return null
+  const text = median(words.filter(w => w.text.length >= 2).map(w => w.h))
+  const top = figs.reduce((a, b) => (b.h > a.h ? b : a))
+  const isBig = top.h >= 1.8 * text
+  // The big figure with its ₹ read as a first 2, 3 or 7 ("Payment of ₹375" read as 3375) agrees with it.
+  const signed = [...new Set(figs.filter(x => x.signed && x.sure >= SURE && !(isBig && x === top)).map(x => (isBig && rupeeAsDigit(x.value, top.value) ? top.value : x.value)))]
+  if (signed.length > 1) return null
+  if (!isBig) return signed[0] ?? null
+  const big = top.sure >= SURE && !figs.some(x => x.h >= 0.8 * top.h && x.value !== top.value) ? top.value : null
+  return big != null && (signed.length === 0 || signed[0] === big) ? big : null
+}
+/*
+  A ₹ read as the amount's first digit (the user, 6 Nov: an app receipt's "Total Amount ₹371.00" read as 3371.00, Google
+  Pay's ₹375 as 3375). The ₹ stands before the figure, so only a first 2, 3 or 7 comes off, and only when the bill also
+  shows the smaller figure after a ₹ (its "₹371" read as "R371"), never the longer one, and the longer is on it once.
+*/
+const SIGNED = /(?:^|[^A-Za-z0-9])(?:₹|rs\.?|inr|[RZFXT¥](?=\d))\s?(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/gi
+function rupeeDigit(amount: number, texts: string[]): number {
+  const m = String(amount).match(/^[237]([1-9]\d+(?:\.\d{1,2})?)$/)
+  if (!m) return amount
+  const less = Number(m[1])
+  const signed = texts.flatMap(t => [...t.matchAll(SIGNED)].map(x => Number(x[1])))
+  const once = texts.every(t => [...t.replace(/(\d),(\d{3})(?!\d)/g, '$1$2').matchAll(/(\d{1,6}(?:\.\d{1,2})?)(?![\d/:])/g)].filter(x => Number(x[1]) === amount).length <= 1)
+  return signed.includes(less) && !signed.includes(amount) && once ? less : amount
+}
+/*
+  When a payment screen says it was paid, in India's time: a date ("4 Nov 2026", "04 Nov") and the time nearest it
+  ("10:17am", "10:17 PM") — Google Pay "4 Nov 2026, 10:17am", PhonePe "10:17 am on 04 Nov 2026", Paytm "10:17 AM, 04 Nov".
+*/
+const MONTH = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+export function paidAtIn(text: string): string | null {
+  const dates = [...text.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?[\s-]*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?[\s,'-]*(\d{4}|\d{2}(?!\d|[:.]\d))?/gi)]
+  const times = [...text.matchAll(/\b(\d{1,2})[:.](\d{2})\s?([ap])\.?\s?m\b/gi)]
+  let best: { d: RegExpMatchArray; t: RegExpMatchArray; gap: number } | null = null
+  for (const d of dates) for (const t of times) {
+    const gap = Math.abs((d.index ?? 0) - (t.index ?? 0))
+    if (gap <= 40 && (!best || gap < best.gap)) best = { d, t, gap }
+  }
+  if (!best) return null
+  const day = Number(best.d[1]), mon = MONTH.indexOf(best.d[2].toLowerCase().slice(0, 3)) + 1
+  const y = best.d[3] ? Number(best.d[3]) : new Date().getFullYear(), year = y < 100 ? 2000 + y : y
+  const h = Number(best.t[1]), min = Number(best.t[2]), pm = best.t[3].toLowerCase() === 'p'
+  if (day < 1 || day > 31 || h < 1 || h > 12 || min > 59 || year < 2020) return null
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  return `${year}-${p2(mon)}-${p2(day)}T${p2((h % 12) + (pm ? 12 : 0))}:${p2(min)}:00+05:30`
+}
 /** A phone photo made no wider than 2000px first: read as well, and many times faster. */
 async function shrink(file: Blob): Promise<Blob> {
   try {
@@ -704,21 +1213,37 @@ async function shrink(file: Blob): Promise<Blob> {
     return await new Promise<Blob>(res => c.toBlob(b => res(b ?? file), 'image/jpeg', 0.92))
   } catch { return file }
 }
+/** What a bill says: the amount read off it, else the amount the person typed from it (te_0133), said as typed. */
+export function billSays(b: Bill): { amount: number | null; typed: boolean } {
+  if (b.ocr_amount != null) return { amount: Number(b.ocr_amount), typed: false }
+  if (b.typed_amount != null) return { amount: Number(b.typed_amount), typed: true }
+  return { amount: null, typed: false }
+}
+/** A reading that is the amount claimed with its ₹ read as a first 2, 3 or 7 (₹375 read as 3375, the user, 6 Nov). */
+export function rupeeAsDigit(read: number, claimed: number) {
+  const r = String(read), c = String(claimed)
+  return claimed >= 10 && r.length === c.length + 1 && /^[237]/.test(r) && r.slice(1) === c
+}
+/** A bill's amount that bears the amount claimed out: within a rupee, or the same with its ₹ read as a digit. */
+export function billMatches(amount: number | null | undefined, claimed: number | null | undefined) {
+  return amount != null && claimed != null && (Math.abs(amount - claimed) <= 1 || rupeeAsDigit(amount, claimed))
+}
 /** The amount read off the last bill of a ride, hotel night or expense that could be read. */
 export function billRead(bills: Bill[], ownerId: string): number | null {
-  const read = bills.filter(b => b.owner_id === ownerId && b.ocr_amount != null)
+  const read = bills.filter(b => b.owner_id === ownerId && b.ocr_amount != null && !b.not_bill)
   return read.length ? Number(read[read.length - 1].ocr_amount) : null
 }
 /** A mode the grade's policy does not give (a car below MM3, a flight, a taxi…): it needs prior approval. */
-export function outOfPolicy(mode: ModeCode, rule: Rule | undefined) {
-  return !!rule && ((mode === 'car' && !rule.car_rate) || (mode === 'bike' && !rule.bike_rate) || (mode === 'flight' && !rule.flight) || (mode === 'taxi' && !rule.taxi))
+export function outOfPolicy(mode: ModeCode, rule: Rule | undefined, vehicles?: VehicleSpan[], day?: string) {
+  if (day && vehicles?.some(v => v.mode === mode && day >= v.from_day && day <= v.to_day)) return false
+  return !!rule && ((mode === 'car' && (!rule.car_rate || !!rule.car_approval)) || (mode === 'bike' && !rule.bike_rate) || (mode === 'flight' && !rule.flight) || (mode === 'taxi' && !rule.taxi))
 }
 /** What the red mark on such a ride means, said when it is pressed. */
 export const policyNote = (mode: string, grade: string | null | undefined) =>
   `${mode} is not in ${grade ? `grade ${grade}'s` : 'this grade’s'} travel policy, so it needs the manager's prior approval.`
 
 /** A bill into the private bucket, then recorded; the same file twice is refused by the database. */
-export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null; refs?: string[] }) {
+export async function uploadBill(claimId: string, kind: Bill['owner_kind'], ownerId: string, file: File, read: { amount: number | null; date: string | null; billno: string | null; refs?: string[]; paidAt?: string | null }) {
   const [hash, ph, ph2] = await Promise.all([sha256(file), dhash(file), dhash256(file)])
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
   const path = `${claimId}/${newId()}.${ext}`
@@ -726,11 +1251,18 @@ export async function uploadBill(claimId: string, kind: Bill['owner_kind'], owne
   if (dupe) throw new Error(`Same bill as ${dupe}`)
   const { error: up } = await supabase.storage.from('te-bills').upload(path, file, { contentType: file.type || 'application/octet-stream' })
   if (up) throw new Error(friendlyError(up))
-  const { error } = await supabase.rpc('te_add_bill', {
+  const { data: id, error } = await supabase.rpc('te_add_bill', {
     p_claim: claimId, p_kind: kind, p_owner: ownerId, p_path: path, p_name: file.name, p_sha256: hash,
     p_phash: ph, p_phash2: ph2, p_amount: read.amount, p_date: read.date, p_billno: read.billno, p_refs: read.refs ?? [],
   })
   if (error) { await supabase.storage.from('te-bills').remove([path]); throw new Error(friendlyError(error)) }
+  if (read.paidAt) await supabase.rpc('te_bill_paid', { p_bill: id, p_at: read.paidAt })
+  return id as string
+}
+/** The amount typed off a bill the reader could not read (te_0133); a bill read is never typed over. */
+export async function typeBillAmount(billId: string, amount: number) {
+  const { error } = await supabase.rpc('te_bill_typed', { p_bill: billId, p_amount: amount })
+  if (error) throw new Error(friendlyError(error))
 }
 /** A ticket's service report, a PDF or a photo (te_0037): kept like a bill, never read for an amount. */
 export async function uploadReport(claimId: string, ticketId: string, file: File) {
@@ -760,15 +1292,24 @@ const rpc = async <T,>(fn: string, args?: Record<string, unknown>) => {
 }
 export const useMyClaims = () => useQuery({
   queryKey: ['te_my_claims'],
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; bills_missing: number; submitted_at: string | null; returned_at: string | null; places: string[]; find: string }>>('te_my_claims'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; bills_missing: number; submitted_at: string | null; returned_at: string | null; places: string[]; find: string; deputation: string | null }>>('te_my_claims'),
 })
 export const useClaim = (id: string | undefined) => useQuery({
   queryKey: ['te_claim', id], enabled: !!id,
-  queryFn: () => rpc<ClaimData>('te_claim', { p_claim: id }),
+  queryFn: () => Promise.all([rpc<ClaimData>('te_claim', { p_claim: id }), rpc<VehicleSpan[]>('te_claim_vehicles', { p_claim: id }), rpc<{ from: string | null; starts: DayStart[]; end_from?: string | null; end_first_from?: string | null; ends?: DayStart[]; restarts?: Array<DayStart & { reason: string; ended_at: string }> }>('te_claim_starts', { p_claim: id }), rpc<string[]>('te_ticket_purposes')]).then(([d, v, s, tp]) => {
+    setTicketPurposes(tp ?? null)
+    d.vehicles = v ?? []
+    d.day_start_from = s?.from ?? null; d.day_starts = s?.starts ?? []
+    d.day_end_from = s?.end_from ?? null; d.day_ends = s?.ends ?? []; d.day_restarts = s?.restarts ?? []; d.end_first_from = s?.end_first_from ?? null
+    d.purposes = alphabetical(d.purposes ?? [], p => p)
+    if (d.expense_kinds) d.expense_kinds = alphabetical(d.expense_kinds, k => k.label)
+    setExpenseKinds(d.expense_kinds)
+    return d
+  }),
 })
 export const useInbox = (enabled = true) => useQuery({
   queryKey: ['te_inbox'], enabled,
-  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string }>>('te_inbox'),
+  queryFn: () => rpc<Array<{ id: string; month: string; part: number; status: string; number: string | null; total: number; name: string; ecode: string; submitted_at: string | null; waiting: boolean; days: number; first_day: string | null; last_day: string | null; km: number; modes: ModeCode[]; tickets: number; places: string[]; find: string; deputation: string | null; employee_id: string; cost_centre: string | null; route_from: string | null; route_to: string | null; travel: number; da: number; hotel: number; other: number; asks?: 'edit' | 'delete' | null }>>('te_inbox'),
 })
 export interface Summary {
   mine: { claimed: number; sent_back: number; pending: number; approved: number; paid: number; claims: number
@@ -790,3 +1331,42 @@ export function useClaimAction() {
   })
 }
 export { rpc }
+
+/** An auto or taxi after the day's first bike ride (the user, 20 Nov): its remarks say why, and it is red for the manager and the Travel Desk. */
+/**
+  Auto rides over the month's auto limit (the user, 26 Nov: "it can go after 1000, but each should be in red obs, ie
+  auto limit exceeded, and … need reason"): the month's auto fares counted in date order, then ride order; the ride
+  that takes the total past the limit and every auto ride after it. `before` is auto from the month's other claims.
+  Returns each such ride's id with the month's total once it is counted.
+*/
+export function autoOver(days: Array<{ day: string; rides: Array<{ id: string; mode: string; fare: number | null }> }>, cap: number, before = 0) {
+  const out = new Map<string, number>()
+  if (!(cap > 0)) return out
+  let run = before
+  for (const d of [...days].sort((a, b) => a.day.localeCompare(b.day))) {
+    for (const r of d.rides) {
+      if (r.mode !== 'auto' || !((r.fare ?? 0) > 0)) continue
+      run += r.fare ?? 0
+      if (run > cap) out.set(r.id, run)
+    }
+  }
+  return out
+}
+
+export function autoAfterBike(rides: Array<{ id: string; mode: string; fare: number | null }>, r: { id: string; mode: string; fare: number | null }) {
+  if (!(r.mode === 'auto' || r.mode === 'taxi') || !((r.fare ?? 0) > 0)) return false
+  const bike = rides.findIndex(x => x.mode === 'bike')
+  return bike >= 0 && rides.findIndex(x => x.id === r.id) > bike
+}
+
+/**
+ * Aurum's 100 km (the user, 20 Nov: "from home", "road"): on a day that starts from home, the rides' km from home up
+ * to the place farthest from it. Null when the day does not start from home (a trip's later day) or has no rides.
+ */
+export function kmOutFromHome(rides: Array<Pick<Ride, 'from_lat' | 'from_lng' | 'to_lat' | 'to_lng' | 'claimed_km' | 'map_km'>>, home: { lat: number; lng: number } | null): number | null {
+  if (!home || !rides.length || rides[0].from_lat == null || rides[0].from_lng == null) return null
+  if (distanceKm(home, { lat: rides[0].from_lat, lng: rides[0].from_lng }) > 0.5) return null
+  let far = -1, best = -1
+  rides.forEach((r, i) => { if (r.to_lat != null && r.to_lng != null) { const k = distanceKm(home, { lat: r.to_lat, lng: r.to_lng }); if (k > best) { best = k; far = i } } })
+  return rides.slice(0, far + 1).reduce((t, r) => t + Number(r.claimed_km ?? r.map_km ?? 0), 0)
+}

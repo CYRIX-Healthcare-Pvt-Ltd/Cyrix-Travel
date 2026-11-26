@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { CalendarDays, MapPin, Search, X } from 'lucide-react'
 import { monthLong } from '@/components/Budget'
 import Dialog from '@/components/Dialog'
@@ -34,7 +34,7 @@ const EARLIEST = firstOf(24)
 const kept = <T,>(k: string, fallback: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : fallback } catch { return fallback } }
 const keep = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* the choice is only a convenience */ } }
 
-/** The search and the days for one list; the days chosen are remembered on this phone for that list. */
+/** The search and the days for one list; the days chosen are remembered on this phone for that list. The bar takes a button for its right end. */
 export function useClaimFilter(key: string) {
   const [q, setQ] = useState('')
   const [period, setPeriod] = useState<Period>(() => { const p = kept<string>(`${key}.period`, 'all'); return PERIODS.some(([k]) => k === p) ? (p as Period) : 'all' })
@@ -47,7 +47,8 @@ export function useClaimFilter(key: string) {
   // A claim is in the days when any of its days is; one with no days yet only under All time.
   const test = (c: Findable) => matches(c, q) && (!from || (!!c.first_day && c.first_day <= to! && (c.last_day ?? c.first_day) >= from))
   const empty = q.trim() ? `No claim has “${q.trim()}”${from ? ' in these days' : ''}.` : 'No claim in these days.'
-  const bar = (
+  const label = period === 'all' ? 'All time' : period === 'this' ? new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : `${dayLong(from!)} – ${dayLong(to!)}`
+  const bar = (end?: ReactNode) => (
     <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
       <div className="relative min-w-0 lg:flex-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
@@ -80,9 +81,10 @@ export function useClaimFilter(key: string) {
           </div>
         </Dialog>
       )}
+      {end}
     </div>
   )
-  return { test, bar, empty, active: !!q.trim() || !!from }
+  return { test, bar, empty, label, active: !!q.trim() || !!from }
 }
 
 /*

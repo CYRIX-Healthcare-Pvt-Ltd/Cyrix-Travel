@@ -77,7 +77,7 @@ export function Alert({
       ref={ref}
       role={kind === 'error' ? 'alert' : undefined}
       className={clsx(
-        'flex gap-3 rounded-lg border p-3.5 text-sm',
+        'flex gap-3 rounded-lg border p-3.5', kind === 'error' || kind === 'warning' ? 'text-xs' : 'text-sm',
         styles,
         kind === 'error' && 'sticky top-16 z-20 shadow-lg',
       )}

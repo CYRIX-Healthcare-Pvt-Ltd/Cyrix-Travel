@@ -1,21 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { useAsk } from '@/components/Ask'
-import { type LucideIcon, ArrowDown, ArrowLeft, BedDouble, Check, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Wallet, ShieldAlert, Copy, Gauge, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront } from 'lucide-react'
+import { type LucideIcon, RotateCcw, Route, Sunset, ArrowDown, ArrowLeft, BedDouble, Check, ClipboardCheck, Paperclip, CornerUpLeft, FileSpreadsheet, HandCoins, Map as MapIcon, Pencil, PencilLine, Send, Ticket as TicketIcon, Trash2, TriangleAlert, Undo2, Wallet, ShieldAlert, Copy, Gauge, Camera, CameraOff, ReceiptText, MapPinOff, CalendarRange, MessageSquare, House, Building2, CarTaxiFront, BriefcaseBusiness, Smartphone, Timer, Sunrise, Moon, Users, ChevronRight, FileText } from 'lucide-react'
 import { blankDay } from '@/components/DayEditor'
+import BillView from '@/components/BillView'
+import { depOn, letterUrl } from '@/lib/deputation'
 import RouteStrip from '@/components/RouteStrip'
+import VisitThumb from '@/components/VisitThumb'
+import { lastGoing, clock, clockOf, lateBy, nightOf, matchPhotos, metres, needsPhoto, photoRush, type VisitPhoto } from '@/lib/visits'
+import { homeLimit, endedNextMorning, startName, stayMinutes, stayText, shortDay } from '@/lib/dayStart'
 import RouteMap from '@/components/RouteMap'
+import { routeShotsOn, shotBand, shotFits, roadsFor } from '@/lib/routeShots'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
+import TicketLookup, { TICKET_TEST, BEMP_TICKET, copyTicketReports } from '@/components/TicketLookup'
 import History from '@/components/History'
 import AdjustDialog, { type AdjustTarget } from '@/components/AdjustDialog'
 import Budget, { advanceLine, budgetLines, monthLong } from '@/components/Budget'
 import { Alert, PageLoader, Spinner } from '@/components/ui'
 import {
-  DA_KINDS, DA_RANK, MODES, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
-  useClaim, useClaimAction, type ClaimData, type Day,
+  DA_KINDS, DA_RANK, isAurum, MODES, billMatches, billRead, kmChanged, companyOf, distanceKm, expenseIcon, outOfPolicy, policyNote, STATUS, todayIso, dayName, dayTotal, hotelLimit, km, kmOver, money, monthName, needsBill, ticketVisited, rideAmount,
+  useClaim, useClaimAction, type ClaimData, type Day, type ModeCode, type Ride, type SharedRide, shortExtra, dayExtra, roadWhyPct, setRoadRules,
+  autoAfterBike, autoOver,
 } from '@/lib/claims'
 
 /*
@@ -23,6 +31,18 @@ import {
   with its drawn route and "See on map", and the totals as the Excel's foot has them: claimed,
   advances, net payable. Whoever it waits on approves or sends it back from here.
 */
+/*
+  Another phone is another phone's name. The phone's ID lives in the app's storage, so reinstalling, clearing the
+  app's data, or the installed app and Chrome on the same phone give it a new one: Sunil Kumar (E7), TE-83, all on
+  "RMX3940 (Android 16)" with a new ID from 10 Nov, showed "taken on RMX3940, usually RMX3940" (the user, 10 Nov).
+  Only when a name is not known does the ID decide.
+*/
+function otherPhone(p: { device_id?: string | null; device?: string | null }, usual: { device_id: string; device: string | null } | null | undefined) {
+  if (!usual || !p.device_id || p.device_id === usual.device_id) return false
+  const a = (p.device ?? '').trim().toLowerCase(), b = (usual.device ?? '').trim().toLowerCase()
+  return !a || !b || a !== b
+}
+
 export default function ClaimPage() {
   const { id } = useParams()
   const { data, isLoading, error, refetch } = useClaim(id)
@@ -38,8 +58,23 @@ export default function ClaimPage() {
   // The decision panel says its own result, where the button was pressed (the user, 17 Oct).
   const [panel, setPanel] = useState<{ ok: boolean; text: string } | null>(null)
   const noteBox = useRef<HTMLTextAreaElement>(null)
+  // The check box on screen: the bar at the foot that leads to it steps aside (the user, 26 Oct: managers did not find it).
+  const [checkSeen, setCheckSeen] = useState(false)
+  const seen = useRef<IntersectionObserver | null>(null)
+  const checkBox = useCallback((el: HTMLElement | null) => {
+    seen.current?.disconnect()
+    if (!el) { setCheckSeen(false); return }
+    seen.current = new IntersectionObserver(([e]) => setCheckSeen(e.isIntersecting), { threshold: 0.3 })
+    seen.current.observe(el)
+  }, [])
+  const toCheck = () => {
+    document.getElementById('claim-check')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    window.setTimeout(() => noteBox.current?.focus({ preventScroll: true }), 450)
+  }
   const [msg, setMsg] = useState<string | null>(null)
   const [fail, setFail] = useState<string | null>(null)
+  /** A send that was refused, said in the Send bar beside the button (the user, 12 Nov: "it should be near submit button"). */
+  const [sendFail, setSendFail] = useState<string | null>(null)
   // An approver changing one figure (te_0027).
   const [adjust, setAdjust] = useState<AdjustTarget | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
@@ -94,16 +129,50 @@ export default function ClaimPage() {
   const net = total - late - (c.advance ?? 0)
   const status = STATUS[c.status] ?? STATUS.draft
   const tol = Number(data.policy.km_tolerance_pct ?? 10)
+  setRoadRules(data.policy)
   const over = Number(data.policy.bill_over ?? 300)
   /*
     The bills still needed, named and marked on their days as soon as a day is saved, not only when sending
     (the user, 19 Oct: "don't know in which is having error"; 21 Oct: show problems as soon as a day is saved).
   */
   const need = c.mine && c.can_edit ? missingBills(data, over) : []
+  /** A test account's claim: its AP tickets come from BEMP (the user, 10 Nov). */
+  const bemp = TICKET_TEST.has((c.ecode ?? '').toUpperCase())
+  // "7th Aug-26 claim", "7th–9th Aug-26 claim": the days, then the month once (a claim is one month).
+  // A draft with no saved day yet: the date it was started with (te_0069; the user, 24 Oct).
+  const claimDays = (() => {
+    const n = (iso: string) => Number(iso.slice(8, 10)), d0 = data.days[0]?.day ?? c.picked_day, d1 = data.days[data.days.length - 1]?.day ?? c.picked_day
+    return d0 ? (d0 === d1 ? `${ordinal(n(d0))} ` : `${ordinal(n(d0))}–${ordinal(n(d1!))} `) : ''
+  })()
   const send = async () => {
-    if (need.length) { setMsg(null); setFail(null); showBill(need[0].id); return }
-    if (await ask.confirm({ title: `Send the ${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send' })) void run('te_submit', { p_claim: c.id }, 'Sent.')
+    if (need.length) { setMsg(null); setFail(null); setSendFail(null); showBill(need[0].id); return }
+    // A day started or photographed and not ended is said in the Send bar before the confirm, as the server would refuse
+    // it after (te_0150; the user, 12 Nov: "if not ended that error should show before this pop up").
+    const from = data.end_first_from
+    const open = from ? data.days.map(d => d.day).filter(day => day >= from
+      && ((data.day_starts ?? []).some(s => s.day === day) || (data.visit_photos ?? []).some(v => v.day === day))
+      && !(data.day_ends ?? []).some(e => e.day === day)) : []
+    if (open.length) {
+      setMsg(null); setFail(null)
+      setSendFail(`End my day for ${[...new Set(open)].sort().map(shortDay).join(', ')} first`)
+      return
+    }
+    if (!(await ask.confirm({ title: c.number ? `Send ${c.number} · ${claimDays}${monthName(c.month)}?` : `Send the ${claimDays}${monthName(c.month)} claim?`, body: 'It goes to your manager. You cannot change it after, unless you recall it or it is sent back.', yes: 'Send', icon: Send, go: true }))) return
+    // The BEMP service reports saved with the claim first (test accounts; the user, 10 Nov).
+    if (bemp) await copyTicketReports(c.id, data.days.flatMap(d => d.tickets), data.bills)
+    void run('te_submit', { p_claim: c.id }, 'Sent.')
   }
+  /*
+    Recall and deletion go by whether the manager has approved it (te_0094; the user, 31 Oct): not yet (waiting on the
+    manager, or sent back by the manager) — straight away; approved by the manager — the manager is asked; approved by
+    the Travel Desk — neither.
+  */
+  const lastBack = [...data.history].filter(h => h.action === 'returned').sort((a, b) => a.at.localeCompare(b.at)).pop()
+  const pastManager = c.status === 'with_coordinator' || c.status === 'with_desk' || (c.status === 'returned' && !!lastBack?.role)
+  const freeDelete = c.mine && (['draft', 'recalled', 'with_manager'].includes(c.status) || (c.status === 'returned' && !pastManager))
+  const askDelete = c.mine && pastManager && !c.delete_requested_at
+  const askEdit = c.mine && (c.status === 'with_coordinator' || c.status === 'with_desk') && !c.recall_requested_at
+  const first = c.name.split(' ')[0]
   // Delete / request deletion / Excel: one row with the person's buttons (the user, 17 Oct).
   const excel = data.days.length > 0 && (
     <button type="button" className="btn-lift inline-flex h-9 items-center gap-2 rounded-lg border border-green-600/40 px-3 text-sm font-semibold text-green-700 hover:bg-green-50"
@@ -111,7 +180,7 @@ export default function ClaimPage() {
   )
   const deletes = (
     <>
-          {((c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin) && (
+          {(freeDelete || isSwAdmin) && (
             <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline" onClick={async () => {
               if (!(await ask.confirm({ title: 'Delete this claim?', body: `The ${monthName(c.month)} claim${c.mine ? '' : ' of ' + c.name} and everything on it will be deleted.`, yes: 'Delete claim', danger: true }))) return
               try {
@@ -123,9 +192,9 @@ export default function ClaimPage() {
               } catch (e) { setFail((e as Error).message) }
             }}><Trash2 className="h-4 w-4" /> Delete claim</button>
           )}
-          {c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid' && (
+          {askDelete && !isSwAdmin && (
             <button type="button" className="inline-flex items-center gap-1 text-sm font-medium text-cyrixRed-700 hover:underline" onClick={async () => {
-              const reason = await ask.prompt({ title: 'Request deletion', body: 'This claim is already sent, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
+              const reason = await ask.prompt({ title: 'Request deletion', body: 'Your manager has approved it, so your manager approves the deletion.', label: 'Why should it be deleted?', yes: 'Send request' })
               if (reason && reason.trim()) void run('te_request_delete', { p_claim: c.id, p_reason: reason }, 'Asked your manager to delete it.')
             }}><Trash2 className="h-4 w-4" /> Request deletion</button>
           )}
@@ -133,22 +202,29 @@ export default function ClaimPage() {
   )
   // Delete sits under the total in the header, not in a row of its own (the user, 24 Oct: "can we make delete
   // claim button more fit, bcz it is consuming full row"); Excel keeps a quiet row of its own once there are days.
-  const canDelete = (c.mine && (c.status === 'draft' || c.status === 'recalled')) || isSwAdmin || (c.mine && !c.delete_requested_at && c.status !== 'draft' && c.status !== 'recalled' && c.status !== 'paid')
+  const canDelete = freeDelete || isSwAdmin || askDelete
   const tail = excel ? <div className="flex">{excel}</div> : null
 
   const run = async (fn: string, args: Record<string, unknown>, done: string) => {
-    setMsg(null); setFail(null)
+    setMsg(null); setFail(null); setSendFail(null)
     try {
       const r = await act.mutateAsync({ fn, args })
       const text = typeof r === 'string' && fn === 'te_submit' ? `Sent to your manager as ${r}.` : done
       setMsg(text); setNote('')
-      void ask.alert(fn === 'te_submit' ? 'Claim sent' : 'Done', text)
+      if (fn === 'te_submit') nav('/claims')
+      void ask.alert(fn === 'te_submit' ? 'Claim sent' : 'Done', text, 'success')
     }
-    catch (e) { setFail((e as Error).message) }
+    catch (e) { if (fn === 'te_submit') setSendFail((e as Error).message); else setFail((e as Error).message) }
   }
   const decide = async (approve: boolean) => {
     setPanel(null)
     if (!approve && !note.trim()) { setPanel({ ok: false, text: "Write why it's going back" }); noteBox.current?.focus(); return }
+    // Every decision asks first, from the box and from the bar alike; Cancel, the cross and Escape do nothing (the user,
+    // 26 Oct: "Why on close button it is approving? check for all" — the box's Approve went straight through).
+    const what = c.number ?? `the ${monthName(c.month)} claim`
+    if (!(await ask.confirm(approve
+      ? { title: `Approve ${what}?`, body: `${c.name} · ${money(total)}`, yes: 'Approve', icon: Check, go: true }
+      : { title: `Send ${what} back?`, body: `${c.name} · “${note.trim()}”`, yes: 'Send back', icon: CornerUpLeft }))) return
     try {
       const next = await act.mutateAsync({ fn: 'te_decide', args: { p_claim: c.id, p_approve: approve, p_note: note } }) as string
       const who = `${c.number ?? monthName(c.month)} · ${c.name}`
@@ -157,12 +233,13 @@ export default function ClaimPage() {
         : next === 'with_coordinator' ? `${who} approved and passed to the coordinator.`
         : next === 'with_desk' ? `${who} approved and passed to the Travel Desk.`
         : `${who} approved.`
-      await ask.alert(approve ? 'Claim approved' : 'Claim sent back', done)
+      await ask.alert(approve ? 'Claim approved' : 'Claim sent back', done, approve ? 'success' : 'info')
       nav('/approvals', { state: { done } })
     } catch (e) { setPanel({ ok: false, text: (e as Error).message }) }
   }
+  const checkTitle = c.status === 'with_desk' ? 'Travel Desk check' : c.status === 'with_coordinator' ? 'Coordinator check' : 'Manager check'
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${c.can_decide ? 'pb-20 lg:pb-16' : ''}`}>
       <Link to={c.mine ? '/claims' : '/approvals'} className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-800"><ArrowLeft className="h-4 w-4" /> {c.mine ? 'My claims' : 'Approvals'}</Link>
 
       {/* ---- header, a stripe and a wash of its status's colour (the user, 19 Oct: "emphasis colour for this container") ---- */}
@@ -170,16 +247,15 @@ export default function ClaimPage() {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {/* The days it covers in its name (the user, 22 Oct: "show as 7 Aug · Aug-26 claim"). */}
-            <h1 className="text-lg font-semibold text-ink-900">{(() => {
-              // "7th Aug-26 claim", "7th–9th Aug-26 claim": the days, then the month once (a claim is one month).
-              // A draft with no saved day yet: the date it was started with (te_0069; the user, 24 Oct).
-              const n = (iso: string) => Number(iso.slice(8, 10)), d0 = data.days[0]?.day ?? c.picked_day, d1 = data.days[data.days.length - 1]?.day ?? c.picked_day
-              const days = d0 ? (d0 === d1 ? `${ordinal(n(d0))} ` : `${ordinal(n(d0))}–${ordinal(n(d1!))} `) : ''
-              return c.number ? `${c.number} · ${days}${monthName(c.month)}` : `${days}${monthName(c.month)} claim`
-            })()}</h1>
+            <h1 className="text-lg font-semibold text-ink-900">{c.number ? `${c.number} · ${claimDays}${monthName(c.month)}` : `${claimDays}${monthName(c.month)} claim`}</h1>
             <span className={`badge ${status.tone}`}>{status.label}</span>
+            {/* On deputation (te_0075; the user, 26 Oct: "for their each claim a tag should show deputation"). */}
+            {(() => {
+              const st = data.days.length ? data.days.map(x => depOn(data.deputations, x.day)?.state).find(Boolean) : data.deputations?.[0]?.state
+              return st && <span className="badge inline-flex items-center gap-1 bg-violet-100 text-violet-900"><BriefcaseBusiness className="h-3.5 w-3.5" /> Deputation · {st}</span>
+            })()}
           </div>
-          <p className="mt-1 text-sm text-ink-700">{c.name} · {c.ecode} · Grade {c.grade ?? '—'}{c.designation ? ` · ${c.designation}` : ''}</p>
+          <p className="mt-1 text-sm text-ink-700">{c.name} · {c.ecode} · Grade {c.grade ?? '—'}</p>
           <Header data={data} onSaved={() => void refetch()} />
           <p className="mt-1 text-xs text-ink-500">Manager {c.manager ?? '—'}{c.coordinator ? ` · Coordinator ${c.coordinator}` : ''} · Travel Desk</p>
         </div>
@@ -188,12 +264,19 @@ export default function ClaimPage() {
             <button type="button" className="btn-lift mb-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
               onClick={async () => {
                 if (c.status === 'with_manager') {
-                  if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change it. Send it again when done.`, yes: 'Recall' }))) return
+                  if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change it. Send it again when done.`, yes: 'Recall', icon: Undo2 }))) return
                   try { await act.mutateAsync({ fn: 'te_recall', args: { p_claim: c.id } }) } catch (e) { setFail((e as Error).message); return }
                 }
                 const last = data.days[data.days.length - 1]
                 openDay(last ?? blankDay(c.picked_day ?? (todayIso().slice(0, 7) === c.month.slice(0, 7) ? todayIso() : c.month)))
               }}><Pencil className="h-4 w-4" /> {c.status === 'with_manager' ? 'Recall to edit' : 'Edit'}</button>
+          )}
+          {askEdit && (
+            <button type="button" className="btn-lift mb-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-300 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+              onClick={async () => {
+                const reason = await ask.prompt({ title: 'Request edit', body: 'Your manager has approved it, so your manager lets you edit it.', label: 'What do you need to change?', yes: 'Send request' })
+                if (reason && reason.trim()) void run('te_request_recall', { p_claim: c.id, p_reason: reason }, 'Asked your manager to let you edit it.')
+              }}><Pencil className="h-4 w-4" /> Request edit</button>
           )}
           <p className="text-xs text-ink-500">Total claimed</p>
           <p className="text-3xl font-bold text-ink-900">{money(total)}</p>
@@ -212,7 +295,27 @@ export default function ClaimPage() {
       {c.status === 'returned' && c.return_note && <Alert kind="warning" title="Sent back to you">{c.return_note}</Alert>}
       {c.mine && c.status === 'recalled' && <Alert kind="info" title="Recalled to edit">Change what you need, then press Send to manager again. It keeps its number.</Alert>}
       {!c.mine && c.recalls > 0 && <p className="text-sm text-orange-800">Recalled {c.recalls}× by {c.name.split(' ')[0]} after sending{c.last_recalled_at ? ` · last on ${new Date(c.last_recalled_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}</p>}
-      {/* Deleting a sent claim needs the manager (te_0016; the user, 17 Oct). */}
+      {/* Editing a claim the manager has approved needs the manager (te_0094; the user, 31 Oct). */}
+      {c.recall_requested_at && (
+        <div className="card flex flex-wrap items-center gap-3 border-violet-300 p-4">
+          <Pencil className="h-5 w-5 text-violet-600" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-semibold text-ink-900">{c.mine ? 'You asked to edit this claim' : `${first} asked to edit this claim`}</p>
+            <p className="text-ink-600">“{c.recall_reason}”{c.mine ? ' · waiting for your manager' : ''}</p>
+          </div>
+          {c.is_manager && (
+            <>
+              <button type="button" className="btn-primary" onClick={async () => {
+                if (!(await ask.confirm({ title: `Let ${first} edit ${c.number ?? 'the claim'}?`, body: `${c.name} · ${money(total)}`, yes: 'Let edit', icon: Pencil }))) return
+                void run('te_answer_recall', { p_claim: c.id, p_allow: true }, `${c.number ?? 'The claim'} is back with ${first} to edit.`)
+              }}>Let {first} edit</button>
+              <button type="button" className="btn-secondary" onClick={() => void run('te_answer_recall', { p_claim: c.id, p_allow: false }, 'Kept. The claim carries on.')}>Keep the claim</button>
+            </>
+          )}
+          {c.mine && <button type="button" className="btn-secondary" onClick={() => void run('te_answer_recall', { p_claim: c.id, p_allow: false }, 'Request withdrawn.')}>Withdraw request</button>}
+        </div>
+      )}
+      {/* Deleting a claim the manager has approved needs the manager (te_0016, te_0094; the user, 17 and 31 Oct). */}
       {c.delete_requested_at && (
         <div className="card flex flex-wrap items-center gap-3 border-cyrixRed-300 p-4">
           <Trash2 className="h-5 w-5 text-cyrixRed-600" />
@@ -277,7 +380,24 @@ export default function ClaimPage() {
         "on the claim page show one clear Send to manager bar"); the bills still needed said on it.
       */}
       {c.can_edit && data.days.length > 0 && (
-        <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-teal-300 bg-teal-50 px-4 py-3 shadow-lg lg:bottom-4">
+        <div className="sticky bottom-16 z-10 rounded-2xl border border-teal-300 bg-teal-50 px-4 py-3 shadow-lg lg:bottom-4">
+          {/* Why it did not go, above the button pressed. "End my day for 12 Nov first" is one press to the Photo
+              tab's End button (the user, 12 Nov). */}
+          {sendFail && (/^End my day for .+ first$/.test(sendFail) ? (
+            <button type="button" onClick={() => nav('/photos?end=1')}
+              className="mb-3 flex w-full items-center gap-2 rounded-xl border-2 border-cyrixRed-300 bg-cyrixRed-50 px-3 py-2 text-left hover:bg-cyrixRed-100">
+              <TriangleAlert className="h-4 w-4 shrink-0 text-cyrixRed-700" />
+              <span className="min-w-0 flex-1 text-xs font-medium text-cyrixRed-800">{sendFail}</span>
+              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-cyrixRed-600 px-2.5 py-1 text-xs font-semibold text-white">
+                End now <ChevronRight className="h-3.5 w-3.5" />
+              </span>
+            </button>
+          ) : (
+            <p className="mb-3 flex items-start gap-2 rounded-xl border border-cyrixRed-300 bg-cyrixRed-50 px-3 py-2 text-xs font-medium text-cyrixRed-800">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-cyrixRed-700" /> {sendFail}
+            </p>
+          ))}
+          <div className="flex items-center justify-between gap-3">
           <span className="min-w-0 leading-tight">
             <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Claim total</span>
             <span className="block text-2xl font-bold tabular-nums text-ink-900">{money(total)}</span>
@@ -285,9 +405,10 @@ export default function ClaimPage() {
               {need.length ? `${need.length} bill${need.length === 1 ? '' : 's'} needed` : `${data.days.length} day${data.days.length === 1 ? '' : 's'}`}
             </span>
           </span>
-          <button type="button" className="btn-primary h-11 shrink-0 px-5 text-base" disabled={act.isPending} onClick={() => void send()}>
+          <button type="button" className="btn-primary btn-go h-11 shrink-0 px-5 text-base" disabled={act.isPending} onClick={() => void send()}>
             {act.isPending ? <Spinner className="h-4 w-4" /> : <Send className="h-4 w-4" />} Send to manager
           </button>
+          </div>
         </div>
       )}
 
@@ -295,16 +416,44 @@ export default function ClaimPage() {
            "why add claim here? we dont need continuation claim button") ---- */}
       {c.can_edit && tail}
 
-      {/* ---- whoever it waits on ---- */}
+      {/* ---- whoever it waits on: the box stands out (the user, 26 Oct: "it is not easy to find it, so emphasis it") ---- */}
       {c.can_decide && (
-        <div className="card space-y-3 p-4">
-          <h2 className="text-sm font-semibold text-ink-900">{c.status === 'with_desk' ? 'Travel Desk check' : c.status === 'with_coordinator' ? 'Coordinator check' : 'Manager check'}</h2>
-          <textarea ref={noteBox} rows={2} className={`input ${panel && !panel.ok && !note.trim() ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-200' : ''}`} value={note}
+        <section id="claim-check" ref={checkBox} className="rounded-2xl border-2 border-violet-300 bg-violet-50 p-4 shadow-md sm:p-5">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-violet-600 text-white shadow-sm"><ClipboardCheck className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-bold text-ink-900">{checkTitle}</h2>
+              <p className="truncate text-sm text-ink-600">{[c.number, c.name, money(total)].filter(Boolean).join(' · ')}</p>
+            </div>
+            <span className="hidden shrink-0 items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-200 sm:inline-flex">
+              <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full rounded-full bg-violet-500 opacity-60 motion-safe:animate-ping" /><span className="relative inline-flex h-2 w-2 rounded-full bg-violet-600" /></span>
+              Waiting for you
+            </span>
+          </div>
+          <textarea ref={noteBox} rows={2} className={`input mt-4 bg-surface ${panel && !panel.ok && !note.trim() ? '!border-cyrixRed-500 ring-2 ring-cyrixRed-200' : ''}`} value={note}
             onChange={e => { setNote(e.target.value); if (panel && !panel.ok) setPanel(null) }} placeholder="Note (needed to send back)" />
-          {panel && <p className={`text-sm ${panel.ok ? 'text-green-700' : 'text-cyrixRed-700'}`}>{panel.text}</p>}
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary" disabled={act.isPending} onClick={() => void decide(true)}><Check className="h-4 w-4" /> Approve</button>
-            <button type="button" className="btn-secondary" disabled={act.isPending} onClick={() => void decide(false)}><CornerUpLeft className="h-4 w-4" /> Send back</button>
+          {panel && <p className={`mt-2 text-sm ${panel.ok ? 'text-green-700' : 'text-cyrixRed-700'}`}>{panel.text}</p>}
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:flex sm:justify-end">
+            <button type="button" className="btn-secondary !border-amber-300 !bg-amber-50 !text-amber-800 hover:!bg-amber-100 h-12 text-[15px] font-medium sm:px-6" disabled={act.isPending} onClick={() => void decide(false)}><CornerUpLeft className="h-4 w-4" /> Send back</button>
+            <button type="button" className="btn-primary btn-go h-12 text-[15px] font-semibold sm:px-8" disabled={act.isPending} onClick={() => void decide(true)}><Check className="h-4 w-4" /> Approve</button>
+          </div>
+        </section>
+      )}
+      {/* Until the box is on screen, a bar at the foot: Approve (which asks first, as in the box), Send back goes to the note. */}
+      {c.can_decide && (
+        <div className={`fixed inset-x-0 bottom-16 z-20 mx-auto max-w-7xl px-4 transition duration-200 lg:bottom-4 ${checkSeen ? 'pointer-events-none translate-y-3 opacity-0' : ''}`} aria-hidden={checkSeen || undefined}>
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-300 bg-violet-50 px-4 py-3 shadow-lg">
+            <span className="min-w-0 leading-tight">
+              <span className="block whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-violet-700"><span className="sm:hidden">{c.number ?? checkTitle}</span><span className="hidden sm:inline">{checkTitle}</span></span>
+              <span className="block text-2xl font-bold tabular-nums text-ink-900">{money(total)}</span>
+            </span>
+            <span className="flex shrink-0 gap-2">
+              <button type="button" tabIndex={checkSeen ? -1 : undefined} className="btn-secondary !border-amber-300 !bg-amber-50 !text-amber-800 hover:!bg-amber-100 h-11 px-3 sm:px-4" disabled={act.isPending} onClick={toCheck}><CornerUpLeft className="h-4 w-4" /> Send back</button>
+              <button type="button" tabIndex={checkSeen ? -1 : undefined} className="btn-primary btn-go h-11 px-4 sm:px-5" disabled={act.isPending}
+                onClick={() => void decide(true)}>
+                <Check className="h-4 w-4" /> Approve
+              </button>
+            </span>
           </div>
         </div>
       )}
@@ -314,7 +463,8 @@ export default function ClaimPage() {
 
       <History data={data} />
 
-      {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)} />}
+      {map && <RouteMap days={map.days} rule={rule} title={map.title} focus={map.focus} onClose={() => setMap(null)}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} ecode={c.ecode} band={shotBand(data.policy)} claimId={c.can_edit ? c.id : undefined} onShots={c.can_edit ? () => void refetch() : undefined} />}
       {adjust && <AdjustDialog claimId={c.id} target={adjust} onClose={() => setAdjust(null)} />}
     </div>
   )
@@ -342,11 +492,24 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 }) {
   const c = data.claim, rule = data.rule
   const ask = useAsk()
+  /** An AP ticket on a test account's claim comes from BEMP (the user, 10 Nov). */
+  const fromBemp = (no: string | null | undefined) => TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && BEMP_TICKET.test((no ?? '').trim())
   const outOfState = d.da_kind === 'out_state_stay'
   const daLabel = DA_KINDS.find(k => k.code === d.da_kind)?.label
+  const dep = depOn(data.deputations, d.day)
+  const [letter, setLetter] = useState<{ url: string; name: string } | null>(null)
   const hasMap = d.rides.some(r => r.from_lat != null && r.to_lat != null)
-  const mark = (id: string) => (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' -mx-2 rounded-lg bg-cyrixRed-50 px-2 ring-1 ring-cyrixRed-300'
-    : focus === id ? ' -mx-2 rounded-lg px-2' : '')
+  const shots = matchPhotos(d.rides, d.day, data.visit_photos, data.photo_setup)
+  // Each photo's place in the day's order taken, as the engineer sees it in the picker (the user, 20 Nov).
+  const photoNo = new Map((data.visit_photos ?? []).filter(v => v.day === d.day).sort((a, b) => a.shot_at.localeCompare(b.shot_at)).map((v, i) => [v.id, i + 1]))
+  // The Travel Desk does not see where the day started and ended, nor time at a place: the manager's (the user, 10 Nov).
+  const desk = deskOnly(data.claim)
+  const dayStart = desk ? null : data.day_starts?.find(s => s.day === d.day) ?? null
+  const dayEnd = desk ? null : data.day_ends?.find(s => s.day === d.day) ?? null
+  const restarts = desk ? [] : (data.day_restarts ?? []).filter(s => s.day === d.day)
+  // Each line its own raised card (the user, 30 Oct: "it looks very plain", "like each ride 3d? div?"); red while its bill is still needed.
+  const tile = ' rounded-lg border px-3 shadow-[0_1px_2px_rgb(15_23_42/0.07),0_3px_8px_-2px_rgb(15_23_42/0.08)]'
+  const mark = (id: string) => tile + (need?.has(id) && !data.bills.some(b => b.owner_id === id) ? ' border-cyrixRed-300 bg-cyrixRed-50' : ' border-ink-200 bg-surface')
   const lit = (id: string, color: string) => (focus === id && !(need?.has(id) && !data.bills.some(b => b.owner_id === id)) ? { boxShadow: `0 0 0 2px ${color}`, background: color + '14' } : undefined)
   const changes = (id: string) => (data.adjustments ?? []).filter(a => a.item_id === id)
   // An amount: what was claimed struck through once an approver changed it.
@@ -376,7 +539,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
     have a standardised look"): its kind as a chip, what it is written out in full under it, and on the right
     the amount, then the bill and the pencil. A ride stacks a third row on the right, for its map.
   */
-  const row = 'col-span-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1.5 py-2 text-sm sm:grid-cols-subgrid'
+  const row = 'col-span-full grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1.5 py-2.5 text-sm sm:grid-cols-subgrid'
   const name = 'col-start-1 row-span-2 row-start-1 flex min-w-0 flex-col items-start gap-1 self-start sm:col-span-2 sm:row-span-1 sm:row-start-auto sm:flex-row sm:items-center sm:gap-2 sm:self-auto'
   // A bill's clip first for whoever attaches (the clips in one column); for an approver the bills beside the amount.
   // The bill on its own row under the amount and the pencil under it, as on a ride (the user, 21 Oct: "make it same like modes").
@@ -401,26 +564,34 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold text-ink-900">{dayName(d.day)}{d.place ? ` · ${d.place}` : ''}{d.district ? `, ${d.district}` : ''}</p>
-          <p className="text-sm text-ink-500">{[d.purpose, d.da_kind !== 'none' ? `DA ${daLabel?.toLowerCase()} ${money(d.da_amount)}` : null, tripDay].filter(Boolean).join(' · ')}</p>
+          <p className="text-sm text-ink-500">
+            {dep && (d.dep_off
+              ? <span title={d.dep_off} className="mr-1.5 inline-flex rounded-full bg-cyrixRed-100 px-2 py-0.5 align-middle text-[11px] font-semibold text-cyrixRed-800">Outside {dep.state}</span>
+              : <span className="mr-1.5 inline-flex rounded-full bg-violet-100 px-2 py-0.5 align-middle text-[11px] font-semibold text-violet-800">Deputation</span>)}
+            {[d.purpose, d.da_kind !== 'none' ? `DA ${daLabel?.toLowerCase()} ${money(d.da_amount)}` : null, tripDay].filter(Boolean).join(' · ')}
+          </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 max-sm:w-full">
           {/* The day's km beside its money, as weighty (the user, 21 Oct: "km by modes, emphasise km also like the amount"). */}
-          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}</span><span className="text-ink-300">·</span></>}
+          {d.rides.length > 0 && <><span className="font-semibold text-ink-900">{km(d.rides.reduce((t, r) => t + (r.map_km ?? r.claimed_km ?? 0), 0))}{(() => { const x = roadsFor(c.ecode, d.day) ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="ml-1 font-bold text-cyrixRed-700">{x.pct}% more</b> })()}</span><span className="text-ink-300">·</span></>}
           <span className="mr-1 font-semibold text-ink-900">{money(dayTotal({ ...d, hotel: d.room_by ? null : d.hotel }, rule))}</span>
-          {hasMap && <button type="button" className="btn-icon" title="See on map" aria-label="See on map" onClick={onMap}><MapIcon className="h-4 w-4 text-teal-600" /></button>}
-          {c.can_edit && <button type="button" className="btn-icon" title="Edit" aria-label="Edit day" onClick={onEdit}><Pencil className="h-4 w-4" /></button>}
-          {c.can_edit && <button type="button" className="btn-icon text-cyrixRed-600" title="Remove" aria-label="Remove day" onClick={onDelete}><Trash2 className="h-4 w-4" /></button>}
+          {/* The day's actions at the end of the line, apart from its km and money (the user, 18 Nov: "just move to end"). */}
+          <span className="ml-auto flex items-center">
+            {hasMap && <button type="button" className="btn-icon" title="See on map" aria-label="See on map" onClick={onMap}><MapIcon className="h-4 w-4 text-teal-600" /></button>}
+            {c.can_edit && <button type="button" className="btn-icon" title="Edit" aria-label="Edit day" onClick={onEdit}><Pencil className="h-4 w-4" /></button>}
+            {c.can_edit && <button type="button" className="btn-icon text-cyrixRed-600" title="Remove" aria-label="Remove day" onClick={onDelete}><Trash2 className="h-4 w-4" /></button>}
+          </span>
         </div>
       </div>
 
-      <RouteStrip days={[d]} rule={rule} grade={c.grade} />
+      <RouteStrip days={[d]} rule={rule} grade={c.grade} vehicles={data.vehicles} />
 
       {/* What the day's total is made of (the user, 19 Oct: "6116 in travel and others what, user should be clear"). */}
       {(() => {
         const parts = ([
           ['Travel', d.rides.reduce((t, r) => t + rideAmount(r, rule), 0)],
           ['DA', d.da_amount],
-          ['Hotel', d.room_by ? 0 : d.hotel?.amount ?? 0],
+          ['Room', d.room_by ? 0 : d.hotel?.amount ?? 0],
           ['Other', d.expenses.reduce((t, x) => t + (x.amount || 0), 0)],
         ] as const).filter(([, v]) => v > 0)
         return parts.length > 0 && (
@@ -439,14 +610,22 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
       })()}
 
       {(
-        <div data-details className="grid gap-x-2 divide-y divide-ink-100 rounded-xl bg-ink-50/60 px-3" style={{ gridTemplateColumns: cols }}>
-          {hasMap && (
-            <div className="col-span-full flex justify-end py-2">
-              <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> View on map</button>
+        <div data-details className="grid gap-x-2 gap-y-2 rounded-xl bg-ink-100/60 p-2" style={{ gridTemplateColumns: cols }}>
+          {/* Restart my day (te_0170): why, so the manager sees the late call. */}
+          {restarts.map(rs => <p key={'w' + rs.at} className="col-span-full rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-900 ring-1 ring-amber-200"><RotateCcw className="mr-1 inline h-3.5 w-3.5" />Restarted {clock(rs.at)} · “{rs.reason}”</p>)}
+          {(hasMap || dayStart || dayEnd) && (
+            <div className="col-span-full flex items-center justify-end gap-3 px-1 pt-0.5">
+              {/* Where and when the day was started (te_0104). */}
+              {dayStart && <span className="mr-auto inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600"><Sunrise className="h-3.5 w-3.5 shrink-0 text-amber-500" /><span className="truncate">{clock(dayStart.at)}</span></span>}
+              {restarts.map(rs => (
+                <span key={rs.at} className="inline-flex shrink-0 items-center gap-1.5 text-xs text-ink-600"><Sunset className="h-3.5 w-3.5 text-orange-500" />{clockOf({ day: d.day, shot_at: rs.ended_at })}<RotateCcw className="ml-1 h-3.5 w-3.5 text-amber-600" /><span className="font-semibold text-amber-800">{clock(rs.at)}</span></span>
+              ))}
+              {dayEnd && <span className={`${dayStart ? '' : 'mr-auto '}inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-600`}><Sunset className="h-3.5 w-3.5 shrink-0 text-orange-500" /><span className="truncate">{clockOf({ day: d.day, shot_at: dayEnd.at })}</span></span>}
+              {hasMap && <button type="button" className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-teal-700 hover:underline" onClick={onMap}><MapIcon className="h-3.5 w-3.5" /> <span className="sm:hidden">Map</span><span className="max-sm:hidden">View on map</span></button>}
             </div>
           )}
           {d.rides.map(r => {
-            const m = MODES[r.mode], I = m.icon, bad = outOfPolicy(r.mode, rule)
+            const m = MODES[r.mode], I = m.icon, bad = outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)
             return (
               /*
                 On a computer one line in the shared columns (the user, 18 Oct). On a phone the mode, then From and To
@@ -459,7 +638,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold" style={{ background: m.bg, color: m.fg }}><I className="h-3.5 w-3.5" />{m.label}</span>
                     {/* A press says what the mark means — a phone has no hover (the user, 21 Oct). */}
                     {bad && <button type="button" className="btn-press grid h-5 w-5 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[11px] font-bold text-white hover:bg-cyrixRed-700" title={policyNote(m.label, c.grade)} aria-label="Why the red mark"
-                      onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, c.grade))}>!</button>}
+                      onClick={() => void ask.alert('Needs prior approval', policyNote(m.label, c.grade), 'warn')}>!</button>}
                   </span>
                   {/* From, a small arrow, To (the user, 21 Oct: "show a small arrow also in the middle"). */}
                   <span className="grid min-w-0 grid-cols-[0.5rem_minmax(0,1fr)] items-start gap-x-2 text-ink-800 sm:hidden">
@@ -478,9 +657,27 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   <button type="button" className={`${onAdjust ? 'col-start-2' : 'col-start-3'} row-start-3 btn-lift grid h-7 w-7 place-items-center justify-self-end rounded-md border border-ink-200 text-teal-600 hover:border-teal-300 hover:bg-teal-50 sm:col-start-5 sm:row-start-auto`} title="This ride on the map" aria-label="This ride on the map"
                     onClick={() => onMapDays([d], `${short(r.from_name)} → ${short(r.to_name)}`, r.id)}><MapIcon className="h-3.5 w-3.5" /></button>
                 )}
-                {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol },
+                {pen({ kind: 'ride', id: r.id, label: `${m.label} ${short(r.from_name)} → ${short(r.to_name)}`, unit: m.perKm ? 'km' : '₹', value: m.perKm ? (r.claimed_km ?? 0) : (r.fare ?? 0), amount: rideAmount(r, rule), rate: r.mode === 'bike' ? rule.bike_rate ?? 5 : r.mode === 'car' ? rule.car_rate ?? 11 : undefined, map: m.perKm ? r.map_km : null, tol, free: data.claim.status === 'with_desk' },
                   `col-start-3 row-start-3 ${hasMap ? 'sm:col-start-6' : 'sm:col-start-5'} sm:row-start-auto`)}
                 {(r.purpose || r.project) && <span className="col-span-full pl-1 text-xs text-ink-500">{[r.purpose, r.project].filter(Boolean).join(' · ')}</span>}
+                {/* The visit photo, found by itself (te_0082), or why there is none. */}
+                {needsPhoto(r, data.photo_setup, d.day, r.id === lastGoing(d.rides)) && (() => {
+                  const hit = shots.get(r.id)
+                  if (hit) return (
+                    <span className="col-span-full flex items-center gap-2 pl-1 text-xs text-emerald-800">
+                      <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? short(r.to_name)} · ${clock(hit.photo.shot_at)}`} className="h-9 w-9" />
+                      <span><b className="font-semibold">Visit photo{photoNo.get(hit.photo.id) ? ` ${photoNo.get(hit.photo.id)}` : ''}</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${short(r.to_name)}`}{!desk && (() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{lateBy(hit.photo) && <span className="font-semibold text-amber-700"> · {lateBy(hit.photo)}</span>}{otherPhone(hit.photo, data.usual_device) && <span className="font-semibold text-cyrixRed-700"> · another phone ({hit.photo.device ?? 'not known'})</span>}</span>
+                    </span>
+                  )
+                  return r.photo_skip
+                    ? <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><CameraOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />Photo not possible · “{r.photo_skip}”</span>
+                    : <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-amber-700"><CameraOff className="h-3.5 w-3.5 shrink-0" />No visit photo</span>
+                })()}
+                {/* A Google road more than the tolerance longer than Google's own, with why (te_0165). */}
+                {roadsFor(c.ecode, d.day) && MODES[r.mode].perKm && shortExtra(r) && (
+                  <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs font-semibold text-cyrixRed-700"><Route className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    Map {km(r.map_km)} · {shortExtra(r)!.pct}% · {km(shortExtra(r)!.km)} more{r.route_why && <> · “{r.route_why}”</>}</span>
+                )}
                 {r.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{r.note}</span>}
                 {/* A round trip whose return is not on the claim yet (te_0058). */}
                 {r.return_leg?.date && !data.days.some(x => x.rides.some(o => o.same_ticket?.ref === r.return_leg!.ref)) && (
@@ -495,9 +692,10 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
                   const earlier = (t as typeof t & { earlier?: Array<{ day: string }> }).earlier ?? []
                   return (
                     <span key={t.id} className="col-span-full flex flex-wrap items-center gap-1.5 pl-1 text-xs text-sky-700">
-                      <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.service_report ? ` · SR ${t.service_report}` : ''}
+                      <TicketIcon className="h-3.5 w-3.5" />Ticket {t.ticket_no}{t.asset_no ? ` · Asset ${t.asset_no}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}
                       {earlier.length > 0 && <b>· {ordinal(earlier.length + 1)} visit</b>}
-                      <ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit} onChange={onBills} />
+                      <ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit && !fromBemp(t.ticket_no)} onChange={onBills} />
+                      {fromBemp(t.ticket_no) && <span className="basis-full -ml-6"><TicketLookup ticket={t.ticket_no} day={d.day} claimId={c.id} project={r.project} /></span>}
                     </span>
                   )
                 })}
@@ -509,11 +707,12 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             return (
               <div key={t.id} id={'bill-' + t.id} className={'col-span-full flex flex-wrap items-center gap-2 py-2 text-sm' + mark(t.id)} style={lit(t.id, '#0284C7')}>
                 <TicketIcon className="h-4 w-4 text-sky-600" />
-                <span className="text-ink-800">{t.ticket_no}{t.place ? ` · ${t.place}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}</span>
+                <span className="text-ink-800">{t.ticket_no}{t.place ? ` · ${t.place}` : ''}{t.asset_no ? ` · Asset ${t.asset_no}` : ''}{t.service_report ? ` · SR ${t.service_report}` : ''}</span>
                 {earlier.length > 0 && <span className="text-xs font-semibold text-sky-700">{ordinal(earlier.length + 1)} visit</span>}
                 {/* A hospital none of the day's rides went to (the user, 21 Oct). */}
                 {ticketVisited(t, d.rides) === false && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Not visited on this day's rides</span>}
-                <span className="ml-auto"><ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit} onChange={onBills} /></span>
+                <span className="ml-auto"><ReportButton claimId={c.id} ticketId={t.id} bills={data.bills} editable={c.can_edit && !fromBemp(t.ticket_no)} onChange={onBills} /></span>
+                {fromBemp(t.ticket_no) && <span className="basis-full -ml-6"><TicketLookup ticket={t.ticket_no} day={d.day} claimId={c.id} /></span>}
               </div>
             )
           })}
@@ -521,20 +720,20 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
             const limit = hotelLimit(rule, d.hotel, outOfState, Number(data.policy.metro_extra_pct ?? 20))
             return (
               <div id={'bill-' + d.hotel.id} className={row + mark(d.hotel.id)} style={lit(d.hotel.id, '#7C3AED')}>
-                <span className={name}>{(() => { const t = `${d.hotel.name || 'Hotel'} · ${d.hotel.occupancy}${d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}`; return lead(BedDouble, 'text-violet-600', 'Hotel', 'bg-violet-100 text-violet-900', t, t) })()}</span>
+                <span className={name}>{(() => { const t = `${d.hotel.name || 'Room stay'} · ${d.hotel.occupancy}${d.hotel.shared_name ? ` · with ${d.hotel.shared_name}` : ''}`; return lead(BedDouble, 'text-violet-600', 'Room', 'bg-violet-100 text-violet-900', t, t) })()}</span>
                 <span className={billCell}>
                   <BillButton compact claimId={c.id} kind="hotel" ownerId={d.hotel.id} bills={data.bills} editable={c.can_edit} needed claimed={d.hotel.amount} onChange={onBills} />
                 </span>
                 {amt(d.hotel.id, d.hotel.amount, limit != null && d.hotel.amount > limit ? 'text-amber-700' : 'text-ink-900', amtAt)}
-                {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Hotel', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, penAt())}
+                {pen({ kind: 'hotel', id: d.hotel.id, label: d.hotel.name || 'Room stay', unit: '₹', value: d.hotel.amount, amount: d.hotel.amount }, penAt())}
                 {d.hotel.note && <span className="col-span-full flex items-start gap-1.5 pl-1 text-xs text-ink-600"><MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-400" />{d.hotel.note}</span>}
                 {(() => { const co = companyOf(data.bills, d.hotel!); return co && <span className="col-span-full flex items-center gap-1.5 pl-1 text-xs font-semibold text-sky-800"><Building2 className="h-3.5 w-3.5" />Booked by company · {money(co.net)} · {co.booking_id}</span> })()}
               </div>
             )
           })()}
           {d.room_by && (
-            <div className={row}>
-              <span className={name}>{(() => { const t = `Room shared · claimed by ${d.room_by.name} (${d.room_by.ecode})${d.room_by.number ? ` on ${d.room_by.number}` : ''}`; return lead(BedDouble, 'text-green-600', 'Hotel', 'bg-green-100 text-green-900', t, t) })()}</span>
+            <div className={row + tile + ' border-ink-200 bg-surface'}>
+              <span className={name}>{(() => { const t = `Room shared · claimed by ${d.room_by.name} (${d.room_by.ecode})${d.room_by.number ? ` on ${d.room_by.number}` : ''}`; return lead(BedDouble, 'text-green-600', 'Room', 'bg-green-100 text-green-900', t, t) })()}</span>
               <span className={`${amtAt} text-right font-medium text-ink-500`}>{money(d.room_by.amount)}</span>
             </div>
           )}
@@ -551,11 +750,15 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
           {(d.da_kind !== 'none' || d.da_amount > 0) && (
             <div id={'bill-' + d.id} className={row + mark(d.id)} style={lit(d.id, '#0D9488')}>
               <span className={name}>{lead(HandCoins, 'text-teal-600', 'DA', 'bg-teal-100 text-teal-800', daLabel ?? '', `DA · ${daLabel?.toLowerCase()}`)}</span>
+              {d.da_kind === 'deputation' && dep?.letter_path && <span className={billCell}>
+                <button type="button" onClick={async () => { const u = await letterUrl(dep.letter_path!); if (u) setLetter({ url: u, name: dep.letter_name ?? 'Deputation letter' }) }} className="inline-flex items-center gap-1 rounded-lg bg-violet-100 px-2 py-1 text-xs font-semibold text-violet-800"><FileText className="h-3.5 w-3.5" />Letter</button>
+              </span>}
               {amt(d.id, d.da_amount, 'text-ink-900', amtAt)}
-              {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount }, penAt(2))}
+              {pen({ kind: 'da', id: d.id, label: `DA · ${daLabel?.toLowerCase()} · ${dayName(d.day)}`, unit: '₹', value: d.da_amount, amount: d.da_amount }, penAt(d.da_kind === 'deputation' && dep?.letter_path ? 3 : 2))}
             </div>
           )}
-          {d.remarks && <p className="col-span-full py-2 text-sm text-ink-600">{d.remarks}</p>}
+          {d.remarks && <p className="col-span-full px-1 py-1 text-sm text-ink-600">{d.remarks}</p>}
+          {letter && <BillView url={letter.url} name={letter.name} onClose={() => setLetter(null)} />}
         </div>
       )}
     </div>
@@ -565,6 +768,7 @@ function DayCard({ d, data, tripDay, tol, over, onEdit, onMap, onMapDays, onDele
 function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => void }) {
   const c = data.claim
   const act = useClaimAction()
+  const ask = useAsk()
   const [paidOn, setPaidOn] = useState(todayIso())
   const [utr, setUtr] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -575,8 +779,8 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
         <input type="date" className="input mt-1 w-44" max={todayIso()} value={paidOn} onChange={e => setPaidOn(e.target.value)} /></label>
       <label className="block"><span className="label">UTR</span>
         <input className="input mt-1 w-56 font-mono uppercase" value={utr} onChange={e => setUtr(e.target.value)} placeholder="Transaction reference" /></label>
-      <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>
-      {err && <span className="text-sm text-cyrixRed-700">{err}</span>}
+      <button type="button" className="btn-primary" disabled={!paidOn || utr.replace(/\s/g, '').length < 6} onClick={async () => { setErr(null); if (!(await ask.confirm({ title: `Mark ${c.number ?? 'this claim'} paid?`, body: `${c.name} · UTR ${utr.trim().toUpperCase()}`, yes: 'Mark paid', icon: Wallet, go: true }))) return; try { await act.mutateAsync({ fn: 'te_mark_paid', args: { p_claim: c.id, p_paid_on: paidOn, p_ref: utr } }); onDone('Marked paid.') } catch (e) { setErr((e as Error).message) } }}><Check className="h-4 w-4" /> Mark paid</button>
+      {err && <span className="text-xs text-cyrixRed-700">{err}</span>}
     </div>
   )
 }
@@ -590,34 +794,83 @@ function DeskPanel({ data, onDone }: { data: ClaimData; onDone: (m: string) => v
 /*
   Each observation is a kind with a short title, its detail and its day, shown as a list rather than
   coloured blocks (the user, 19 Oct: "make this more professional and beautiful"): what needs approval
-  first, then what to check, then what is for information.
+  first, then what to check, then what is for information. Sorted under its topic (the user, 30 Oct: "segregate
+  it beautifully that manager and travel desk can understand it easily"): visit photos, bills, km and fares,
+  policy and allowance, tickets and bookings, home, and the approvers' changes.
 */
-type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string }
-const OBS = {
-  policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert },
-  nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip },
-  twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy },
-  km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge },
-  billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText },
-  unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText },
-  hotel:    { title: 'Over the hotel limit',     level: 'check',   icon: BedDouble },
-  away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff },
-  home:     { title: 'Home moved',               level: 'check',   icon: House },
-  homemap:  { title: 'Home set on the map',      level: 'check',   icon: House },
-  company:  { title: 'Booked by company',        level: 'info',    icon: Building2 },
-  cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange },
-  cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2 },
-  autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront },
-  tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange },
-  retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon },
-  da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins },
-  month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange },
-  changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine },
-  visit:    { title: 'Ticket visited before',    level: 'info',    icon: TicketIcon },
+type Obs = { kind: keyof typeof OBS; detail: string; day?: string; to?: string; sub?: string }
+export const OBS = {
+  // The same trip claimed by two people travelling together (te_0134; the user, 6 Nov: "it is critical findings").
+  shared:   { title: 'Same trip on another claim', level: 'approve', icon: Users, group: 'shared' },
+  sharedticket: { title: 'Same ticket on another claim', level: 'approve', icon: Users, group: 'shared' },
+  policy:   { title: 'Not in grade policy',      level: 'approve', icon: ShieldAlert, group: 'policy' },
+  nobill:   { title: 'Bill missing',             level: 'approve', icon: Paperclip, group: 'bills' },
+  twin:     { title: 'Possible duplicate bill',  level: 'approve', icon: Copy, group: 'bills' },
+  km:       { title: 'Km changed from the map', level: 'check',   icon: Gauge, group: 'km' },
+  kmfixed:  { title: 'Km changed from the map · corrected', level: 'info', icon: Gauge, group: 'km' },
+  // The km set from a Google Maps screenshot of the ride's own points (te_0141; the user, 9 Nov: "in observation just
+  // add map location corrected with google map screenshot").
+  routeshot: { title: 'Map km corrected with Google Maps screenshot', level: 'info', icon: Gauge, group: 'km' },
+  routeedit: { title: 'Google Maps screenshot of other places', level: 'approve', icon: MapPinOff, group: 'km' },
+  nophoto:  { title: 'Visit photo not possible', level: 'approve', icon: CameraOff, group: 'photos' },
+  startskip: { title: 'Start my day missed',      level: 'approve', icon: CameraOff, group: 'photos' },
+  photoyet: { title: 'No visit photo', level: 'check', icon: CameraOff, group: 'photos' },
+  photolate: { title: 'Visit photo uploaded later', level: 'check', icon: Camera, group: 'photos' },
+  photophone: { title: 'Visit photo from another phone', level: 'approve', icon: Smartphone, group: 'photos' },
+  photospeed: { title: 'Too fast between visit photos', level: 'approve', icon: Timer, group: 'photos' },
+  nostart:  { title: 'Day not started in the app', level: 'check', icon: Sunrise, group: 'start' },
+  startfar: { title: 'Day started away from home', level: 'check', icon: Sunrise, group: 'start' },
+  startoff: { title: 'First ride not from where the day started', level: 'approve', icon: Sunrise, group: 'start' },
+  latenight: { title: 'Late night work', level: 'check', icon: Moon, group: 'start' },
+  noend:    { title: 'Day not ended in the app', level: 'check', icon: Sunset, group: 'start' },
+  // Red from 10 Nov (te_0147; the user, 10 Nov: "add the red mark only"); days before it stay to check.
+  noendred: { title: 'Day not ended in the app', level: 'approve', icon: Sunset, group: 'start' },
+  endfar:   { title: 'Day ended away from home', level: 'check', icon: Sunset, group: 'start' },
+  // Ended the next morning far from the day's last ride (te_0150; the user, 12 Nov: "just observation").
+  endnext:  { title: 'Ended next morning, away from last ride', level: 'check', icon: Sunset, group: 'start' },
+  notbill:  { title: 'Not a bill',               level: 'approve', icon: ReceiptText, group: 'bills' },
+  billdiff: { title: 'Bill amount differs',      level: 'check',   icon: ReceiptText, group: 'bills' },
+  unread:   { title: 'Bill amount not read',     level: 'check',   icon: ReceiptText, group: 'bills' },
+  typed:    { title: 'Bill amount typed in',     level: 'check',   icon: PencilLine, group: 'bills' },
+  paytime:  { title: 'Paid at another time',     level: 'approve', icon: Timer, group: 'bills' },
+  hotel:    { title: 'Over the room limit',      level: 'check',   icon: BedDouble, group: 'policy' },
+  away:     { title: 'Hospital not visited',     level: 'check',   icon: MapPinOff, group: 'tickets' },
+  home:     { title: 'Home moved',               level: 'check',   icon: House, group: 'home' },
+  homemap:  { title: 'Home set on the map',      level: 'check',   icon: House, group: 'home' },
+  company:  { title: 'Booked by company',        level: 'info',    icon: Building2, group: 'tickets' },
+  cdate:    { title: 'Not the booked date',      level: 'check',   icon: CalendarRange, group: 'tickets' },
+  cmiss:    { title: 'Company booking not claimed', level: 'check', icon: Building2, group: 'tickets' },
+  autofare: { title: 'Auto fare above the usual', level: 'check',  icon: CarTaxiFront, group: 'km' },
+  autobike: { title: 'Auto after bike',          level: 'approve',   icon: CarTaxiFront, group: 'km' },
+  autoover: { title: 'Auto limit exceeded',      level: 'approve',   icon: CarTaxiFront, group: 'km' },
+  tdate:    { title: "Not the ticket's date",    level: 'check',   icon: CalendarRange, group: 'tickets' },
+  retdiff:  { title: 'Return not as on the ticket', level: 'check', icon: TicketIcon, group: 'tickets' },
+  da:       { title: 'DA above the map',         level: 'check',   icon: HandCoins, group: 'policy' },
+  perdiemday: { title: 'Per diem on a one-day trip', level: 'check', icon: HandCoins, group: 'policy' },
+  daytrip:  { title: 'Day trip over the limit',  level: 'check',   icon: HandCoins, group: 'policy' },
+  flightcap: { title: 'Flight over ₹12,000',     level: 'approve', icon: ShieldAlert, group: 'policy' },
+  depoff:   { title: 'Outside the deputation state', level: 'approve', icon: MapPinOff, group: 'policy' },
+  depout:   { title: 'Deputation DA outside its dates', level: 'approve', icon: BriefcaseBusiness, group: 'policy' },
+  month:    { title: 'Over the monthly limit',   level: 'check',   icon: CalendarRange, group: 'km' },
+  changed:  { title: 'Changed by an approver',   level: 'info',    icon: PencilLine, group: 'changes' },
+  visit:    { title: 'Ticket visited before',    level: 'info',    icon: TicketIcon, group: 'tickets' },
 } as const
-const LEVEL = {
+/** The topics observations sit under, in this order when they weigh alike. */
+const GROUPS = {
+  shared:  { title: 'Travelled together', icon: Users },
+  photos:  { title: 'Visit photos', icon: Camera },
+  bills:   { title: 'Bills', icon: ReceiptText },
+  km:      { title: 'Km and fares', icon: Gauge },
+  policy:  { title: 'Policy and allowance', icon: ShieldAlert },
+  tickets: { title: 'Tickets and bookings', icon: TicketIcon },
+  start:   { title: 'Start of day', icon: Sunrise },
+  home:    { title: 'Home', icon: House },
+  changes: { title: 'Changed by approvers', icon: PencilLine },
+} as const
+export const LEVEL = {
   approve: { label: 'need approval', chip: 'bg-cyrixRed-100 text-cyrixRed-700', dot: 'bg-cyrixRed-600' },
   check:   { label: 'to check',      chip: 'bg-amber-100 text-amber-700',       dot: 'bg-amber-500' },
+  passed:  { label: 'approved by the manager', chip: 'bg-ink-100 text-ink-700', dot: 'bg-ink-400' },
   info:    { label: 'for information', chip: 'bg-sky-100 text-sky-700',         dot: 'bg-sky-500' },
 } as const
 
@@ -641,19 +894,78 @@ export function claimObservations(data: ClaimData): Obs[] {
   if (data.home?.how === 'map' && !(data.home_moves ?? []).some(m => m.how === 'map')) items.push({ kind: 'homemap', day: dn(data.home.set_at.slice(0, 10)), detail: 'Not marked standing at home' })
   // The company's bookings for this person in the month that are on no claim (te_0042).
   for (const b of data.company_unlinked ?? []) items.push({ kind: 'cmiss', day: b.travel_date ? dn(b.travel_date) : undefined,
-    detail: `${b.mode === 'hotel' ? `Hotel ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
+    detail: `${b.mode === 'hotel' ? `Room stay ${b.hotel ?? ''}${b.to ? ', ' + b.to : ''}` : `${b.mode[0].toUpperCase() + b.mode.slice(1)} ${b.from ?? '—'} → ${b.to ?? '—'}`} · ${b.booking_id} · ${money(Number(b.net))}` })
   const billed = new Set(data.bills.map(b => b.owner_id))
   // Bills on a line, none of whose amounts could be read.
-  const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null) }
+  const unread = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return !nb(owner) && mine.length > 0 && mine.every(b => b.ocr_amount == null && b.typed_amount == null) }
+  const nb = (owner: string) => data.bills.some(b => b.owner_id === owner && b.not_bill)
+  // The amount the person typed from a line's bill that could not be read (te_0133), said with what was claimed.
+  const keyed = (owner: string) => { const mine = data.bills.filter(b => b.owner_id === owner); return mine.length > 0 && mine.every(b => b.ocr_amount == null) ? mine.map(b => b.typed_amount).filter((x): x is number => x != null).map(Number).pop() ?? null : null }
+  const keyedText = (claimed: number, t: number) => `${billMatches(t, claimed) ? `${money(t)} typed from the bill` : `claimed ${money(claimed)}, ${money(t)} typed from the bill`}, which could not be read — open it and compare`
+  // "Photo not possible" this month, on this claim and the person's others (te_0082), against the monthly limit.
+  const setup = data.photo_setup
+  const skipped = (data.photo_skips_other ?? 0) + data.days.reduce((t, x) => t + x.rides.filter(r => r.photo_skip).length + (x.start_skip ? 1 : 0), 0)
   for (const d of data.days) {
     const day = dn(d.day)
+    if (d.start_skip) items.push({ kind: 'startskip', day, to: d.id, detail: `From ${short(d.rides[0]?.from_name ?? null)} · “${d.start_skip}”` })
+    const shots = matchPhotos(d.rides, d.day, data.visit_photos, setup)
+    /*
+      An auto or taxi on a day the person rode their own bike (the user, 5 Nov: "he went 52 km in bike, then just for
+      1.4 km he went by auto, why?"): all of the day's together, against the same km by bike. A bill does not answer it.
+    */
+    // Only after the bike (the user, 20 Nov: auto first then bike is fine; bike then auto needs a reason, red for all).
+    const hired = d.rides.filter(r => autoAfterBike(d.rides, r))
+    if (hired.length) {
+      const kms = hired.reduce((t, r) => t + (r.claimed_km ?? r.map_km ?? 0), 0)
+      const paid = hired.reduce((t, r) => t + (r.fare ?? 0), 0)
+      const byBike = Math.round(kms * (rule?.bike_rate ?? 5))
+      const why = [...new Set(hired.map(r => r.purpose).filter(Boolean))].join(', ')
+      const what = hired.every(r => r.mode === 'auto') ? 'an auto' : 'an auto or taxi'
+      const who = data.claim.mine ? 'You' : data.claim.name.split(' ')[0]
+      items.push({ kind: 'autobike', day, to: hired[0].id,
+        // A courier sent the same day: the box may have been too big for the bike (the user, 5 Nov: "that is genuine, see the photo of courier, large box").
+        detail: d.expenses.some(x => /courier/i.test(`${x.category} ${x.description ?? ''}`))
+          ? `${who} came by bike, but took ${what} for ${km(Math.round(kms * 10) / 10)}${why ? ` (${why})` : ''} · ${money(paid)}. By bike ${money(byBike)}. A courier was sent that day: if the box was large or heavy, the auto is fine.`
+          : `${who} came by bike, but took ${what} for ${km(Math.round(kms * 10) / 10)}${why ? ` (${why})` : ''} · ${money(paid)}. By bike it would be ${money(byBike)}.`
+          + hired.filter(r => r.note?.trim()).map(r => ` · “${r.note!.trim()}”`).join('') })
+    }
     for (const r of d.rides) {
       const m = MODES[r.mode], k = m.perKm ? kmOver(r, tol) : null
       const leg = `${m.label} · ${short(r.from_name)} → ${short(r.to_name)}`
-      if (outOfPolicy(r.mode, rule)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
+      if (needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides))) {
+        const hit = shots.get(r.id), late = hit && lateBy(hit.photo)
+        if (!hit && r.photo_skip) items.push({ kind: 'nophoto', day, to: r.id, detail: `${leg} · “${r.photo_skip}”${skipped > setup!.skips ? ` · ${skipped} this month, over the ${setup!.skips}` : ''}` })
+        // Saved today without one yet: Send asks for the photo or Photo not possible (te_submit).
+        else if (!hit) items.push({ kind: 'photoyet', day, to: r.id, detail: leg })
+        if (late) items.push({ kind: 'photolate', day, to: r.id, detail: `${leg} · ${late}` })
+        // Taken on a phone other than the one most of the person's photos come from (te_0086; the user, 30 Oct: observation first).
+        const usual = data.usual_device
+        if (hit && usual && otherPhone(hit.photo, usual))
+          items.push({ kind: 'photophone', day, to: r.id, detail: `${leg} · taken on ${hit.photo.device ?? 'another phone'}${usual.device ? `, usually ${usual.device}` : ''}` })
+      }
+      if (outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)) items.push({ kind: 'policy', day, to: r.id, detail: `${m.label} is not in grade ${data.claim.grade ?? '—'}'s policy — prior approval needed` })
       if (needsBill('ride', r, over, rule) && !billed.has(r.id)) items.push({ kind: 'nobill', day, to: r.id, detail: leg })
       // Any km changed from the map's (te_0060; the user, 23 Oct).
-      if (m.perKm && kmChanged(r)) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · typed ${km(r.claimed_km)}, the map gives ${km(r.map_km)}${k && k.over > 0 ? ` — ${km(k.over)} over the ${tol}%` : ''}` })
+      /*
+        The km an approver changed keeps the engineer's own figure beside the map's, under the approver's change (the
+        user, 27 Oct: "better to add, bcz travel desk can understand it", "under that sub tree show km changed ie eng
+        did"); for information, no longer out of policy.
+      */
+      const fixes = m.perKm ? (data.adjustments ?? []).filter(a => a.item_id === r.id && a.unit === 'km') : []
+      const typed = fixes[0]?.old_value
+      if (fixes.length && typed != null && r.map_km != null && Math.abs(typed - r.map_km) > 0.05) {
+        const last = fixes[fixes.length - 1], who = data.claim.name.split(' ')[0]
+        const under = items.find(i => i.kind === 'changed' && i.to === r.id)
+        if (under) under.sub = `${who} typed ${km(typed)}, the map gives ${km(r.map_km)}`
+        else items.push({ kind: 'kmfixed', day, to: r.id, detail: `${leg} · ${who} typed ${km(typed)}, the map gives ${km(r.map_km)} · corrected by ${(last.by ?? 'an approver').split(' ')[0]} to ${km(last.new_value)}` })
+      } else if (m.perKm && routeShotsOn(data.claim.ecode) && data.routes?.some(s => s.ride_id === r.id)) {
+        const sh = data.routes.find(s => s.ride_id === r.id)!
+        if (!shotFits(sh, r)) items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · From or To changed after the screenshot` })
+        else if (sh.places === 'partial' || sh.places === 'edited') items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · the screenshot shows a From or To that is not the ride's` })
+        // Names the map could not find near the ride's points (te_0149): shown as read, for the approver to judge.
+        else if (sh.places === 'unread') items.push({ kind: 'routeedit', day, to: r.id, detail: `${leg} · the screenshot shows ${sh.read_from || sh.read_to ? `${sh.read_from || '—'} → ${sh.read_to || '—'}` : 'names'}, not found near the ride's From and To · Google Maps ${km(sh.km)}, map ${km(r.map_km)}` })
+        else items.push({ kind: 'routeshot', day, to: r.id, detail: `${leg} · map ${km(r.map_km)}, Google Maps ${km(sh.km)}` })
+      } else if (m.perKm && !fixes.length && kmChanged(r)) items.push({ kind: 'km', day, to: r.id, detail: `${leg} · typed ${km(r.claimed_km)}, the map gives ${km(r.map_km)}${k && k.over > 0 ? ` — ${km(k.over)} over the ${tol}%` : ''}` })
       // A ride the company booked: not claimed; its date set against the booking's (te_0042).
       const co = companyOf(data.bills, r)
       if (co) {
@@ -674,13 +986,41 @@ export function claimObservations(data: ClaimData): Obs[] {
         An auto fare without a bill that bears it out, set against what autos usually cost here (te_0051; the
         user, 21 Oct): other people's fares a km nearby, or the policy's rate until there are enough.
       */
-      if (r.mode === 'auto' && r.auto_norm && r.map_km && r.fare && !(read != null && Math.abs(read - r.fare) <= 1)) {
+      if (r.mode === 'auto' && r.auto_norm && r.map_km && r.fare && !billMatches(read, r.fare)) {
         const usual = Math.max(Number(data.policy.auto_min_fare ?? 30), r.auto_norm.per_km * r.map_km)
         if (r.fare > usual * 1.4) items.push({ kind: 'autofare', day, to: r.id, detail: `${leg} · ${money(r.fare)} for ${km(r.map_km)} · ${r.auto_norm.from === 'nearby' ? 'around here' : 'the usual fare is'} about ${money(Math.round(usual / 5) * 5)}` })
       }
-      if (read != null && Math.abs(read - (r.fare ?? 0)) > 1) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
+      if (nb(r.id)) items.push({ kind: 'notbill', day, to: r.id, detail: `${leg} · the photo shows no bill` })
+      if (read != null && !billMatches(read, r.fare ?? 0)) items.push({ kind: 'billdiff', day, to: r.id, detail: `${leg} · claimed ${money(r.fare)}, the bill reads ${money(read)}` })
       // A bill whose amount the reader was not sure of (a dark GPay screenshot, a handwritten bill): said, so it is opened (the user, 22 Oct: typed 650, GPay showed 500).
       if (unread(r.id) && (r.fare ?? 0) > 0) items.push({ kind: 'unread', day, to: r.id, detail: `${leg} · ${money(r.fare)} claimed — the bill's amount could not be read; open it and compare` })
+      const rk = m.perKm ? null : keyed(r.id)
+      if (rk != null && (r.fare ?? 0) > 0) items.push({ kind: 'typed', day, to: r.id, detail: `${leg} · ${keyedText(r.fare ?? 0, rk)}` })
+      /*
+        A payment screen's own time against the ride's (te_0135; the user, 7 Nov: Google Pay at 10:17 AM for a ride that
+        began about 5:15 PM): the ride runs from the photo where it starts (the ride before's, or Start my day) to its own
+        photo, with two hours either way for a photo taken late ("may be he reached there but clicked facility image after
+        2hrs"); or it was paid on another date than the ride's (or the night after).
+      */
+      const paidAt = m.perKm || !(r.fare ?? 0) ? null : data.bills.filter(b => b.owner_id === r.id && b.paid_at).map(b => b.paid_at as string).pop()
+      if (paidAt) {
+        const i = d.rides.indexOf(r)
+        const from = i > 0 ? shots.get(d.rides[i - 1].id)?.photo.shot_at : data.day_starts?.find(s => s.day === d.day)?.at
+        const to = shots.get(r.id)?.photo.shot_at
+        const istDay = (ms: number) => new Date(ms + 5.5 * 3600e3).toISOString().slice(0, 10)
+        const p = Date.parse(paidAt), slack = 2 * 3600e3
+        const onDay = [d.day, istDay(Date.parse(d.day + 'T12:00:00Z') + 86400e3)].includes(istDay(p))
+        const when = (iso: string) => `${dn(istDay(Date.parse(iso)))} ${clock(iso)}`
+        if (!onDay || (from && p < Date.parse(from) - slack) || (to && p > Date.parse(to) + slack))
+          items.push({ kind: 'paytime', day, to: r.id, detail: `${leg} · ${money(r.fare)} paid ${when(paidAt)}, the ride ${from || to ? `${from ? when(from) : ''}${from && to ? ' – ' : ''}${to ? when(to) : ''} by its photos` : `on ${day}`}` })
+      }
+      /*
+        The same trip on another person's claim (te_0134; the user, 6 Nov: "for 3, whoever done it, show as observation, it
+        is critical findings"), said only where both people's visit photos put them together at its start or end ("check
+        the correct from to location, time matching, or else we are giving false allegation"), naming who ("shared auto
+        likely with the partner name also").
+      */
+      for (const s of (data.shared ?? []).filter(x => x.ride === r.id)) items.push({ kind: s.kind === 'ticket' ? 'sharedticket' : 'shared', day, to: r.id, detail: sharedLine(s, r, leg, data.claim.name) })
     }
     if (d.hotel && !d.room_by) {
       const lim = hotelLimit(rule, d.hotel, d.da_kind === 'out_state_stay', metro)
@@ -688,19 +1028,83 @@ export function claimObservations(data: ClaimData): Obs[] {
       if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) items.push({ kind: 'nobill', day, to: d.hotel.id, detail: 'Hotel night' })
       const hc = companyOf(data.bills, d.hotel)
       if (hc) {
-        items.push({ kind: 'company', day, to: d.hotel.id, detail: `Hotel night · ${hc.booking_id} · ${money(hc.net)} not claimed` })
+        items.push({ kind: 'company', day, to: d.hotel.id, detail: `Room stay · ${hc.booking_id} · ${money(hc.net)} not claimed` })
         const from = hc.card?.travel_date, to = hc.card?.end_date
-        if (from && (d.day < from || (to ? d.day >= to : d.day !== from))) items.push({ kind: 'cdate', day, to: d.hotel.id, detail: `Hotel night · booked ${dn(from)}${to ? ' – ' + dn(to) : ''}, claimed on ${day}` })
+        if (from && (d.day < from || (to ? d.day >= to : d.day !== from))) items.push({ kind: 'cdate', day, to: d.hotel.id, detail: `Room stay · booked ${dn(from)}${to ? ' – ' + dn(to) : ''}, claimed on ${day}` })
       }
       const hr = billRead(data.bills, d.hotel.id)
-      if (hr != null && Math.abs(hr - d.hotel.amount) > 1) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Hotel · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
-      if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Hotel · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
+      if (nb(d.hotel.id)) items.push({ kind: 'notbill', day, to: d.hotel.id, detail: 'Room stay · the photo shows no bill' })
+      if (hr != null && !billMatches(hr, d.hotel.amount)) items.push({ kind: 'billdiff', day, to: d.hotel.id, detail: `Room stay · claimed ${money(d.hotel.amount)}, the bill reads ${money(hr)}` })
+      if (unread(d.hotel.id) && d.hotel.amount > 0) items.push({ kind: 'unread', day, to: d.hotel.id, detail: `Room stay · ${money(d.hotel.amount)} claimed — the bill's amount could not be read; open it and compare` })
+      const hk = keyed(d.hotel.id)
+      if (hk != null && d.hotel.amount > 0) items.push({ kind: 'typed', day, to: d.hotel.id, detail: `Room stay · ${keyedText(d.hotel.amount, hk)}` })
     }
+    /*
+      Aurum (te_0123; Domestic Travel Policy A1/A4): per diem is for a trip over 24 hours, a day trip with no night away
+      is at actual within the grade's limit, and a flight above ₹12,000 one way is a deviation.
+    */
+    if (isAurum(rule)) {
+      const near = (n: number) => data.days.find(x => x.day === new Date(new Date(d.day + 'T00:00:00').getTime() + n * 86_400_000).toLocaleDateString('en-CA'))
+      const away = (x?: typeof d) => !!x && x.da_kind.startsWith('aurum_')
+      const oneDay = !away(near(-1)) && !away(near(1)) && !d.hotel && !d.room_by
+      const label = DA_KINDS.find(k => k.code === d.da_kind)?.label
+      if (oneDay && d.da_kind.startsWith('aurum_per_diem')) items.push({ kind: 'perdiemday', day, detail: `${label} with no night away · per diem is for a trip over 24 hours` })
+      const spent = d.expenses.reduce((t, x) => t + (x.amount ?? 0), 0)
+      if (oneDay && d.da_kind === 'aurum_actual' && rule?.day_trip_other != null && spent > rule.day_trip_other)
+        items.push({ kind: 'daytrip', day, detail: `${money(spent)} at actual · the limit is ${money(rule.day_trip_other)}${rule.day_trip_metro != null ? `, ${money(rule.day_trip_metro)} in a metro` : ''}` })
+      for (const r of d.rides) if (r.mode === 'flight' && (r.fare ?? 0) > 12000)
+        items.push({ kind: 'flightcap', day, to: r.id, detail: `Flight ${short(r.from_name)} → ${short(r.to_name)} · ${money(r.fare)}` })
+    }
+    /*
+      Start my day (te_0104; the user, 3 Nov: "in observation it will show isnt, ie start location far from home"): a day
+      with rides and no start, a start more than 3 km from home (after a room stay, said so), a first ride from elsewhere.
+    */
+    const st = data.day_starts?.find(s => s.day === d.day), first = d.rides[0]
+    if (first && data.day_start_from && d.day >= data.day_start_from && !st) items.push({ kind: 'nostart', day, to: first.id, detail: `First ride from ${short(first.from_name)}` })
+    if (st && st.home_m != null && st.home_m > homeLimit(st)) {
+      const before = data.days.find(x => x.day === new Date(new Date(d.day + 'T00:00:00').getTime() - 86_400_000).toLocaleDateString('en-CA'))
+      items.push({ kind: 'startfar', day, to: first?.id, detail: `${short(startName(st))} at ${clock(st.at)} · ${km(st.home_m / 1000)} from home${before?.hotel || before?.room_by ? ' · after a room stay' : ''}` })
+    }
+    // End my day (te_0109): a past day with rides and no end; an end more than 3 km from home (a room stay that night, said so).
+    const en = data.day_ends?.find(s => s.day === d.day), lastR = d.rides[d.rides.length - 1]
+    // The manager's to judge: once the manager has approved, it is not shown to the Travel Desk (the user, 10 Nov:
+    // "it is not travel desk headache").
+    const managers = ['draft', 'with_manager', 'recalled'].includes(data.claim.status)
+    if (managers && lastR && data.day_end_from && d.day >= data.day_end_from && !en && d.day < new Date().toLocaleDateString('en-CA'))
+      items.push({ kind: d.day >= '2026-11-10' ? 'noendred' : 'noend', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)}` })
+    const morning = !!en && endedNextMorning(en)
+    if (en && morning && lastR?.to_lat != null && distanceKm(en, { lat: lastR.to_lat, lng: lastR.to_lng! }) * 1000 > homeLimit(en))
+      items.push({ kind: 'endnext', day, to: lastR.id, detail: `Last ride to ${short(lastR.to_name)} · End pressed ${new Date(en.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })} ${clockOf({ day: d.day, shot_at: en.at })} at ${short(startName(en))}, ${km(distanceKm(en, { lat: lastR.to_lat, lng: lastR.to_lng! }))} away` })
+    if (en && !morning && en.home_m != null && en.home_m > homeLimit(en))
+      items.push({ kind: 'endfar', day, to: lastR?.id, detail: `${short(startName(en))} at ${clockOf({ day: d.day, shot_at: en.at })} · ${km(en.home_m / 1000)} from home${d.hotel || d.room_by ? ' · a room stay that night' : ''}` })
+    // Photos of the day's trip taken after its midnight (te_0108; the user, 4 Nov: "in observation also it should say late night work").
+    const night = (data.visit_photos ?? []).filter(p => p.day === d.day && nightOf(p))
+    if (night.length) {
+      const last = night[night.length - 1]
+      items.push({ kind: 'latenight', day, to: d.rides[d.rides.length - 1]?.id, detail: `${night.length === 1 ? '1 visit photo' : `${night.length} visit photos`} after midnight · last ${clockOf(last)}${last.place ? ` at ${short(last.place)}` : ''}` })
+    }
+    if (st && first?.from_lat != null && distanceKm(st, { lat: first.from_lat, lng: first.from_lng! }) > 0.5)
+      items.push({ kind: 'startoff', day, to: first.id, detail: `From ${short(first.from_name)}, ${km(distanceKm(st, { lat: first.from_lat, lng: first.from_lng! }))} from where the day started (${short(startName(st))})` })
+    // Visit photos too far apart for the time between them (te_0089), said to the person too; the day still saves.
+    for (const x of photoRush(d.rides, d.day, data.visit_photos, setup)) {
+      const at = (p: VisitPhoto, i: number) => `${i >= 0 ? short(d.rides[i].to_name) : short(p.place)} ${clock(p.shot_at)}`
+      const by = x.modes.map(m => MODES[m as ModeCode]?.short ?? MODES[m as ModeCode]?.label ?? m).join(' + ')
+      items.push({ kind: 'photospeed', day, to: x.toRide >= 0 ? d.rides[x.toRide].id : undefined,
+        detail: `${at(x.from, x.fromRide)} → ${at(x.to, x.toRide)} · ${km(x.km)} in ${span(x.min)} = ${Math.round(x.kmh)} km/h${by ? ` by ${by}` : ''}, the limit is ${x.limit} km/h` })
+    }
+    // Deputation (te_0075): a place in another state is red (the user, 26 Oct: "in observation it should show as
+    // critical if claming from other states"), and so is its DA on a day no approved deputation covers.
+    const dep = depOn(data.deputations, d.day)
+    if (dep && d.dep_off) items.push({ kind: 'depoff', day, to: d.id, detail: `${d.dep_off} · the deputation is in ${dep.state}` })
+    if (!dep && d.da_kind === 'deputation') items.push({ kind: 'depout', day, to: d.id, detail: `DA ${money(d.da_amount)} · no approved deputation on this day` })
     if (d.da_auto && DA_RANK[d.da_kind] > DA_RANK[d.da_auto]) items.push({ kind: 'da', day, to: d.id, detail: `Claimed ${DA_KINDS.find(k => k.code === d.da_kind)?.label.toLowerCase()}, the map says ${DA_KINDS.find(k => k.code === d.da_auto)?.label.toLowerCase()}` })
     for (const x of d.expenses) {
       const xr = billRead(data.bills, x.id)
-      if (xr != null && Math.abs(xr - x.amount) > 1) items.push({ kind: 'billdiff', day, to: x.id, detail: `${x.category} · claimed ${money(x.amount)}, the bill reads ${money(xr)}` })
+      if (nb(x.id)) items.push({ kind: 'notbill', day, to: x.id, detail: `${x.category} · the photo shows no bill` })
+      if (xr != null && !billMatches(xr, x.amount)) items.push({ kind: 'billdiff', day, to: x.id, detail: `${x.category} · claimed ${money(x.amount)}, the bill reads ${money(xr)}` })
       if (unread(x.id) && x.amount > 0) items.push({ kind: 'unread', day, to: x.id, detail: `${x.category} · ${money(x.amount)} claimed — the bill's amount could not be read; open it and compare` })
+      const xk = keyed(x.id)
+      if (xk != null && x.amount > 0) items.push({ kind: 'typed', day, to: x.id, detail: `${x.category} · ${keyedText(x.amount, xk)}` })
       if (needsBill('expense', x, over) && !billed.has(x.id)) items.push({ kind: 'nobill', day, to: x.id, detail: `${x.category} · ${money(x.amount)}` })
     }
     for (const t of d.tickets) {
@@ -717,7 +1121,7 @@ export function claimObservations(data: ClaimData): Obs[] {
     for (const d of data.days) {
       const r = d.rides.find(x => x.id === id)
       if (r) return { day: dn(d.day), text: `${MODES[r.mode].label} ${short(r.from_name)} → ${short(r.to_name)}` }
-      if (d.hotel && d.hotel.id === id) return { day: dn(d.day), text: `Hotel night${d.hotel.name ? ' · ' + d.hotel.name : ''}` }
+      if (d.hotel && d.hotel.id === id) return { day: dn(d.day), text: `Room stay${d.hotel.name ? ' · ' + d.hotel.name : ''}` }
       const x = d.expenses.find(e => e.id === id)
       if (x) return { day: dn(d.day), text: x.category }
     }
@@ -738,10 +1142,20 @@ export function claimObservations(data: ClaimData): Obs[] {
   }
   if (rule.bike_km_month && data.km_month.bike > rule.bike_km_month) items.push({ kind: 'month', detail: `Bike ${km(data.km_month.bike)} this month, over ${rule.bike_km_month} km` })
   if (rule.car_km_month && data.km_month.car > rule.car_km_month) items.push({ kind: 'month', detail: `Car ${km(data.km_month.car)} this month, over ${rule.car_km_month} km` })
+  // Each auto ride past the month's auto limit: red, with the reason written (the user, 26 Nov).
   const autoCap = Number(data.policy.auto_month ?? 1000)
-  if (data.km_month.auto > autoCap) items.push({ kind: 'month', detail: `Auto ${money(data.km_month.auto)} this month, over ${money(autoCap)}` })
-  return items
+  const autoElse = Math.max(0, data.km_month.auto - data.days.reduce((t, x) => t + x.rides.reduce((u, r) => u + (r.mode === 'auto' ? r.fare ?? 0 : 0), 0), 0))
+  const overs = autoOver(data.days, autoCap, autoElse)
+  for (const d of data.days) d.rides.forEach((r, i) => {
+    if (!overs.has(r.id)) return
+    items.push({ kind: 'autoover', day: dn(d.day), to: r.id,
+      detail: `Ride ${i + 1} · ${money(r.fare)} · ${money(overs.get(r.id)!)} of ${money(autoCap)}${r.note?.trim() ? ` · “${r.note.trim()}”` : ''}` })
+  })
+  // Day started and ended, away from home, late night: the manager's, not the Travel Desk's (the user, 10 Nov).
+  return deskOnly(data.claim) ? items.filter(i => OBS[i.kind].group !== 'start') : items
 }
+/** The Travel Desk looking at somebody else's claim, not as that person's manager. */
+export const deskOnly = (c: { is_desk: boolean; is_manager: boolean; mine: boolean }) => c.is_desk && !c.is_manager && !c.mine
 /** What keeps a claim out of Approve all: each kind to approve or check, once ("Not in grade policy", "Bill missing"). */
 export const claimIssues = (data: ClaimData) => {
   const seen = new Map<string, { title: string; level: 'approve' | 'check'; icon: LucideIcon }>()
@@ -750,41 +1164,73 @@ export const claimIssues = (data: ClaimData) => {
 }
 
 function Observations({ data, onGo }: { data: ClaimData; onGo: (id: string) => void }) {
+  // Past the manager, what needed approval has been approved: grey, not red (the user, 20 Nov: "for travel desk it is in red").
+  const past = !['draft', 'with_manager', 'returned'].includes(data.claim.status)
+  const lv = LEVEL
+  // Auto after bike and over the auto limit stay red at every step (the user, 20 Nov).
+  const lvOf = (i: Obs): keyof typeof LEVEL => past && OBS[i.kind].level === 'approve' && i.kind !== 'autobike' && i.kind !== 'autoover' && i.kind !== 'startskip' ? 'passed' : OBS[i.kind].level
   const items = claimObservations(data)
   if (!items.length) return data.days.length ? <p className="text-sm text-green-800"><Check className="mr-1 inline h-4 w-4" />Nothing to look at twice on this claim.</p> : null
 
-  const order = ['approve', 'check', 'info'] as const
-  const sorted = [...items].sort((x, y) => order.indexOf(OBS[x.kind].level) - order.indexOf(OBS[y.kind].level))
-  const count = (l: typeof order[number]) => items.filter(i => OBS[i.kind].level === l).length
+  const order = ['approve', 'passed', 'check', 'info'] as const
+  const sorted = [...items].sort((x, y) => order.indexOf(lvOf(x)) - order.indexOf(lvOf(y)))
+  const count = (l: typeof order[number], list = items) => list.filter(i => lvOf(i) === l).length
+  // Each topic once, the one holding the most serious observation first.
+  const worst = (list: Obs[]) => Math.min(...list.map(i => order.indexOf(lvOf(i))))
+  const topics = (Object.keys(GROUPS) as Array<keyof typeof GROUPS>).map(g => ({ g, list: sorted.filter(i => OBS[i.kind].group === g) }))
+    .filter(x => x.list.length).sort((x, y) => worst(x.list) - worst(y.list))
   return (
     <div className="card overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-ink-100 bg-ink-50 px-4 py-2.5">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-900"><TriangleAlert className="h-4 w-4 text-amber-600" /> Observations</h2>
         <span className="flex flex-wrap gap-1.5">
           {order.filter(l => count(l)).map(l => (
-            <span key={l} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${LEVEL[l].chip}`}>
-              <i className={`h-1.5 w-1.5 rounded-full ${LEVEL[l].dot}`} />{count(l)} {LEVEL[l].label}
+            <span key={l} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${lv[l].chip}`}>
+              <i className={`h-1.5 w-1.5 rounded-full ${lv[l].dot}`} />{count(l)} {lv[l].label}
             </span>
           ))}
         </span>
       </div>
-      <ul className="divide-y divide-ink-100">
-        {sorted.map((it, i) => {
-          const o = OBS[it.kind], I = o.icon
-          return (
-            <li key={i} role={it.to ? 'button' : undefined} tabIndex={it.to ? 0 : undefined} onClick={it.to ? () => onGo(it.to!) : undefined}
-              onKeyDown={it.to ? e => { if (e.key === 'Enter') onGo(it.to!) } : undefined}
-              className={`flex items-start gap-3 px-4 py-2.5 ${it.to ? 'cursor-pointer transition-colors hover:bg-ink-100/60' : ''}`}>
-              <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${LEVEL[o.level].chip}`}><I className="h-4 w-4" /></span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-ink-900">{o.title}</span>
-                <span className="block text-sm text-ink-600">{it.detail}</span>
+      {topics.map(({ g, list }) => {
+        const G = GROUPS[g]
+        return (
+          <section key={g} className="border-t border-ink-100 first-of-type:border-t-0">
+            <div className="flex items-center gap-2 bg-ink-50/60 px-4 py-2">
+              <G.icon className="h-4 w-4 shrink-0 text-ink-500" />
+              <h3 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-ink-600">{G.title}</h3>
+              <span className="flex shrink-0 gap-1">
+                {order.filter(l => count(l, list)).map(l => (
+                  <span key={l} title={lv[l].label} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${lv[l].chip}`}>
+                    <i className={`h-1.5 w-1.5 rounded-full ${lv[l].dot}`} />{count(l, list)}
+                  </span>
+                ))}
               </span>
-              {it.day && <span className="shrink-0 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-600">{it.day}</span>}
-            </li>
-          )
-        })}
-      </ul>
+            </div>
+            <ul className="divide-y divide-ink-100">
+              {list.map((it, i) => {
+                const o = OBS[it.kind], I = o.icon
+                return (
+                  <li key={i} role={it.to ? 'button' : undefined} tabIndex={it.to ? 0 : undefined} onClick={it.to ? () => onGo(it.to!) : undefined}
+                    onKeyDown={it.to ? e => { if (e.key === 'Enter') onGo(it.to!) } : undefined}
+                    className={`flex items-start gap-3 px-4 py-2.5 ${it.to ? 'cursor-pointer transition-colors hover:bg-ink-100/60' : ''}`}>
+                    <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${lv[lvOf(it)].chip}`}><I className="h-4 w-4" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-ink-900">{o.title}</span>
+                      <span className="block text-sm text-ink-600">{it.detail}</span>
+                      {it.sub && (
+                        <span className="mt-1.5 flex items-start gap-1.5 border-l-2 border-ink-200 pl-2.5 text-[13px] text-ink-500">
+                          <Gauge className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span><b className="font-semibold text-ink-700">Km changed from the map</b> · {it.sub}</span>
+                        </span>
+                      )}
+                    </span>
+                    {it.day && <span className="shrink-0 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-600">{it.day}</span>}
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -801,11 +1247,22 @@ function missingBills(data: ClaimData, over: number): Array<{ id: string; label:
   for (const d of data.days) {
     const dn = new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
     for (const r of d.rides) if (needsBill('ride', r, over, rule) && !billed.has(r.id)) out.push({ id: r.id, label: `${dn} · ${MODES[r.mode].label} ride ${short(r.from_name)} → ${short(r.to_name)} · ${money(rideAmount(r, rule))}` })
-    if (d.hotel && !d.room_by && !billed.has(d.hotel.id)) out.push({ id: d.hotel.id, label: `${dn} · Hotel night ${d.hotel.name ?? ''} · ${money(d.hotel.amount)}` })
+    if (d.hotel && !d.room_by && !billed.has(d.hotel.id)) out.push({ id: d.hotel.id, label: `${dn} · Room stay ${d.hotel.name ?? ''} · ${money(d.hotel.amount)}` })
     for (const x of d.expenses) if (needsBill('expense', x, over) && !billed.has(x.id)) out.push({ id: x.id, label: `${dn} · ${x.category} · ${money(x.amount)}` })
   }
   return out
 }
 
 const short = (s: string | null) => (s ? s.split(',')[0] : '—')
+/** The same trip on another claim, as it stands: who, on which claim, for how much, and when their photos were together. */
+function sharedLine(s: SharedRide, r: Ride, leg: string, name: string) {
+  const first = (n: string) => { const w = n.trim().split(/\s+/)[0] ?? ''; return w.charAt(0).toUpperCase() + w.slice(1) }
+  const on = s.number ? `on ${s.number}` : 'on a claim not sent yet'
+  const here = `${money(Number(r.amount ?? r.fare ?? 0))} here`
+  const seen = `photos together at ${short(s.at === 'end' ? r.to_name : r.from_name)}: ${first(name)} ${clock(s.mine_at)}, ${first(s.name)} ${clock(s.other_at)}`
+  return s.kind === 'ticket'
+    ? `${leg} · One ticket for both likely, with ${s.name} (${s.ecode}): ${on} for ${money(Number(s.amount))}${s.note ? ` (“${s.note}”)` : ''}, ${here} · ${seen}`
+    : `${leg} · Shared ${MODES[s.mode].label.toLowerCase()} likely with ${s.name} (${s.ecode}): the same trip ${on} for ${money(Number(s.amount))}${s.bill ? ' with a bill' : ', no bill'}, ${here} · ${seen}`
+}
+const span = (min: number) => { const m = Math.round(min); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}` }
 const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'}`

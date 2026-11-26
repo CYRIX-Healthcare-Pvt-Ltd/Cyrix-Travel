@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronRight, Paperclip, Pencil, ReceiptText, Trash2 } from 'lucide-react'
+import { BriefcaseBusiness, ChevronRight, FileSpreadsheet, Paperclip, Pencil, ReceiptText, Trash2, Undo2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAsk } from '@/components/Ask'
-import { Alert, PageLoader } from '@/components/ui'
+import { Alert, PageLoader, Spinner } from '@/components/ui'
 import { STATUS, STATUS_HUE, claimName, dayRange, editable, km, money, rpc, useMyClaims, type ClaimData } from '@/lib/claims'
 import AddClaim from '@/components/AddClaim'
 import { PlaceChips, useClaimFilter } from '@/components/ClaimRows'
@@ -32,6 +32,23 @@ export default function Months() {
       await qc.invalidateQueries({ queryKey: ['te_my_claims'] })
     } catch (e) { setErr((e as Error).message) }
   }
+  /*
+    The claims shown, as Excel (the user, 2 Nov: "user want download excel in my claims … based on the date filters selected …
+    all in single sheet … and a summary sheet too"): each one whole, four at a time.
+  */
+  const [xl, setXl] = useState<'busy' | string | null>(null)
+  const download = async (list: Array<{ id: string }>) => {
+    setXl('busy')
+    try {
+      const full: ClaimData[] = []
+      for (let i = 0; i < list.length; i += 4) full.push(...await Promise.all(list.slice(i, i + 4).map(c => rpc<ClaimData>('te_claim', { p_claim: c.id }))))
+      const days = full.filter(d => d.days.length)
+      if (!days.length) { setXl('No days on these claims yet.'); return }
+      const { exportClaims } = await import('@/lib/exportClaim')
+      await exportClaims(days, find.label)
+      setXl(null)
+    } catch (e) { setXl((e as Error).message) }
+  }
   if (isLoading) return <PageLoader />
   const shown = (data ?? []).filter(find.test)
   return (
@@ -43,7 +60,13 @@ export default function Months() {
         </div>
       </div>
       {(err || error) && <Alert kind="error">{err ?? (error as Error).message}</Alert>}
-      {(data?.length ?? 0) > 0 && find.bar}
+      {(data?.length ?? 0) > 0 && find.bar(
+        <button type="button" disabled={xl === 'busy' || !shown.length} onClick={() => void download(shown)}
+          className="btn-lift inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-green-600/40 px-4 text-sm font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50 lg:w-auto">
+          {xl === 'busy' ? <Spinner className="h-4 w-4" /> : <FileSpreadsheet className="h-4 w-4" />} Excel
+        </button>,
+      )}
+      {xl && xl !== 'busy' && <Alert kind="error">{xl}</Alert>}
       {!data?.length ? (
         <div className="card p-8 text-center text-sm text-ink-500">No claims yet. Start this month's, then add each day you travelled.</div>
       ) : !shown.length ? (
@@ -64,6 +87,7 @@ export default function Months() {
                   <p className="truncate text-xs text-ink-600">{dayRange(c.first_day, c.last_day)}{c.days > 1 ? ` · ${c.days} days` : ''}{c.km > 0 ? ` · ${km(c.km)}` : ''}</p>
                   {/* What is still missing and where it stands; no mode icons (the user, 23 Oct, as on Approvals). */}
                   <p className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+                    {c.deputation && <span title={c.deputation} className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-800"><BriefcaseBusiness className="h-3 w-3" />Deputation</span>}
                     {c.bills_missing > 0 && <span className="inline-flex items-center gap-1 font-semibold text-cyrixRed-700"><Paperclip className="h-3.5 w-3.5" />{c.bills_missing} bill{c.bills_missing > 1 ? 's' : ''} needed</span>}
                     {c.status === 'returned' || c.status === 'recalled' ? (c.returned_at && <span className="text-ink-500">{c.status === 'returned' ? 'Sent back' : 'Recalled'} {shortDay(c.returned_at)}</span>)
                       : c.submitted_at && c.status !== 'draft' && <span className="text-ink-500">Sent {shortDay(c.submitted_at)}</span>}
@@ -79,7 +103,7 @@ export default function Months() {
                     onClick={async e => {
                       e.preventDefault(); e.stopPropagation()
                       if (c.status === 'with_manager') {
-                        if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change bills or km. Send it again when done.`, yes: 'Recall' }))) return
+                        if (!(await ask.confirm({ title: 'Recall to edit?', body: `${c.number ?? 'This claim'} comes back from your manager so you can change bills or km. Send it again when done.`, yes: 'Recall', icon: Undo2 }))) return
                         try { await rpc('te_recall', { p_claim: c.id }); await qc.invalidateQueries({ queryKey: ['te_my_claims'] }) } catch (x) { setErr((x as Error).message); return }
                       }
                       nav(`/claim/${c.id}?edit=1`)

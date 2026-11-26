@@ -13,13 +13,28 @@ const Claim   = lazyRoute(() => import('@/pages/ClaimPage'))
 const DayPage = lazyRoute(() => import('@/pages/DayPage'))
 const MyPlaces = lazyRoute(() => import('@/pages/MyPlaces'))
 const Inbox   = lazyRoute(() => import('@/pages/Inbox'))
+const ApprovalPerson = lazyRoute(() => import('@/pages/ApprovalPerson'))
 const TeAdmin = lazyRoute(() => import('@/pages/TeAdmin'))
 const Summary = lazyRoute(() => import('@/pages/Summary'))
 const Bookings = lazyRoute(() => import('@/pages/Bookings'))
-const Advances = lazyRoute(() => import('@/pages/Advances'))
+const VisitPhotos = lazyRoute(() => import('@/pages/VisitPhotos'))
 
 export default function App() {
   const { session, loading, hasAccess, isAdmin, isDesk } = useAuth()
+
+  /*
+    The pages a tap opens next, fetched while the phone is idle after the first screen, so a tap waits only for its
+    data and not for its code too (the user, 2 Nov: "during demo our travel software loading too much time").
+  */
+  useEffect(() => {
+    if (!session || !hasAccess) return
+    const warm = () => {
+      for (const page of [() => import('@/pages/ClaimPage'), () => import('@/pages/DayPage'), () => import('@/pages/Months'),
+        () => import('@/pages/Inbox'), () => import('@/pages/ApprovalPerson'), () => import('@/pages/MyPlaces'), () => import('leaflet')]) void page().catch(() => {})
+    }
+    const t = window.setTimeout(() => ('requestIdleCallback' in window ? window.requestIdleCallback(warm, { timeout: 5000 }) : warm()), 1500)
+    return () => window.clearTimeout(t)
+  }, [session, hasAccess])
 
   if (loading) return <PageLoader />
   if (!session) return <SignInElsewhere />
@@ -33,9 +48,13 @@ export default function App() {
           <Route path="claims" element={<Months />} />
           <Route path="claim/:id" element={<Claim />} />
           <Route path="claim/:id/day" element={<DayPage />} />
-          <Route path="advances" element={<Advances />} />
-          <Route path="places" element={<MyPlaces />} />
+          {/* My advance is a tab of My profile (the user, 28 Oct); its old address, in mails and the bell, still opens it. */}
+          <Route path="advances" element={<Navigate to="/profile?tab=advance" replace />} />
+          <Route path="photos" element={<VisitPhotos />} />
+          <Route path="profile" element={<MyPlaces />} />
+          <Route path="places" element={<Navigate to="/profile" replace />} />
           <Route path="approvals" element={<Inbox />} />
+          <Route path="approvals/person/:id" element={<ApprovalPerson />} />
           <Route path="bookings" element={isDesk || isAdmin ? <Bookings /> : <Navigate to="/" replace />} />
           <Route path="policy" element={isAdmin ? <TeAdmin /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,12 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, BedDouble, Building2, CalendarDays, Map as MapIcon, MapPin, Plus, RotateCcw, ReceiptIndianRupee, Ticket as TicketIcon, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import VisitCamera from '@/components/VisitCamera'
+import VisitThumb from '@/components/VisitThumb'
+import { clock, lastGoing, lateBy, matchPhotos, metres, needsPhoto, photoNear, photoOrder } from '@/lib/visits'
+import { homeLimit, endedNextMorning, shortDay, startName, stayMinutes, stayText, useMyDay } from '@/lib/dayStart'
+import { photosPreview, previewPhotos } from '@/lib/previewPhotos'
+import { StartConfirm } from '@/components/StartDay'
+import { ArrowLeft, BedDouble, Building2, CalendarDays, Camera, CameraOff, Headset, MapPin, Plus, RotateCcw, Sunrise, Sunset, ReceiptIndianRupee, Route, ScanLine, Sparkles, Ticket as TicketIcon, Trash2, TriangleAlert } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import PlacePicker from '@/components/PlacePicker'
 import RouteMap from '@/components/RouteMap'
+import { isTestLogin, needsShot, roadsFor, overPct, removeRouteShot, routeShotsOn, shotBand, shotDay, shotFits, shotOk, shotSetsKm } from '@/lib/routeShots'
+import { googleFor, googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
+import { RoadsButton, RoutePick } from '@/components/RoadChoice'
+import RouteProof from '@/components/RouteProof'
 import BillButton from '@/components/BillButton'
 import ReportButton from '@/components/ReportButton'
+import TicketLookup, { TICKET_TEST, BEMP_TICKET, ticketFor, ticketMismatch } from '@/components/TicketLookup'
 import ModePicker from '@/components/ModePicker'
+import PickList from '@/components/PickList'
 import { useAsk } from '@/components/Ask'
 import Dialog from '@/components/Dialog'
 import MonthCalendar from '@/components/MonthCalendar'
@@ -16,9 +28,9 @@ import { supabase, friendlyError } from '@/lib/supabase'
 import { hotelQueries, ticketQueries, type HotelStay, type TicketRoute } from '@/lib/ticket'
 import { useAuth } from '@/contexts/AuthContext'
 import {
-  DA_KINDS, EXPENSE_CATEGORIES, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmChanged, money, monthName, needsBill, newId,
-  areaOf, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride,
-} from '@/lib/claims'
+  autoAfterBike, autoOver, DA_KINDS, DA_LOOKS, daKindsFor, isAurum, expenseIcon, expenseKinds, expenseRole, expenseTone, purposeLook, kmWay, autoDa, districtOf, MODES, daFor, hotelLimit, isBreakdown, km, kmCanReach, kmChanged, kmRange, money, monthName, needsBill, newId,
+  rpc, kmOutFromHome, areaOf, billMatches, billRead, companyOf, dayTotal, distanceKm, lookupPlace, outOfPolicy, rideAmount, roadKm, visitedPlaces, type ClaimData, type ReturnLeg, type Day, type DaKind, type ModeCode, type Place, type Ride, shortExtra, roadBand, mapBand, dayExtra, roadWhyPct, setRoadRules } from '@/lib/claims'
+import { depOn, sameState } from '@/lib/deputation'
 
 /*
   One day of the claim (the user, 17 Oct: day cards): when, why, the rides with their places picked
@@ -41,7 +53,17 @@ const blankRide = (from?: Place | null, carry?: Pick<Ride, 'purpose' | 'project'
   purpose: carry?.purpose ?? null, project: carry?.project ?? null, ticket_no: '',
 })
 /** A breakdown ride's ticket ID, from the ticket kept under the ride's id (te_0060). */
-const withTickets = (day: Day): Day => ({ ...day, rides: day.rides.map(r => ({ ...r, ticket_no: r.ticket_no ?? day.tickets.find(t => t.id === r.id)?.ticket_no ?? '' })) })
+const withTickets = (day: Day): Day => ({ ...day, rides: day.rides.map(r => ({ ...r, ticket_no: r.ticket_no ?? day.tickets.find(t => t.id === r.id)?.ticket_no ?? '', asset_no: r.asset_no ?? day.tickets.find(t => t.id === r.id)?.asset_no ?? '', service_report: r.service_report ?? day.tickets.find(t => t.id === r.id)?.service_report ?? '' })) })
+
+/*
+  An amount a bill can fill says so (the user, 26 Oct: management wants people to know attaching a bill fills it in):
+  empty, a scan mark at its end; filled with what the bill reads, a spark. Its input leaves room with pr-7.
+*/
+function BillHint({ value, read }: { value: number | null | undefined; read: number | null }) {
+  const at = 'pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-700'
+  if (!value) return <ScanLine className={`bill-scan ${at}`} aria-hidden />
+  return billMatches(read, value) ? <Sparkles className={`bill-spark ${at}`} aria-label="Read from the bill" /> : null
+}
 
 /*
   What is typed is kept in this browser until it is saved, so going back and coming again finds it as
@@ -74,8 +96,36 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const start: Day = kept ? { ...kept.day, ...(chosen && !saved ? { day: initial.day } : {}) } : initial
   const [d, setD] = useState<Day>(start)
   const [picking, setPicking] = useState<{ ride: string; end: 'from' | 'to' } | null>(null)
+  // The ride home as it was before Add another ride cleared its To: closing the picker without a place puts it back (the user, 20 Nov).
+  const [undoEnd, setUndoEnd] = useState<Ride | null>(null)
+  /*
+    A ride is finished before the next is added (the user, 30 Oct: "without entering purpose dont let add another ride … on
+    click it should say enter purpose and that field should be highlighted"): its To, then its purpose, named under the
+    button and the box itself ringed, shaken and brought into view.
+  */
+  const [nudge, setNudge] = useState<{ ride: string; what: 'to' | 'purpose' } | null>(null)
+  const [tried, setTried] = useState(false)
+  const nudged = (id: string, what: 'to' | 'purpose') => {
+    const r = nudge?.ride === id && nudge.what === what ? d.rides.find(x => x.id === id) : undefined
+    return !!r && (what === 'to' ? r.to_lat == null : !r.purpose)
+  }
+  const nudgeLine = (id: string, what: 'to' | 'purpose', n: number, pad = '') => nudged(id, what) && (
+    <p className={`mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-cyrixRed-700 ${pad}`}>
+      <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>
+      {what === 'to' ? `Choose where ride ${n} went` : `Choose the purpose of ride ${n}`}
+    </p>
+  )
   // One ride on the map, from its own card (the user, 21 Oct: "option to view in map in each mode").
   const [mapRide, setMapRide] = useState<Ride | null>(null)
+  // The ride whose other roads are open (the user, 18 Nov: hidden until asked, Google's own road kept).
+  const [roadsOf, setRoadsOf] = useState<string | null>(null)
+  // Open roads close on a press anywhere else (the user, 18 Nov: "clicked anywhere other ... it should collapse").
+  useEffect(() => {
+    if (!roadsOf) return
+    const away = (e: PointerEvent) => { if (!(e.target as Element | null)?.closest?.(`[data-roads="${roadsOf}"]`)) setRoadsOf(null) }
+    document.addEventListener('pointerdown', away)
+    return () => document.removeEventListener('pointerdown', away)
+  }, [roadsOf])
   // The claim's details, kept in the form with everything else (the user, 17 Oct).
   const [hdr, setHdr] = useState(kept?.hdr ?? header)
   const changed = JSON.stringify({ ...d, id: initial.id }) !== JSON.stringify(initial) || JSON.stringify(hdr) !== JSON.stringify(header)
@@ -111,6 +161,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const [dating, setDating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [home, setHome] = useState<Place | null>(null)
+  const [work, setWork] = useState<Place | null>(null)
   const [homeReady, setHomeReady] = useState(false)
   const [who, setWho] = useState<Array<{ ecode: string; full_name: string }>>([])
   const nav = useNavigate()
@@ -135,35 +186,85 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     } catch (e) { setErr(friendlyError(e as never)) } finally { setBusy(false) }
   }
   const c = data.claim, rule = data.rule
-  const over = Number(data.policy.bill_over ?? 300), metroPct = Number(data.policy.metro_extra_pct ?? 20)
+  // The km box being typed in: under the map's km is not called out until it is left (8 on the way to 8.8).
+  const [typingKm, setTypingKm] = useState<string | null>(null)
+  // Visit photos (te_0082): the camera opened from a ride of today, and "Photo not possible" used this month so far.
+  const [cameraFor, setCameraFor] = useState<string | null>(null)
+  // A To taken by the camera (the user, 3 Nov): the photo is saved, and where it was taken is the ride's end.
+  const [cameraTo, setCameraTo] = useState<string | null>(null)
+  const setup = data.photo_setup
+  const skipsUsed = (data.photo_skips_other ?? 0) + data.days.filter(x => x.id !== d.id).reduce((t, x) => t + x.rides.filter(r => r.photo_skip != null).length + (x.start_skip ? 1 : 0), 0) + d.rides.filter(r => r.photo_skip != null).length + (d.start_skip != null ? 1 : 0)
+  // Each ride its own photo (te_0092): a hospital gone to twice needs two.
+  const shots = d.day ? matchPhotos(d.rides, d.day, data.visit_photos, setup) : new Map<string, never>()
+  /*
+    The next visit photo for a ride's To (the user, 20 Nov): the first photo of the day not on a ride yet, taken after
+    the photo of the ride before it. Offered on the card under an empty To and at the top of the picker.
+  */
+  const photoOf = (r: Ride) => setup && d.day ? (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo ?? null : null
+  const nextPhoto = (i: number) => {
+    if (!setup?.on || !d.day) return null
+    const usedIds = new Set([...d.rides.map(photoOf).filter(Boolean).map(p => p!.id), ...(startPhoto ? [startPhoto.id] : [])])
+    const after = d.rides.slice(0, i).map(photoOf).filter(Boolean).map(p => p!.shot_at).sort().pop() ?? ''
+    return dayPhotos.find(p => !usedIds.has(p.id) && p.shot_at > after) ?? null
+  }
+  const [usingPhoto, setUsingPhoto] = useState<string | null>(null)
+  const useNextPhoto = async (rideId: string, ph: NonNullable<ReturnType<typeof nextPhoto>>) => {
+    setUsingPhoto(rideId)
+    const known = await rpc<string | null>('te_place_at', { p_lat: ph.lat, p_lng: ph.lng }).catch(() => null)
+    const name = known ?? ((ph.place ?? '').split(',')[0].trim() || 'Visit photo')
+    try { await placed(rideId, 'to', { name, lat: ph.lat, lng: ph.lng } as Place, !known) } finally { setUsingPhoto(null) }
+  }
+  const photoNeeded = (r: Ride) => needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides)) && !!d.day && !shots.has(r.id)
+  // The claim day's visit photos only, earliest first: a From or To chosen from one (the user, 30 Oct).
+  const dayPhotos = useMemo(() => photosPreview && d.day ? previewPhotos(d.day) : (data.visit_photos ?? []).filter(p => p.day === d.day && p.path).sort((a, b) => Date.parse(a.shot_at) - Date.parse(b.shot_at)), [data.visit_photos, d.day])
+  // Rides claimed in another order than their photos were taken: said on the ride, and Save waits (the user, 30 Oct).
+  const order = setup?.on && d.day ? photoOrder(d.rides, d.day, data.visit_photos, setup) : null
+  const orderText = order && {
+    late: (order.late.ride.to_name ?? '').split(',')[0], lateAt: clock(order.late.photo.shot_at),
+    early: (order.early.ride.to_name ?? '').split(',')[0], earlyAt: clock(order.early.photo.shot_at),
+  }
+  const over = Number(data.policy.bill_over ?? 300), metroPct = Number(data.policy.metro_extra_pct ?? 20), tol = Number(data.policy.km_tolerance_pct ?? 10)
   const outOfState = d.da_kind === 'out_state_stay'
   // The day's purpose for its DA: a ride that gives DA, else the first (an office day has none).
   const dayPurpose = d.rides.find(r => r.purpose && !data.office_purposes.includes(r.purpose))?.purpose ?? d.rides.find(r => r.purpose)?.purpose ?? d.purpose
-  const da = daFor(rule, d.da_kind, dayPurpose, data.office_purposes)
+  // The approved deputation the day is inside (te_0075): its DA, the same for every grade.
+  const dep = depOn(data.deputations, d.day), depDa = Number(data.policy.deputation_da ?? 800)
+  const da = daFor(rule, d.da_kind, dayPurpose, data.office_purposes, depDa)
   /*
-    Where a new ride's purpose and call centre come from: the last ride of this day, else of the latest earlier day.
-    A day's first ride starts on the person's own cost centre (te_0063; the user, 24 Oct: "on add claim, we need
-    defaulty show his cost centre only"), else the earlier day's, else the claim's project.
+    Where a new ride's call centre comes from: the last ride of this day, else of the latest earlier day. A day's first
+    ride starts on the person's own cost centre (te_0063; the user, 24 Oct: "on add claim, we need defaulty show his
+    cost centre only"), else the earlier day's, else the claim's project. Its purpose starts blank (the user, 30 Oct:
+    "dont make default purpose as previous"), unless its To is home or work.
   */
   const carry = (): Pick<Ride, 'purpose' | 'project'> => {
     const last = latest.current.rides[latest.current.rides.length - 1]
-    if (last) return { purpose: last.purpose ?? null, project: last.project ?? null }
+    if (last) return { purpose: null, project: last.project ?? null }
     const before = [...data.days].filter(x => x.id !== initial.id && x.day < latest.current.day && x.rides.length).sort((a, b) => a.day.localeCompare(b.day)).pop()
     const r = before?.rides[before.rides.length - 1]
-    return { purpose: r?.purpose ?? null, project: c.cost_centre || r?.project || c.project || null }
+    return { purpose: null, project: c.cost_centre || r?.project || c.project || null }
   }
   /*
     The km box takes the map's km as soon as the map has the road (te_0060; the user, 23 Oct). Typed otherwise, it is
     kept — and the approver sees the change. A km the map put in follows the map when the places change.
   */
-  const autoKm = useRef(new Map<string, number>())
+  // Every km the map put in a ride's box, so one put in while another mode's km was showing still follows the road's
+  // (the user, 28 Oct: Bike → Metro → Bike left the box at the track's 12.6 km under a road map of 8.8 km).
+  /*
+    A km that was the map's as the day was saved, or as the form kept it, counts as the map's too (the user, 30 Oct: Lakeshore
+    changed to Cyrix kept its 11 km under a map of 7.9 — "still not changing").
+  */
+  const autoKm = useRef<Map<string, Set<number>>>(null!)
+  if (!autoKm.current) {
+    autoKm.current = new Map()
+    for (const r of [...initial.rides, ...start.rides]) if (r.map_km != null && r.claimed_km === r.map_km) autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(r.map_km))
+  }
   const kmKey = d.rides.map(r => `${r.id}:${r.mode}:${r.map_km ?? ''}`).join('|')
   useEffect(() => {
     for (const r of latest.current.rides) {
       if (!MODES[r.mode].perKm || r.map_km == null) continue
-      const was = autoKm.current.get(r.id)
-      if (r.claimed_km == null || (was != null && r.claimed_km === was)) {
-        autoKm.current.set(r.id, r.map_km)
+      const put = autoKm.current.get(r.id) ?? new Set<number>()
+      if (r.claimed_km == null || put.has(r.claimed_km)) {
+        put.add(r.map_km); autoKm.current.set(r.id, put)
         if (r.claimed_km !== r.map_km) setRide(r.id, { claimed_km: r.map_km })
       }
     }
@@ -171,18 +272,125 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   }, [kmKey])
   const set = (p: Partial<Day>) => setD(x => ({ ...x, ...p }))
   const setRide = (id: string, p: Partial<Ride>) => setD(x => ({ ...x, rides: x.rides.map(r => (r.id === id ? { ...r, ...p } : r)) }))
+  // The ticket is looked up only once the engineer leaves the box, never while typing in it (the user, 14 Nov: they go
+  // to another app to check the ID and come back): while a ride's box is in use, its look-up keeps what it had.
+  const [editingTicket, setEditingTicket] = useState<{ id: string; was: string } | null>(null)
+  // A Google Maps screenshot sets its ride's km, and the km box is locked while it fits the ride (te_0141; the user,
+  // 9 Nov: "when attached, change the input field to what google map location says and it shouldnt be editable, only
+  // if deleted, then it will come default of our map").
+  const shotOn = routeShotsOn(c.ecode) && shotDay(d.day, c.ecode)
+  // Google's roads for everyone's days from 19 Nov, a test login's any day (the user, 18 Nov), set before any ride asks for its km.
+  setGoogleRoutes(googleFor(isTestLogin(c.ecode), d.day))
+  setRoadRules(data.policy)
+  // Other routes, the % over the shortest road and its reason: everybody's days from 20 Nov, a test login's any day (roadsFor).
+  const roadsExtra = roadsFor(c.ecode, d.day)
+  const roadWhy = (r: Ride) => roadsExtra && MODES[r.mode].perKm && (shortExtra(r)?.pct ?? 0) > roadWhyPct()
+  // The km that may be typed: Google's shortest to longest road when known (test logins), else the map's km to the tolerance over it.
+  const kmBand = (r: Ride) => (roadsExtra && MODES[r.mode].perKm ? roadBand(r) ?? (r.map_km != null ? mapBand(r.map_km) : null) : null) ?? (r.map_km != null ? kmRange(r.map_km, tol) : null)
+  const googleBand = (r: Ride) => roadsExtra && MODES[r.mode].perKm && r.map_km != null
+  const kmOff = (r: Ride) => { const b = kmBand(r); return r.claimed_km != null && b != null && (r.claimed_km < b.lo || r.claimed_km > b.hi) }
+  const shotOf = (r: Ride) => (shotOn ? data.routes?.find(s => s.ride_id === r.id) : undefined)
+  const lockedKm = (r: Ride) => (MODES[r.mode].perKm ? shotSetsKm(shotOf(r), r) : null)
+  // A ride whose screenshot is gone goes back to the map's km once the claim has reloaded without it; until then the
+  // old screenshot would put its km straight back (the user, 9 Nov: "after … deleting, in field that g map distance is
+  // still there").
+  const hadShot = useRef(new Set<string>())
+  useEffect(() => {
+    const now = new Set<string>()
+    for (const r of d.rides) {
+      const k = lockedKm(r)
+      if (k != null) {
+        now.add(r.id)
+        // Counted as a km put in for the person, so a new From or To brings the new map's km in its place.
+        autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(k))
+        if (r.claimed_km !== k) setRide(r.id, { claimed_km: k })
+      }
+      else if (hadShot.current.has(r.id) && !shotOf(r) && r.map_km != null && r.claimed_km !== r.map_km) {
+        autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(r.map_km))
+        setRide(r.id, { claimed_km: r.map_km })
+      }
+    }
+    hadShot.current = now
+  }, [data.routes, d.rides]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A new From or To takes the old screenshot away (the user, 9 Nov: "whenever new to is added old should go and
+  // default new location should show"); the km box then has the new map's km.
+  const dropping = useRef(new Set<string>())
+  useEffect(() => {
+    for (const r of d.rides) {
+      const s = shotOf(r)
+      if (!s || s.from_lat == null || r.from_lat == null || r.to_lat == null || shotFits(s, r) || dropping.current.has(s.id)) continue
+      dropping.current.add(s.id)
+      void removeRouteShot(s.id).then(refresh, () => dropping.current.delete(s.id))
+    }
+  }, [data.routes, d.rides]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Another way of measuring (road, rail, air): the old km goes at once, so a bike never shows the track's km while the road's is fetched.
+  const setMode = (id: string, mode: Ride['mode']) =>
+    setD(x => ({ ...x, rides: x.rides.map(r => (r.id !== id ? r : { ...r, mode, ...(kmWay(mode) !== kmWay(r.mode) ? { map_km: null } : {}) })) }))
   const refresh = () => void qc.invalidateQueries({ queryKey: ['te_claim', c.id] })
   const firstDay = c.month.slice(0, 8) + '01'
   const monthEnd = new Date(new Date(c.month + 'T00:00:00').getFullYear(), new Date(c.month + 'T00:00:00').getMonth() + 1, 0).toLocaleDateString('en-CA')
   // Never a future date (the user, 17 Oct).
   const today = new Date().toLocaleDateString('en-CA')
   const lastDay = monthEnd < today ? monthEnd : today
+  /*
+    A day is added within claim_within_days of it, today counted (te_0093; the user, 30 Oct: "on monday i can submit
+    claim from previous saturday"); a day saved in time keeps its date.
+  */
+  const within = Number(data.policy.claim_within_days ?? 3)
+  const earliest = within > 0 ? (() => { const t = new Date(); t.setDate(t.getDate() - (within - 1)); return t.toLocaleDateString('en-CA') })() : firstDay
+  const savedOn = data.days.find(x => x.id === initial.id)?.day
+  const fromDay = earliest > lastDay ? lastDay : earliest > firstDay ? earliest : firstDay
 
   useEffect(() => {
     if (!employee) return
     void supabase.from('travel_homes').select('lat, lng').eq('employee_id', employee.id).maybeSingle()
       .then(({ data: h }) => { if (h) setHome({ name: 'Home', lat: h.lat, lng: h.lng }); setHomeReady(true) })
+    void supabase.from('travel_works').select('lat, lng').eq('employee_id', employee.id).maybeSingle()
+      .then(({ data: w }) => { if (w) setWork({ name: 'Work', lat: w.lat, lng: w.lng }) })
   }, [employee])
+  // Home to work or back, each end within 300 m: the commute, claiming nothing — as the database works it out (te_0085).
+  const near = (a: Place | null, lat: number | null | undefined, lng: number | null | undefined) => !!a && lat != null && lng != null && distanceKm(a, { lat, lng }) <= 0.3
+  const commute = (r: Ride) => (near(home, r.from_lat, r.from_lng) && near(work, r.to_lat, r.to_lng)) || (near(work, r.from_lat, r.from_lng) && near(home, r.to_lat, r.to_lng))
+  const paid = (r: Ride) => rideAmount({ ...r, commute: commute(r) }, rule)
+  /*
+    Start my day (te_0104): the day's first ride starts where the day was started — Home when within 3 km of it — and
+    that From is not changed here (the user, 3 Nov: "start my day, with the first ride's From locked to where he pressed").
+  */
+  const dayStart = data.day_starts?.find(s => s.day === d.day) ?? null
+  const { data: myDay } = useMyDay()
+  // Until te_my_day answers, the day counts as not started, so no camera shows before Start my day (te_0156).
+  const notStarted = !myDay || (myDay.required && !myDay.start)
+  const [starting, setStarting] = useState(false)
+  // End my day from the last ride's To (te_0109): the ride whose To it fills.
+  const [ending, setEnding] = useState<string | null>(null)
+  // The day before, after midnight and before today is started: its photos are still taken here (te_0108).
+  const lateHere = !!d.day && d.day === myDay?.late_day
+  /*
+    A past day without Start my day starts at visit photo 1, counted nothing; with no photo either, ride 1's From is
+    chosen with why (the user, 20 Nov). Today is as before: Start my day first.
+  */
+  const pastDay = !!d.day && d.day >= '2026-11-20' && d.day !== today && !!setup?.on
+  const startPhoto = !dayStart && pastDay ? dayPhotos[0] ?? null : null
+  const noProof = !dayStart && pastDay && !dayPhotos.length && !!myDay?.required
+  const startPlace: Place | null = dayStart ? (startName(dayStart) === 'Home' && home ? home : { name: startName(dayStart), lat: dayStart.lat, lng: dayStart.lng })
+    : startPhoto ? { name: (startPhoto.place ?? '').split(',')[0].trim() || 'Visit photo 1', lat: startPhoto.lat, lng: startPhoto.lng } : null
+  const firstId = d.rides[0]?.id
+  /*
+    End my day (te_0109; the user, 4 Nov): the day's last ride ends where the day was ended — Home within 3 km of it —
+    and that To is not changed here; a ride added after it goes before it.
+  */
+  const dayEnd = data.day_ends?.find(s => s.day === d.day) ?? null
+  // Ended the next morning (te_0150): the last ride is the day's end; how far the phone was is only an observation.
+  const endPlace: Place | null = dayEnd && !endedNextMorning(dayEnd) ? (startName(dayEnd) === 'Home' && home ? home : { name: startName(dayEnd), lat: dayEnd.lat, lng: dayEnd.lng }) : null
+  const lastRide = d.rides[d.rides.length - 1]
+  const endRideId = endPlace && lastRide?.to_lat != null && lastRide.to_name === endPlace.name && distanceKm(endPlace, { lat: lastRide.to_lat, lng: lastRide.to_lng! }) <= 0.05 ? lastRide.id : null
+  useEffect(() => {
+    const r = latest.current.rides[0]
+    if (!startPlace || !r) return
+    if (r.from_lat != null && distanceKm(startPlace, { lat: r.from_lat, lng: r.from_lng! }) <= 0.05 && r.from_name === startPlace.name) return
+    void placed(r.id, 'from', startPlace)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstId, startPlace?.name, startPlace?.lat, startPlace?.lng])
 
   // The hotel of the night, found from its voucher: one tap for the ride to it, or from it (the user, 21 Oct).
   const [stayAt, setStayAt] = useState<(Place & { label: string }) | null>(null)
@@ -190,13 +398,14 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const quick = useMemo(() => {
     const seen = new Map<string, Place & { home?: boolean; stay?: boolean; label?: string }>()
     if (home) seen.set('Home', { ...home, home: true })
+    if (work) seen.set('Work', { ...work })
     if (stayAt) seen.set('@stay', { ...stayAt, stay: true })
     for (const day of [...data.days, d]) for (const r of day.rides) {
       if (r.from_name && r.from_lat != null && !seen.has(r.from_name)) seen.set(r.from_name, { name: r.from_name, lat: r.from_lat, lng: r.from_lng! })
       if (r.to_name && r.to_lat != null && !seen.has(r.to_name)) seen.set(r.to_name, { name: r.to_name, lat: r.to_lat, lng: r.to_lng! })
     }
     return [...seen.values()].slice(0, 10).map(p => ({ ...p, label: p.label ?? p.name.split(',')[0] }))
-  }, [home, stayAt, data.days, d])
+  }, [home, work, stayAt, data.days, d])
 
   /*
     The DA follows the day's places (the user, 18 Oct): worked out again whenever a place or the hotel
@@ -204,6 +413,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     until its places change.
   */
   const [auto, setAuto] = useState<DaKind | null>(start.da_auto ?? null)
+  // A place of the day outside the deputation's state ("Bengaluru, Karnataka"): the approvers' red observation.
+  const [off, setOff] = useState<string | null>(start.dep_off ?? null)
   const stops = useMemo(() => {
     const ps: Place[] = []
     for (const r of d.rides) {
@@ -214,18 +425,40 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   }, [d.rides])
   const stay = !!(d.hotel || d.room_by)
   const stopsKey = stops.map(p => `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`).join('|') + (stay ? '|stay' : '')
-  const applied = useRef(saved || kept ? stopsKey : '')
+  const depKey = dep ? `|dep:${dep.state}:${dep.from_day}:${dep.to_day}` : ''
+  const applied = useRef(saved || kept ? stopsKey + depKey : '')
   useEffect(() => {
     if (!stops.length || !homeReady) return
     let live = true
-    void autoDa(home, stops, stay).then(k => {
+    void (async () => {
+      let k = await autoDa(home, stops, stay), outside: string | null = null
+      // Inside a deputation, every place in its state gives the deputation DA (the user, 26 Oct: "if the claim is from
+      // that state only we can claim in deputation"); one in another state is kept, and the day takes the usual DA.
+      if (dep) {
+        for (const p of stops) {
+          const a = await areaOf(p.lat, p.lng)
+          if (!sameState(a.state, dep.state)) { outside = [a.district, a.state].filter(Boolean).join(', '); break }
+        }
+        if (!outside) k = 'deputation'
+      }
+      // Aurum: local is within 100 km of base and has no allowance; past it, outstation at actual (the person may
+      // choose per diem instead).
+      // By road from home since 20 Nov (te_0168): the rides' km out; a day not starting from home keeps the straight line.
+      const out = kmOutFromHome(d.rides, home)
+      if (k && k !== 'deputation' && isAurum(rule)) k = (out != null ? out >= 100 : !!home && stops.some(p => distanceKm(home, p) > 100)) ? 'aurum_actual' : 'none'
       if (!live || !k) return
-      setAuto(k)
-      if (applied.current !== stopsKey) { applied.current = stopsKey; set({ da_kind: k }) }
-    })
+      setAuto(k); setOff(outside)
+      if (applied.current !== stopsKey + depKey) { applied.current = stopsKey + depKey; set({ da_kind: k }) }
+    })()
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stopsKey, homeReady])
+  }, [stopsKey, homeReady, depKey])
+  // A new day inside a deputation with no rides yet is a day at the site; a day moved out of it loses that DA.
+  useEffect(() => {
+    if (dep && !saved && !kept && !stops.length && d.da_kind === 'none') set({ da_kind: 'deputation' })
+    if (!dep && d.da_kind === 'deputation') { set({ da_kind: auto && auto !== 'deputation' ? auto : 'none' }); setOff(null) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depKey])
   // The hospitals a ticket is chosen from: where the day's rides went (the user, 21 Oct).
   const visited = visitedPlaces(d.rides)
   // The month's budget with this day as it is now in the form: saved use, less this day as saved, plus this day now.
@@ -238,6 +471,10 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     bike: km0.bike - was.bike + now.bike, car: km0.car - was.car + now.car,
     auto: km0.auto - was.auto + now.auto, phone: (km0.phone ?? 0) - was.phone + now.phone,
   }), ...(adv ? [adv] : [])]
+  // Auto rides over the month's auto limit, with this day as it is now: red, and a reason each (the user, 26 Nov).
+  const autoCap = Number(data.policy.auto_month ?? 0)
+  const autoElse = Math.max(0, km0.auto - data.days.reduce((t, x) => t + x.rides.reduce((u, r) => u + (r.mode === 'auto' ? r.fare ?? 0 : 0), 0), 0))
+  const overs = autoOver([...data.days.filter(x => x.id !== initial.id), d], autoCap, autoElse)
 
   // Road km once both ends of a ride are picked.
   /*
@@ -251,15 +488,33 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const same = nx.from_lat == null || (was.lat != null && Math.abs(nx.from_lat - was.lat) < 1e-5 && Math.abs((nx.from_lng ?? 0) - (was.lng ?? 0)) < 1e-5)
     if (!same || (nx.from_lat === p.lat && nx.from_lng === p.lng)) return
     setRide(nx.id, { from_name: p.name, from_lat: p.lat, from_lng: p.lng, map_km: null })
+    /*
+      The next ride now starting where it ends is the one the new To took the place of (the user, 30 Oct: Lakeshore changed
+      to Cyrix left "cyrix to cyrix"): offered for removal.
+    */
+    if (nx.to_lat != null && distanceKm(p, { lat: nx.to_lat, lng: nx.to_lng! }) < 0.15) {
+      const n = data.bills.filter(b => b.owner_id === nx.id).length, at = p.name.split(',')[0]
+      if (await ask.confirm({ title: `Remove ride ${i + 2}?`, body: `It now goes from ${at} to ${at}.${n ? ` Its ${n === 1 ? 'bill comes' : n + ' bills come'} off too.` : ''}`, yes: 'Remove', danger: true })) {
+        await dropBills([nx.id])
+        set({ rides: latest.current.rides.filter(x => x.id !== nx.id) })
+        return
+      }
+    }
     if (nx.to_lat != null) setRide(nx.id, { map_km: (await roadKm(p, { name: '', lat: nx.to_lat, lng: nx.to_lng! }, nx.mode))?.km ?? null })
   }
-  const placed = async (rideId: string, end: 'from' | 'to', p: Place) => {
+  const placed = async (rideId: string, end: 'from' | 'to', p: Place, named = false) => {
     setPicking(null)
     const r = d.rides.find(x => x.id === rideId)!
+    // The km box holding the old road's km takes the new road's.
+    if (r.map_km != null && r.claimed_km === r.map_km) autoKm.current.set(r.id, (autoKm.current.get(r.id) ?? new Set<number>()).add(r.map_km))
     if (end === 'to') void chainNext(rideId, { lat: r.to_lat, lng: r.to_lng }, p)
+    // A ride to home is for Home, one to the work location for Office (the user, 30 Oct); another can still be chosen.
+    const goal = end !== 'to' ? undefined
+      : near(home, p.lat, p.lng) ? data.purposes.find(x => /home/i.test(x))
+      : near(work, p.lat, p.lng) ? data.purposes.find(x => /office/i.test(x)) : undefined
     const next = end === 'from'
-      ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng }
-      : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng }
+      ? { ...r, from_name: p.name, from_lat: p.lat, from_lng: p.lng, from_named: named }
+      : { ...r, to_name: p.name, to_lat: p.lat, to_lng: p.lng, to_named: named, ...(goal ? { purpose: goal } : {}) }
     setRide(rideId, { ...next, map_km: null })
     if (next.from_lat != null && next.to_lat != null) {
       const road = await roadKm({ name: '', lat: next.from_lat, lng: next.from_lng! }, { name: '', lat: next.to_lat, lng: next.to_lng! }, next.mode)
@@ -310,16 +565,18 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     A ride turned into a train, the metro or a flight, or back, has its km worked out again on the tracks, through the
     air or by road (the user, 23 Oct: "if train or metro, can we get their respective mode km?", "what about flight?").
   */
-  const railKey = d.rides.map(r => `${r.id}:${kmWay(r.mode)}`).join('|')
+  // Also a ride turned from bike or car to a fare (or back): Google's road for the km modes, our map for the rest (the user, 18 Nov).
+  const wayOf = (mode: ModeCode) => `${kmWay(mode)}${MODES[mode].perKm ? '+km' : ''}`
+  const railKey = d.rides.map(r => `${r.id}:${wayOf(r.mode)}`).join('|')
   const railWas = useRef(railKey)
   useEffect(() => {
     const before = new Map(railWas.current.split('|').map(x => x.split(':') as [string, string]))
     railWas.current = railKey
     for (const r of latest.current.rides) {
-      const now = kmWay(r.mode)
+      const now = wayOf(r.mode)
       if (!before.has(r.id) || before.get(r.id) === now || r.from_lat == null || r.to_lat == null) continue
       void roadKm({ name: '', lat: r.from_lat, lng: r.from_lng! }, { name: '', lat: r.to_lat, lng: r.to_lng! }, r.mode)
-        .then(road => { const r1 = latest.current.rides.find(x => x.id === r.id); if (r1 && r1.mode === r.mode) setRide(r.id, { map_km: road?.km ?? null }) })
+        .then(road => { const r1 = latest.current.rides.find(x => x.id === r.id); if (r1 && wayOf(r1.mode) === now) setRide(r.id, { map_km: road?.km ?? null, ...(MODES[r1.mode].perKm ? {} : { route_km: null, route_why: null }) }) })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railKey])
@@ -399,30 +656,55 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     what to do to save it"). Save is greyed while any is left; the first is said beside it, a press goes there.
   */
   const billed = new Set(data.bills.map(b => b.owner_id))
+  const outKm = isAurum(rule) ? kmOutFromHome(d.rides, home) : null
   const blockers: Array<{ text: string; to: string }> = []
   if (!d.day) blockers.push({ text: 'Choose the date', to: 'day-date' })
   else if (d.day > lastDay) blockers.push({ text: 'A future date cannot be claimed', to: 'day-date' })
+  else if (d.day < earliest && d.day !== savedOn) blockers.push({ text: `Only days from ${new Date(earliest + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} can be added`, to: 'day-date' })
+  // A past day with neither Start my day nor a photo: ride 1's From is chosen with why, one of the month's limit (te_0169).
+  if (noProof && d.rides.length && !d.start_skip?.trim()) blockers.push({ text: 'Write why Start my day was missed', to: 'start-skip' })
+  if (noProof && d.start_skip != null && setup?.after === 'block' && skipsUsed > setup.skips) blockers.push({ text: `Photo not possible is used up for this month (${setup.skips})`, to: 'start-skip' })
+  if (outKm != null && outKm < 100 && String(d.da_kind ?? '').startsWith('aurum')) blockers.push({ text: `Only ${Math.round(outKm)} km from home by road: local travel, choose None`, to: 'day-da' })
   for (const [i, r] of d.rides.entries()) {
     const n = `ride ${i + 1}`, to = 'ride-' + r.id, m = MODES[r.mode]
     if (r.from_lat == null || r.to_lat == null) blockers.push({ text: `Pick the from and to of ${n} on the map`, to })
-    if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
+    const stays = r.from_lat != null && r.to_lat != null && distanceKm({ lat: r.from_lat, lng: r.from_lng! }, { lat: r.to_lat, lng: r.to_lng! }) < 0.15
+    if (stays) blockers.push({ text: `${n[0].toUpperCase() + n.slice(1)} starts and ends at ${(r.to_name ?? '').split(',')[0]}: change its To`, to })
+    else if (m.perKm && !r.claimed_km) blockers.push({ text: `Type the km of ${n}`, to })
+    // The band itself is not shown, or everyone types its top (the user, 26 Oct: "dont show them this").
+    else if (m.perKm && kmOff(r) && lockedKm(r) == null) blockers.push({ text: googleBand(r) ? `The km of ${n} must be ${km(kmBand(r)!.lo)} to ${km(kmBand(r)!.hi)}` : `The km of ${n} does not match the map (${km(r.map_km)})`, to })
+    else if (shotOn && !roadsExtra && needsShot(r, shotBand(data.policy)) && !shotOk(shotOf(r), r)) blockers.push({ text: `Add the Google Maps screenshot of ${n}`, to })
     if (!m.perKm && r.fare == null) blockers.push({ text: `Type the fare of ${n}`, to })
     if (!r.purpose) blockers.push({ text: `Choose the purpose of ${n}`, to })
     if (!r.project) blockers.push({ text: `Choose the call centre of ${n}`, to })
     if (isBreakdown(r.purpose) && !r.ticket_no?.trim()) blockers.push({ text: `Enter the ticket ID of ${n}`, to })
+    if (isAurum(rule) && isBreakdown(r.purpose) && (!r.asset_no?.trim() || !r.service_report?.trim())) blockers.push({ text: `Enter the asset / MPT no. and service report no. of ${n}`, to })
+    if (isBreakdown(r.purpose) && ticketMismatch(ticketFor(r.ticket_no, r.project), r.project)) blockers.push({ text: `The ticket of ${n} is not a ${r.project} ticket`, to })
+    if (roadWhy(r) && !r.route_why?.trim()) blockers.push({ text: `Write why ${n} took the longer road`, to })
     if (REMARKS_NEEDED.has(r.mode) && !r.note?.trim()) blockers.push({ text: `Write the remarks of ${n} (${m.label.toLowerCase()})`, to })
-    if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(rideAmount(r, rule))}`, to })
+    else if (autoAfterBike(d.rides, r) && !r.note?.trim()) blockers.push({ text: `Write why ${n} was by ${(m.short ?? m.label).toLowerCase()} after the bike`, to })
+    else if (overs.has(r.id) && !r.note?.trim()) blockers.push({ text: `Write why ${n} goes over the auto limit`, to })
+    // No visit photo: the photo or why not, before the day saves — today too, so Send finds nothing left (the user, 30 Oct).
+    if (photoNeeded(r) && !r.photo_skip?.trim()) {
+      const out = r.photo_skip == null && (setup!.skips - skipsUsed) <= 0 && setup!.after === 'block'
+      blockers.push({ text: out ? `No visit photo for ${n}, and Photo not possible is used up this month` : d.day === today || lateHere ? `Take the visit photo of ${n}, or write why not` : `Write why there is no visit photo for ${n}`, to })
+    }
+    if (needsBill('ride', r, over, rule) && !billed.has(r.id)) blockers.push({ text: `Attach the bill of ${n} · ${money(paid(r))}`, to })
+    if (order && orderText && order.late.ride.id === r.id) blockers.push({ text: `Rides out of order: the ${orderText.late} photo is ${orderText.lateAt}, before ${orderText.early} at ${orderText.earlyAt}`, to })
   }
   if (d.hotel && !d.room_by && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel))) {
     const to = 'hotel-' + d.hotel.id
-    if (!d.hotel.note?.trim()) blockers.push({ text: 'Write the remarks of the hotel night', to })
-    if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) blockers.push({ text: `Attach the hotel bill · ${money(d.hotel.amount)}`, to })
+    if (!d.hotel.note?.trim()) blockers.push({ text: 'Write the remarks of the room stay', to })
+    if (needsBill('hotel', d.hotel, over) && !billed.has(d.hotel.id)) blockers.push({ text: `Attach the room bill · ${money(d.hotel.amount)}`, to })
   }
   for (const x of d.expenses) {
     const to = 'exp-' + x.id
     if (!x.amount) { blockers.push({ text: `Type the amount of the ${x.category.toLowerCase()} expense`, to }); continue }
     if (needsBill('expense', x, over) && !billed.has(x.id)) blockers.push({ text: `Attach the bill for ${x.category} · ${money(x.amount)}`, to })
   }
+  // An empty day is not saved: a ride, an expense, a room stay or a DA (the user, 12 Nov: "atleast any other expense should be there").
+  if (d.day && !d.rides.length && !d.expenses.length && !d.hotel && !d.room_by && (!d.da_kind || d.da_kind === 'none'))
+    blockers.push({ text: 'Add a ride or an expense', to: 'ride-add' })
   const goTo = (id: string) => {
     const el = document.getElementById(id)
     if (!el) return
@@ -433,7 +715,8 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
   const save = async () => {
     setErr(null)
     if (blockers.length) {
-      await ask.alert('To save, still needed', blockers.map(b => `• ${b.text}`).join('\n'))
+      setTried(true)
+      await ask.alert('To save, still needed', blockers.map(b => `• ${b.text}`).join('\n'), 'warn')
       goTo(blockers[0].to)
       return
     }
@@ -451,7 +734,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
     const rideIds = new Set(d.rides.map(r => r.id))
     const tickets = [
       ...d.rides.filter(r => isBreakdown(r.purpose) && r.ticket_no?.trim()).map(r => ({
-        id: r.id, ticket_no: r.ticket_no!.trim(), service_report: null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
+        id: r.id, ticket_no: ticketFor(r.ticket_no, r.project), service_report: r.service_report?.trim() || null, asset_no: r.asset_no?.trim() || null, place: (r.to_name ?? '').split(',')[0].trim() || null, district: distOf.get(r.id) ?? null,
       })),
       ...d.tickets.filter(t => !rideIds.has(t.id)).map(t => { const r = ends.find(x => placeKey(x.to_name) === placeKey(t.place)); return { ...t, district: r ? distOf.get(r.id) ?? null : null } }),
     ]
@@ -467,15 +750,25 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
       p_claim: c.id,
       p_day: {
         ...d,
+        // "Photo not possible" only where a photo is still wanted (a purpose changed, or the photo found since).
+        rides: d.rides.map(r => ({ ...r, photo_skip: photoNeeded(r) ? r.photo_skip ?? null : null, route_why: roadWhy(r) ? r.route_why ?? null : null })),
         purpose: dayPurpose ?? null,
         place, district, place_lat: null, place_lng: null, tickets,
         continues_day: joined,
         da_auto: auto,
+        dep_off: dep ? off : null,
         hotel: d.hotel && (d.hotel.amount > 0 || companyOf(data.bills, d.hotel)) ? { ...d.hotel, shared_ecode: d.hotel.occupancy === 'double' ? d.hotel.shared_ecode ?? null : null } : null,
       },
     })
+    if (error) { setBusy(false); setErr(friendlyError(error)); return }
+    // Places the map does not have, named by hand on this day: offered to everyone from now on (te_0071; the user,
+    // 26 Oct: "not only location with ticket"). The day is saved whatever this says.
+    const named = d.rides.flatMap(r => [
+      r.from_named && r.from_lat != null ? { name: r.from_name, lat: r.from_lat, lng: r.from_lng, district: null } : null,
+      r.to_named && r.to_lat != null ? { name: r.to_name, lat: r.to_lat, lng: r.to_lng, district: distOf.get(r.id) ?? null } : null,
+    ]).filter(Boolean)
+    if (named.length) await supabase.rpc('te_learn_named_places', { p_day: d.id, p_places: named }).then(() => undefined, () => undefined)
     setBusy(false)
-    if (error) { setErr(friendlyError(error)); return }
     writeKept(key, null)
     refresh(); void qc.invalidateQueries({ queryKey: ['te_my_claims'] })
     onClose()
@@ -527,7 +820,7 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
               </div>
             )
           })()}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* The date chosen on the calendar shown, not asked again; a press changes it (the user, 21 Oct). */}
             <div id="day-date"><span className="label">Date</span>
               <button type="button" onClick={() => setDating(true)}
@@ -559,115 +852,275 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             <div className="space-y-3">
               {d.rides.map((r, i) => {
                 const m = MODES[r.mode]
-                const notAllowed = outOfPolicy(r.mode, rule)
+                const notAllowed = outOfPolicy(r.mode, rule, data.vehicles, d.day ?? undefined)
                 const read = m.perKm ? null : billRead(data.bills, r.id)
+                const locked = i === 0 && !!startPlace
+                const endLocked = r.id === endRideId
                 const placeBtn = (end: 'from' | 'to', name: string | null) => (
-                  <button type="button" onClick={() => setPicking({ ride: r.id, end })} style={name ? undefined : { borderColor: m.color + '99', background: m.color + '14' }}
-                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border px-3 text-left text-sm ${name ? 'border-ink-200 text-ink-900' : 'text-ink-700'}`}>
+                  <button type="button" id={`${end}-${r.id}`} disabled={(end === 'from' && locked) || (end === 'to' && endLocked)} onClick={() => setPicking({ ride: r.id, end })}
+                    className={`btn-lift flex h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-ink-200 px-3 text-left text-sm ${name ? 'text-ink-900' : 'text-ink-500'} ${end === 'to' && nudged(r.id, 'to') ? 'ring-2 ring-cyrixRed-500' : ''}`}>
                     <span className="grid w-4 shrink-0 place-items-center">{end === 'from' ? <span className="h-2.5 w-2.5 rounded-full bg-teal-500" /> : <MapPin className="h-4 w-4 text-cyrixRed-600" />}</span>
                     <span className="w-9 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{end === 'from' ? 'From' : 'To'}</span>
                     <span className="truncate">{name ?? (end === 'from' ? 'Choose where you started' : 'Choose where you went')}</span>
+                    {end === 'from' && locked && <Sunrise className="ml-auto h-4 w-4 shrink-0 text-amber-500" aria-label="Where the day started" />}
+                    {end === 'to' && endLocked && <Sunset className="ml-auto h-4 w-4 shrink-0 text-orange-500" aria-label="Where the day ended" />}
                   </button>
                 )
                 return (
                   // A soft line and tint in its mode's colour (the user, 17 Oct: "not this much color, like neon").
-                  <div key={r.id} id={'ride-' + r.id} className="scroll-mt-24 rounded-xl border p-3 transition-shadow" style={{ borderColor: m.color + '59', background: m.color + '0A' }}>
-                    <div className="flex items-start gap-2">
-                      <span className="mt-3 w-4 text-xs font-semibold text-ink-400">{i + 1}</span>
-                      <div className="min-w-0 flex-1 space-y-1.5">{placeBtn('from', r.from_name)}{placeBtn('to', r.to_name)}</div>
-                      <button type="button" className="btn-icon mt-1 text-ink-400" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-4 w-4" /></button>
-                    </div>
-                    <div className="mt-2.5 flex items-center gap-2 pl-6">
-                      <ModePicker value={r.mode} onChange={code => setRide(r.id, { mode: code })} blocked={code => outOfPolicy(code, rule)} />
+                  // "Ride 1" and the bin sit on the card's top border, so the places get the full width (the user, 18 Nov: B).
+                  <div key={r.id} id={'ride-' + r.id} className={`relative scroll-mt-24 rounded-xl border p-3 pt-4 transition-shadow ride-edge ${i === 0 ? 'mt-4' : '!mt-6'}`} style={{ '--rc': m.color } as CSSProperties}>
+                    <span className="absolute -top-2.5 left-3 bg-surface px-1.5 text-sm font-semibold leading-5" style={{ color: m.color }}>Ride {i + 1}</span>
+                    <button type="button" className="absolute -top-3.5 right-3 grid h-7 w-7 place-items-center rounded-full border border-ink-200 bg-surface text-ink-400 transition-colors duration-150 hover:border-cyrixRed-200 hover:bg-cyrixRed-50 hover:text-cyrixRed-700 focus-visible:border-cyrixRed-200 focus-visible:text-cyrixRed-700 active:scale-95" aria-label="Remove ride" onClick={() => void removeRide(r.id)}><Trash2 className="h-3.5 w-3.5" /></button>
+                    <div className="space-y-1.5">{placeBtn('from', r.from_name)}
+                      {i === 0 && noProof && (
+                        <input id="start-skip" className={`input h-10 w-full text-sm ${d.start_skip?.trim() ? '' : '!border-cyrixRed-400'}`} aria-label="Why Start my day was missed"
+                          placeholder={`Why no Start my day? · ${Math.max(0, (setup?.skips ?? 0) - skipsUsed + (d.start_skip != null ? 1 : 0))} of ${setup?.skips ?? 0} left`}
+                          value={d.start_skip ?? ''} onChange={e => set({ start_skip: e.target.value })} />
+                      )}{placeBtn('to', r.to_name)}{nudgeLine(r.id, 'to', i + 1)}
+                      {!r.to_name && !endLocked && (() => {
+                        const ph = nextPhoto(i)
+                        if (!ph) return null
+                        return (
+                          <button type="button" disabled={usingPhoto === r.id} onClick={() => void useNextPhoto(r.id, ph)}
+                            className="flex w-full items-center gap-2.5 ring-glow rounded-lg p-1.5 text-left">
+                            <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-md bg-ink-100">
+                              <VisitThumb path={ph.path} label={ph.place ?? ''} className="absolute inset-0 h-full w-full" />
+                              <span className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/75 text-[10px] font-bold text-white">{dayPhotos.findIndex(x => x.id === ph.id) + 1}</span>
+                            </span>
+                            <span className="min-w-0 flex-1 text-sm">
+                              <span className="block text-xs font-semibold text-emerald-700">Next location</span>
+                              <span className="block truncate font-semibold text-ink-900">{(ph.place ?? '').split(',')[0] || 'Visit photo'} · {clock(ph.shot_at)}</span>
+                            </span>
+                            <span className="shrink-0 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white">{usingPhoto === r.id ? <Spinner className="h-4 w-4" /> : 'Use'}</span>
+                          </button>
+                        )
+                      })()}</div>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-2 sm:gap-x-2">
+                      <ModePicker value={r.mode} onChange={code => setMode(r.id, code)} blocked={code => outOfPolicy(code, rule, data.vehicles, d.day ?? undefined)} />
                       {m.perKm ? (
-                        <span className="relative min-w-0 max-w-[8rem] flex-1">
-                          <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" className="input h-10 w-full pr-9" value={r.claimed_km ?? ''} placeholder="0"
-                            onChange={e => setRide(r.id, { claimed_km: e.target.value === '' ? null : Number(e.target.value) })} />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
+                        <span className="relative min-w-[4.75rem] max-w-[8rem] flex-1">
+                          <input type="number" inputMode="decimal" min={0} step="0.1" aria-label="Km" value={r.claimed_km ?? ''} placeholder="0"
+                            readOnly={lockedKm(r) != null} title={lockedKm(r) != null ? 'From the Google Maps screenshot' : undefined}
+                            className={`input h-10 w-full !pl-2.5 !pr-7 ${lockedKm(r) != null ? 'cursor-not-allowed !border-emerald-400 !bg-emerald-50 font-semibold text-emerald-900' : ''}`}
+                            onChange={e => {
+                              if (lockedKm(r) != null) return
+                              const v = e.target.value === '' ? null : Number(e.target.value)
+                              // A key that cannot end in the band is not taken: map 10, "12" stays "1"; map 8.8, "7" is not taken (the user, 26–27 Oct).
+                              if (v != null && kmBand(r) && !kmCanReach(e.target.value, kmBand(r)!)) return
+                              setRide(r.id, { claimed_km: v })
+                            }}
+                            // Emptied, or under the map's km, and left: the map's km again (the user, 26–27 Oct: "he shouldnt be able to type less than map km").
+                            onFocus={() => { if (lockedKm(r) == null) setTypingKm(r.id) }}
+                            onBlur={() => { setTypingKm(null); if (lockedKm(r) != null) return; if (r.map_km != null && (r.claimed_km == null || r.claimed_km < kmBand(r)!.lo)) setRide(r.id, { claimed_km: r.map_km }) }} />
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-400">km</span>
                         </span>
                       ) : (
                         <span className="relative min-w-0 max-w-[8rem] flex-1">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                          <input type="number" inputMode="decimal" min={0} step="1" aria-label="Fare" className="input h-10 w-full pl-7" value={r.fare ?? ''} placeholder="Fare"
+                          <input type="number" inputMode="decimal" min={0} step="1" aria-label="Fare" className="input h-10 w-full pl-7 pr-7" value={r.fare ?? ''} placeholder="Fare"
                             onChange={e => setRide(r.id, { fare: e.target.value === '' ? null : Number(e.target.value) })} />
+                          <BillHint value={r.fare} read={read} />
                         </span>
                       )}
-                      <BillButton compact large part="attach" accent={m} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
+                      <BillButton compact large part="attach" accent={m} fills={!m.perKm} empty={r.fare == null} claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={needsBill('ride', r, over, rule)}
                         onRead={(a, mode) => { const r1 = latest.current.rides.find(x => x.id === r.id); if (!MODES[mode ?? r1?.mode ?? r.mode].perKm && r1?.fare == null) setRide(r.id, { fare: a }) }}
-                        onMode={mode => { if (mode !== r.mode) setRide(r.id, { mode }) }}
+                        onMode={mode => { if (mode !== r.mode) setMode(r.id, mode) }}
                         onSameTicket={refs => linkReturn(r.id, refs)}
                         onTicket={(rt, mode, refs) => void fillFromTicket(r.id, rt, mode, refs)} onChange={refresh} />
                       {/* The amount only where it is not the fare itself: km x rate. */}
-                      {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{money(rideAmount(r, rule))}</span>}
+                      {m.perKm && <span className="ml-auto text-base font-semibold text-ink-900">{commute(r) && <span className="mr-1.5 text-xs font-medium text-ink-500">Home ↔ Work</span>}{money(paid(r))}</span>}
                     </div>
-                    {/* Why, and for which call centre — each ride its own (te_0060). */}
-                    <div className="mt-2.5 grid grid-cols-2 gap-2 pl-6">
-                      <select className={`input h-10 text-sm ${r.purpose ? '' : '!border-amber-400'}`} aria-label="Purpose" value={r.purpose ?? ''} onChange={e => setRide(r.id, { purpose: e.target.value || null })}>
-                        <option value="">Purpose…</option>
-                        {data.purposes.map(p => <option key={p}>{p}</option>)}
-                      </select>
-                      <select className={`input h-10 text-sm ${r.project ? '' : '!border-amber-400'}`} aria-label="Call centre" value={r.project ?? ''} onChange={e => setRide(r.id, { project: e.target.value || null })}>
-                        <option value="">Call centre…</option>
-                        {[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => <option key={x}>{x}</option>)}
-                      </select>
+                    {/* One short line about the map, under the km it checks (the user, 2 Nov), amber when the km is over (no chips). */}
+                    {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
+                    {r.map_km != null && (
+                      <div className="mt-1.5 flex items-center gap-x-2">
+                        <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) && !googleBand(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
+                          <span className="whitespace-nowrap">{kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{roadsExtra && m.perKm && shortExtra(r) && <b className="font-semibold text-cyrixRed-700"> · {shortExtra(r)!.pct}%</b>}</span>{m.perKm && lockedKm(r) != null ? ` · Google Maps ${km(lockedKm(r))}`
+                            : m.perKm && kmOff(r) && typingKm !== r.id ? ' · km does not match'
+                            : m.perKm && kmChanged(r) && !googleBand(r) && r.claimed_km != null && r.map_km ? ` · claimed ${km(r.claimed_km)} (${r.claimed_km > r.map_km ? '+' : ''}${overPct(r)}%)` : ''}
+                          {/* The % beside the km, the km more under it (the user, 23 Nov). */}
+                          {roadsExtra && m.perKm && shortExtra(r) && <b className="block font-semibold text-cyrixRed-700">{km(shortExtra(r)!.km)} more</b>}
+                        </p>
+                        {/*
+                          The map's km, Other routes and View on map on one row (the user, 23 Nov: "all on same row"); a long
+                          km line breaks inside its own space.
+                        */}
+                        <div data-roads={r.id} className="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
+                          {m.perKm && r.from_lat != null && r.to_lat != null && (
+                            <RoadsButton ride={r} hidden={!roadsExtra} open={roadsOf === r.id} onOpen={() => setRoadsOf(roadsOf === r.id ? null : r.id)}
+                              onRouteKm={k => setRide(r.id, { route_km: k })} onKeep={k => setRide(r.id, { route_alts: k })} />
+                          )}
+                          <button type="button" className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
+                            View on map
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {/* Google's other roads, once asked: the one taken is picked and its km becomes the map's (test logins, 18 Nov). */}
+                    {roadsExtra && roadsOf === r.id && m.perKm && r.from_lat != null && r.to_lat != null && (
+                      <div data-roads={r.id}><RoutePick ride={r} onPick={(k, own) => setRide(r.id, { map_km: k, route_km: own })} /></div>
+                    )}
+                    {/* Well over the map: the Google Maps screenshot, added on the ride's map (te_0140). */}
+                    {/* Google Maps opens straight from the ride, the screenshot added beside it (the user, 9 Nov: "does this opens diectly google maps? it should"). */}
+                    {/* A road more than 10% longer than Google's own: why, before the day saves (the user, 18 Nov: "ask reason"). */}
+                    {roadWhy(r) && (
+                      <div className="mt-2">
+                        <input className={`input h-10 w-full text-sm ${!r.route_why?.trim() ? '!border-amber-400' : ''}`} aria-label="Why this road" placeholder="Why this road? (required)"
+                          value={r.route_why ?? ''} onChange={e => setRide(r.id, { route_why: e.target.value === '' ? null : e.target.value })} />
+                      </div>
+                    )}
+                    {/* Only when Google's roads are off (free requests used up, or not yet theirs); one already added stays (18 Nov). */}
+                    {shotOn && m.perKm && ((needsShot(r, shotBand(data.policy)) && !googleRoutesOn() && !roadsExtra) || !!shotOf(r)) && (
+                      <div>
+                        <RouteProof ride={r} shot={shotOf(r)} band={shotBand(data.policy)} claimId={c.id} onChange={refresh}
+                          onKm={k => setRide(r.id, { claimed_km: k ?? r.map_km })} />
+                      </div>
+                    )}
+                    {/* Why, and for which call centre — each ride its own (te_0060); side by side on a phone too (the user, 23 Nov). */}
+                    <div className="mt-2.5 grid grid-cols-2 gap-2">
+                      <PickList plain id={'purpose-' + r.id} label="Purpose" title={`Purpose of ride ${i + 1}`} placeholder="Purpose…" alarm={nudged(r.id, 'purpose')} value={r.purpose}
+                        options={[...new Set([...data.purposes, ...(r.purpose ? [r.purpose] : [])])].map(p => ({ value: p, label: p, ...purposeLook(p) }))}
+                        onChange={v => setRide(r.id, { purpose: v })} />
+                      <PickList plain label="Call centre" title={`Call centre of ride ${i + 1}`} placeholder="Call centre…" value={r.project}
+                        options={[...new Set([...projects, ...(r.project ? [r.project] : [])])].map(x => ({ value: x, label: x, icon: Headset, tone: 'cyan' as const }))}
+                        onChange={v => setRide(r.id, v === r.project ? { project: v } : { project: v, ticket_no: '' })} />
                     </div>
+                    {nudgeLine(r.id, 'purpose', i + 1, '')}
                     {isBreakdown(r.purpose) && (
-                      <div className="mt-2 flex items-center gap-2 pl-6">
+                      <div className="mt-2 flex items-center gap-2">
                         <span className="relative min-w-0 flex-1">
                           <TicketIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sky-600" />
-                          <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })} />
+                          <input className={`input h-10 w-full pl-9 text-sm ${r.ticket_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Ticket ID" placeholder="Ticket ID (required)" value={r.ticket_no ?? ''} onChange={e => setRide(r.id, { ticket_no: e.target.value })} onFocus={() => setEditingTicket({ id: r.id, was: r.ticket_no ?? '' })}
+                            onBlur={() => { setEditingTicket(null); if (r.ticket_no?.trim() && ticketFor(r.ticket_no, r.project) !== r.ticket_no) setRide(r.id, { ticket_no: ticketFor(r.ticket_no, r.project) }) }} />
                         </span>
-                        <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable onChange={refresh} />
+                        {/* An AP ticket's report comes from BEMP, so no upload for it (test accounts; the user, 10 Nov). */}
+                        <ReportButton large claimId={c.id} ticketId={r.id} bills={data.bills} editable={!(TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && BEMP_TICKET.test((r.ticket_no ?? '').trim()))} onChange={refresh} />
                       </div>
+                    )}
+                    {isBreakdown(r.purpose) && isAurum(rule) && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <input className={`input h-10 w-full text-sm ${r.asset_no?.trim() ? '' : '!border-amber-400'}`} aria-label="Asset / MPT no." placeholder="Asset / MPT no." value={r.asset_no ?? ''} onChange={e => setRide(r.id, { asset_no: e.target.value })} />
+                        <input className={`input h-10 w-full text-sm ${r.service_report?.trim() ? '' : '!border-amber-400'}`} aria-label="Service report no." placeholder="Service report no." value={r.service_report ?? ''} onChange={e => setRide(r.id, { service_report: e.target.value })} />
+                      </div>
+                    )}
+                    {/* The ticket found in Cyrix BEMP, its service report attached by itself (test accounts; the user, 10 Nov). */}
+                    {isBreakdown(r.purpose) && TICKET_TEST.has((c.ecode ?? '').toUpperCase()) && (
+                      <TicketLookup ticket={editingTicket?.id === r.id ? editingTicket.was : r.ticket_no} day={d.day} project={r.project} />
                     )}
                     {/* A round trip: where its return will be added (te_0058). */}
                     {r.return_leg?.date && !returnAdded(r.return_leg) && r.return_leg.date !== d.day && (
-                      <p className="mt-1.5 pl-6 text-xs font-semibold text-sky-700">
+                      <p className="mt-1.5 text-xs font-semibold text-sky-700">
                         Round trip · return on {((iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))(r.return_leg.date)}, {r.return_leg.from} → {r.return_leg.to} — {r.return_leg.date.slice(0, 7) === c.month.slice(0, 7) ? 'add it on that day' : "add it in that month's claim"}
                       </p>
                     )}
                     {/* A ticket for another day than this one (te_0057; the user, 22 Oct). */}
                     {r.ticket_date && r.ticket_date !== d.day && (
-                      <p className="mt-1.5 pl-6 text-xs font-semibold text-amber-800">
+                      <p className="mt-1.5 text-xs font-semibold text-amber-800">
                         The ticket is for {new Date(r.ticket_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} — this day is {new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
                       </p>
                     )}
-                    {/* One short line about the map, amber when the km is over (no chips). */}
-                    {/* As soon as the map has the road, before any km is typed (the user, 21 Oct). */}
-                    {r.map_km != null && (
-                      <div className="mt-1.5 flex items-center gap-3 pl-6">
-                        <p className={`min-w-0 flex-1 text-xs ${m.perKm && kmChanged(r) ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
-                          {kmWay(r.mode) === 'rail' ? 'Rail' : kmWay(r.mode) === 'air' ? 'Air' : 'Map'} {km(r.map_km)}{m.perKm && kmChanged(r) ? ' · changed' : ''}
-                        </p>
-                        <button type="button" className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-teal-700 hover:underline" onClick={() => setMapRide(r)}>
-                          <MapIcon className="h-3.5 w-3.5" /> View on map
-                        </button>
-                      </div>
+                    {/*
+                      The visit photo of a ride whose purpose needs one (te_0082): found by itself when taken that day
+                      near where the ride went; else Take photo (today only) or Photo not possible, with how many are left.
+                    */}
+                    {needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides)) && d.day && (() => {
+                      const hit = shots.get(r.id), to = (r.to_name ?? '').split(',')[0]
+                      if (hit) {
+                        const late = lateBy(hit.photo)
+                        return (
+                          <div className="mt-2 flex items-center gap-2.5 rounded-lg bg-emerald-50 px-2 py-1.5 ring-1 ring-emerald-200">
+                            <VisitThumb path={hit.photo.path} label={`${hit.photo.place ?? to} · ${clock(hit.photo.shot_at)}`} />
+                            <p className="min-w-0 text-xs text-emerald-900"><b className="font-semibold">Visit photo</b> · {clock(hit.photo.shot_at)}{hit.m >= 10 && ` · ${metres(hit.m)} from ${to}`}{(() => { const st = stayMinutes(d.rides, shots, r.id); return st != null && ` · ${stayText(st)}` })()}{late && <span className="font-semibold text-amber-700"> · {late}</span>}</p>
+                          </div>
+                        )
+                      }
+                      const month = new Date(d.day + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long' })
+                      const lim = setup!.skips, left = lim - skipsUsed, blocked = setup!.after === 'block', boss = c.manager?.split(' ')[0] ?? 'The manager'
+                      // The reason box shows by itself, no button first (the user, 30 Oct); typing it is the Photo not possible.
+                      const why = r.photo_skip ?? '', open = r.photo_skip != null || left > 0 || !blocked
+                      return (
+                        <div className="mt-2 space-y-1.5 rounded-lg bg-amber-50 px-2.5 py-2 ring-1 ring-amber-200">
+                          <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900"><CameraOff className="h-3.5 w-3.5" /> No visit photo
+                            {(d.day === today || lateHere) && (notStarted && !lateHere
+                              ? <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setStarting(true)}><Sunrise className="h-3.5 w-3.5" /> Start my day</button>
+                              : <button type="button" className="btn-secondary ml-auto !px-2.5 !py-1 text-xs" onClick={() => setCameraFor(r.id)}><Camera className="h-3.5 w-3.5" /> Take photo</button>)}
+                          </p>
+                          {open && <input className={`input h-10 w-full text-sm ${!why.trim() ? '!border-amber-400' : ''}`} aria-label="Why there is no visit photo" placeholder="Why no photo (required)" value={why} onChange={e => setRide(r.id, { photo_skip: e.target.value === '' ? null : e.target.value })} />}
+                          <p className="text-[11px] font-medium text-amber-800">{left >= 0 ? (left > 0 || r.photo_skip != null ? `${left} of ${lim} left in ${month}` : `${lim} of ${lim} used in ${month}${blocked ? '' : ` · ${boss} decides`}`) : `Over the ${lim} a month · ${boss} decides`}</p>
+                        </div>
+                      )
+                    })()}
+                    {order && orderText && order.late.ride.id === r.id && (
+                      <p className="mt-2 rounded-lg bg-cyrixRed-50 px-2.5 py-1.5 text-xs font-medium text-cyrixRed-800 ring-1 ring-cyrixRed-200">
+                        The {orderText.late} photo is {orderText.lateAt}, before {orderText.early} at {orderText.earlyAt}. Put the rides in the order you went.
+                      </p>
                     )}
                     {/* The bill and what it reads, on a line of its own (the user, 18 Oct). */}
                     {data.bills.some(b => b.owner_id === r.id) && (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 pl-6">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <BillButton compact part="bills" claimId={c.id} kind="ride" ownerId={r.id} bills={data.bills} editable needed={false} claimed={m.perKm ? undefined : r.fare} onChange={refresh} />
-                        {read != null && r.fare != null && Math.abs(read - r.fare) > 1 && (
+                        {read != null && r.fare != null && !billMatches(read, r.fare) && (
                           <span className="text-xs font-semibold text-amber-800">Reads {money(read)} · <button type="button" className="underline" onClick={() => setRide(r.id, { fare: read })}>Use {money(read)}</button></span>
                         )}
                       </div>
                     )}
                     {/* Anything about the ride, in the engineer's words (the user, 21 Oct). */}
-                    <div className="mt-2 pl-6">
-                      <input className={`input h-10 w-full text-sm ${REMARKS_NEEDED.has(r.mode) && !r.note?.trim() ? '!border-amber-400' : ''}`} aria-label="Remarks" placeholder={REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
+                    {overs.has(r.id) && (
+                      <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-cyrixRed-50 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800">
+                        <TriangleAlert className="h-3.5 w-3.5 shrink-0" />Auto limit exceeded
+                        <span className="ml-auto font-medium">{money(overs.get(r.id)!)} of {money(autoCap)}</span>
+                      </p>
+                    )}
+                    <div className="mt-2">
+                      <input className={`input h-10 w-full text-sm ${overs.has(r.id) && !r.note?.trim() ? '!border-cyrixRed-500' : ''}`} aria-label="Remarks" placeholder={overs.has(r.id) && !autoAfterBike(d.rides, r) ? 'Why over the auto limit? (required)' : autoAfterBike(d.rides, r) ? `Why ${(m.short ?? m.label).toLowerCase()} after the bike? (required)` : REMARKS_NEEDED.has(r.mode) ? 'Remarks (required)' : 'Remarks'} value={r.note ?? ''} onChange={e => setRide(r.id, { note: e.target.value })} />
                     </div>
                     {/* A ticket the company booked: shown, and not claimed (te_0042). */}
-                    {(() => { const co = companyOf(data.bills, r); return co && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
-                    {notAllowed && <p className="mt-2 ml-6 flex items-center gap-1.5 rounded-lg bg-cyrixRed-100 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
+                    {(() => { const co = companyOf(data.bills, r); return co && <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-900"><Building2 className="h-3.5 w-3.5 shrink-0" />Booked by company · {money(co.net)} · {co.booking_id} · not claimed</p> })()}
+                    {notAllowed && <p className="mt-2 flex items-center gap-1.5 rounded-lg bg-cyrixRed-100 px-2.5 py-1.5 text-xs font-semibold text-cyrixRed-800"><span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-cyrixRed-600 text-[10px] font-bold text-white">!</span>{m.label} is not in grade {c.grade ?? '—'}'s policy — needs prior approval</p>}
                   </div>
                 )
               })}
-              <button type="button" className="btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
+              <button type="button" id="ride-add" className="ride-add btn-lift flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-teal-300 bg-teal-50 text-sm font-semibold text-teal-800 hover:bg-teal-100" onClick={() => {
                 const last = d.rides[d.rides.length - 1]
-                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 && home ? home : null
+                const miss = !last ? null : last.to_lat == null ? 'to' : !last.purpose ? 'purpose' : null
+                if (last && miss) {
+                  setNudge({ ride: last.id, what: miss })
+                  const el = document.getElementById(`${miss}-${last.id}`)
+                  el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+                  el?.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(0)' }], { duration: 420, easing: 'ease-out' })
+                  return
+                }
+                setNudge(null)
+                /*
+                  The ride ending the day gives up its To (the user, 20 Nov: "that to home should be cleared so there they can
+                  click to … then on click another, last to to home"): it becomes the next visit, and the ride home comes
+                  again with the next Add another ride.
+                */
+                if (endRideId) {
+                  const er = d.rides[d.rides.length - 1]
+                  const homeGoal = er.purpose && /home/i.test(er.purpose)
+                  setUndoEnd(er)
+                  setRide(er.id, { to_name: null, to_lat: null, to_lng: null, map_km: null, claimed_km: null, ...(homeGoal ? { purpose: null } : {}) })
+                  setPicking({ ride: er.id, end: 'to' })
+                  return
+                }
+                const from = last?.to_lat != null ? { name: last.to_name!, lat: last.to_lat, lng: last.to_lng! } : d.rides.length === 0 ? startPlace ?? null : null
+                // With the day ended and a ride already there, the next is the ride to where it ended.
+                // …only once every visit photo of the day has its ride (the user, 4 Nov: Home → Medicare, then
+                // "why after medicare, 2nd ride home came?" with two more hospitals photographed after it).
+                const usedPhotos = new Set([...shots.values()].map(x => x.photo.id))
+                const visitsLeft = dayPhotos.some(p => !usedPhotos.has(p.id) && Date.parse(p.shot_at) > Date.parse(shots.get(last?.id ?? '')?.photo.shot_at ?? '1970-01-01'))
+                if (endPlace && last && from && !visitsLeft && distanceKm(from, endPlace) > 0.05) {
+                  const goal = near(home, endPlace.lat, endPlace.lng) ? data.purposes.find(x => /home/i.test(x)) : undefined
+                  const nr = { ...blankRide(from, carry()), to_name: endPlace.name, to_lat: endPlace.lat, to_lng: endPlace.lng, ...(goal ? { purpose: goal } : {}) }
+                  set({ rides: [...d.rides, nr] })
+                  void roadKm(from, endPlace, nr.mode).then(road => setRide(nr.id, { map_km: road?.km ?? null }))
+                  return
+                }
                 set({ rides: [...d.rides, blankRide(from, carry())] })
               }}><span className="grid h-6 w-6 place-items-center rounded-full bg-teal-600 text-white"><Plus className="h-4 w-4" /></span> {d.rides.length ? 'Add another ride' : 'Add a ride'}</button>
+
             </div>
           </section>
 
@@ -679,41 +1132,88 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
             <p className="input mt-1 flex h-11 items-center text-ink-500">No DA — office day</p>
           </section>
           ) : (
-          <section>
+          <section id="day-da">
             <label className="block">
               <span className="label flex flex-wrap items-center gap-2">Daily allowance
+                {dep && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-violet-800">Deputation · {dep.state}</span>}
+                {dep && off && <span title={off} className="rounded-full bg-cyrixRed-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-cyrixRed-800">Outside {dep.state}</span>}
                 {auto && (d.da_kind === auto
                   ? <span className="rounded-full bg-teal-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-teal-800">From the map</span>
                   : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-900">Map says {DA_KINDS.find(k => k.code === auto)?.label.toLowerCase()}</span>)}
               </span>
-              <select className="input mt-1 h-11" value={d.da_kind} onChange={e => set({ da_kind: e.target.value as DaKind })}>
-                {DA_KINDS.map(k => <option key={k.code} value={k.code}>{k.label}{k.code !== 'none' ? ` · ${money(daFor(rule, k.code, dayPurpose, data.office_purposes))}` : ''}</option>)}
-              </select></label>
+              </label>
+              <div className="mt-1">
+                <PickList tall label="Daily allowance" title="Daily allowance" placeholder="Daily allowance…" value={d.da_kind}
+                  options={daKindsFor(rule).filter(k => k.code !== 'deputation' || dep || d.da_kind === 'deputation').map(k => ({
+                    value: k.code, label: k.label, ...DA_LOOKS[k.code],
+                    hint: k.code !== 'none' ? money(daFor(rule, k.code, dayPurpose, data.office_purposes, depDa)) : undefined,
+                  }))}
+                  onChange={v => set({ da_kind: v as DaKind })} />
+              </div>
+              {d.da_kind === 'aurum_per_diem' && (d.hotel?.amount ?? 0) > 0 && (
+                <p className="mt-1.5 text-xs font-medium text-cyrixRed-700">Per diem is paid only without a room stay. Choose food at actual, or remove the room.</p>
+              )}
           </section>
           )}
 
-          {/* ---- hotel ---- */}
+          {/* ---- other expenses ---- */}
           <section>
-            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><BedDouble className="h-4 w-4 text-violet-600" /> Hotel</h3>
+            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><ReceiptIndianRupee className="h-4 w-4 text-amber-600" /> Other expenses</h3>
+            {d.expenses.length > 0 && (
+              <div className="mb-2 space-y-4 pt-2">
+                {d.expenses.map(x => {
+                  const put = (p: Partial<typeof x>) => set({ expenses: d.expenses.map(y => (y.id === x.id ? { ...y, ...p } : y)) })
+                  return (
+                    <div key={x.id} id={'exp-' + x.id} className="relative rounded-xl border border-ink-200 px-3 pb-2.5 pt-3.5">
+                      {/* Delete on the card's edge and the bill where delete was, as on a ride (the user, 21 Nov). */}
+                      <button type="button" className="absolute -top-3.5 right-3 grid h-7 w-7 place-items-center rounded-full border border-ink-200 bg-surface text-ink-400 transition-colors duration-150 hover:border-cyrixRed-200 hover:bg-cyrixRed-50 hover:text-cyrixRed-700 active:scale-95" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-3.5 w-3.5" /></button>
+                      <div className="grid grid-cols-[1fr_7.5rem_auto] items-center gap-2 sm:grid-cols-[11rem_8rem_auto_1fr]">
+                        <PickList label="Expense type" title="Expense type" placeholder="Expense type…" value={x.category}
+                          options={expenseKinds().filter(k => k.active || k.label === x.category).map(k => ({ value: k.label, label: k.label, icon: expenseIcon(k.label), tone: expenseTone(k.label) }))}
+                          onChange={v => put({ category: v })} />
+                        <span className="relative">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
+                          <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7 pr-7" aria-label="Amount" value={x.amount || ''} placeholder="from bill" onChange={e => put({ amount: Number(e.target.value) })} />
+                          <BillHint value={x.amount} read={billRead(data.bills, x.id)} />
+                        </span>
+                        <span>
+                          <BillButton compact fills empty={!x.amount} claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
+                            onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
+                        </span>
+                        <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
+                      </div>
+                      {expenseRole(x.category) === 'tools' && x.amount > Number(data.policy.tool_max ?? 500) && <p className="mt-1 text-xs text-amber-800">Tools above {money(Number(data.policy.tool_max ?? 500))} go through petty cash</p>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ expenses: [...d.expenses, { id: newId(), category: expenseKinds().find(k => k.active)?.label ?? 'Other', description: '', amount: 0 }] })}><Plus className="h-4 w-4" /> Expense</button>
+          </section>
+
+          {/* ---- hotel, after the other expenses (the user, 27 Oct) ---- */}
+          <section>
+            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><BedDouble className="h-4 w-4 text-violet-600" /> Room stay</h3>
             {d.room_by ? (
               <p className="rounded-lg bg-green-100 px-3 py-2 text-sm text-green-900">Room already claimed by {d.room_by.name} ({d.room_by.ecode}) · {money(d.room_by.amount)} — you keep the day's DA.</p>
             ) : !d.hotel ? (
-              <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ hotel: { id: newId(), name: '', amount: 0, occupancy: 'single', metro: false } })}><Plus className="h-4 w-4" /> Hotel night</button>
+              <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ hotel: { id: newId(), name: '', amount: 0, occupancy: 'single', metro: false } })}><Plus className="h-4 w-4" /> Room for the night</button>
             ) : (() => {
               const h = d.hotel!, limit = hotelLimit(rule, h, outOfState, metroPct)
               const setH = (p: Partial<typeof h>) => set({ hotel: { ...h, ...p } })
               return (
                 <div id={'hotel-' + h.id} className="space-y-3 rounded-xl border border-ink-200 p-3">
                   <div className="flex items-end gap-2">
-                    <label className="block min-w-0 flex-1"><span className="label">Hotel</span>
-                      <input className="input mt-1 h-11" value={h.name ?? ''} onChange={e => setH({ name: e.target.value })} placeholder="Hotel name, city" /></label>
-                    <button type="button" className="btn-icon mb-1.5 text-ink-400" aria-label="Remove hotel" onClick={() => set({ hotel: null })}><Trash2 className="h-4 w-4" /></button>
+                    <label className="block min-w-0 flex-1"><span className="label">Stayed at</span>
+                      <input className="input mt-1 h-11" value={h.name ?? ''} onChange={e => setH({ name: e.target.value })} placeholder="Lodge name, city" /></label>
+                    <button type="button" className="btn-icon mb-1.5 text-ink-400" aria-label="Remove room stay" onClick={() => set({ hotel: null })}><Trash2 className="h-4 w-4" /></button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block"><span className="label">Amount</span>
                       <span className="relative mt-1 block">
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                        <input type="number" inputMode="decimal" min={0} className="input h-11 pl-7" value={h.amount || ''} onChange={e => setH({ amount: Number(e.target.value) })} />
+                        <input type="number" inputMode="decimal" min={0} className="input h-11 pl-7 pr-7" value={h.amount || ''} placeholder="from bill" onChange={e => setH({ amount: Number(e.target.value) })} />
+                        <BillHint value={h.amount} read={billRead(data.bills, h.id)} />
                       </span></label>
                     <div><span className="label">Room</span>
                       <div className="mt-1 grid h-11 grid-cols-2 overflow-hidden rounded-lg border border-ink-200">
@@ -747,82 +1247,104 @@ export default function DayEditor({ data, initial: raw, chosen = false, onClose 
                     <span className={`text-xs ${limit != null && h.amount > limit ? 'font-semibold text-amber-800' : 'text-ink-500'}`}>
                       {limit == null ? '' : h.amount > limit ? `Over the ${money(limit)} limit — needs approval` : `Limit ${money(limit)}`}
                     </span>
-                    <BillButton compact large claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed={needsBill('hotel', h, over)} claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
+                    <BillButton compact large fills empty={!h.amount} claimId={c.id} kind="hotel" ownerId={h.id} bills={data.bills} editable needed={needsBill('hotel', h, over)} claimed={h.amount || null} onRead={a => { if (!h.amount) setH({ amount: a }) }} onStay={st => void fillFromVoucher(st)} onChange={refresh} />
                   </div>
                 </div>
               )
             })()}
           </section>
 
-          {/* ---- other expenses ---- */}
-          <section>
-            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-ink-800"><ReceiptIndianRupee className="h-4 w-4 text-amber-600" /> Other expenses</h3>
-            {d.expenses.length > 0 && (
-              <div className="mb-2 overflow-hidden rounded-xl border border-ink-200">
-                <div className="hidden grid-cols-[11rem_7rem_1fr_auto_2.5rem] gap-2 bg-ink-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-500 sm:grid">
-                  <span>Category</span><span>Amount</span><span>Description</span><span>Bill</span><span />
-                </div>
-                {d.expenses.map(x => {
-                  const put = (p: Partial<typeof x>) => set({ expenses: d.expenses.map(y => (y.id === x.id ? { ...y, ...p } : y)) })
-                  return (
-                    <div key={x.id} id={'exp-' + x.id} className="border-t border-ink-100 px-3 py-2 first:border-t-0">
-                      <div className="grid grid-cols-[1fr_7rem_2.5rem] items-center gap-2 sm:grid-cols-[11rem_7rem_1fr_auto_2.5rem]">
-                        <select className="input h-10" aria-label="Category" value={x.category} onChange={e => put({ category: e.target.value })}>
-                          {EXPENSE_CATEGORIES.map(k => <option key={k}>{k}</option>)}
-                        </select>
-                        <span className="relative">
-                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
-                          <input type="number" inputMode="decimal" min={0} className="input h-10 pl-7" aria-label="Amount" value={x.amount || ''} onChange={e => put({ amount: Number(e.target.value) })} />
-                        </span>
-                        <button type="button" className="btn-icon text-ink-400 sm:order-last" aria-label="Remove expense" onClick={() => set({ expenses: d.expenses.filter(y => y.id !== x.id) })}><Trash2 className="h-4 w-4" /></button>
-                        <input className="input col-span-3 h-10 sm:col-span-1" aria-label="Description" placeholder="What it was for" value={x.description ?? ''} onChange={e => put({ description: e.target.value })} />
-                        <span className="col-span-3 sm:col-span-1">
-                          <BillButton compact large claimId={c.id} kind="expense" ownerId={x.id} bills={data.bills} editable needed={needsBill('expense', x, over)} claimed={x.amount || null}
-                            onRead={a => { if (!x.amount) put({ amount: a }) }} onChange={refresh} />
-                        </span>
-                      </div>
-                      {x.category === 'Tools' && x.amount > Number(data.policy.tool_max ?? 500) && <p className="mt-1 text-xs text-amber-800">Tools above {money(Number(data.policy.tool_max ?? 500))} go through petty cash</p>}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            <button type="button" className="btn-secondary w-full justify-center border-dashed !py-2.5 text-sm sm:w-auto" onClick={() => set({ expenses: [...d.expenses, { id: newId(), category: 'Courier', description: '', amount: 0 }] })}><Plus className="h-4 w-4" /> Expense</button>
-          </section>
-
           <label className="block"><span className="label">Claim remarks</span>
             <textarea rows={2} className="input mt-1" value={d.remarks ?? ''} onChange={e => set({ remarks: e.target.value })} placeholder="What was done" /></label>
         </div>
       </div>
-        <div className="sticky bottom-16 z-10 flex items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
-          <span className="leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : rideAmount(r, rule)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}</span></span>
-          <div className="flex items-center gap-2">
-            {err ? <span className="max-w-[16rem] text-right text-sm text-cyrixRed-700">{err}</span>
-              : blockers.length > 0 && (
-                <button type="button" onClick={() => goTo(blockers[0].to)} className="max-w-[13rem] text-right text-xs font-semibold leading-snug text-amber-800 underline-offset-2 hover:underline sm:max-w-[18rem] sm:text-sm">
-                  {blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}
-                </button>
-              )}
-            <button type="button" className={`btn-primary h-11 px-6 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
-          </div>
+        <div className="sticky bottom-16 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 shadow-lg lg:bottom-4">
+          <span className="min-w-0 leading-tight"><span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-500">Day total</span><span className="block text-2xl font-bold tabular-nums text-ink-900">{money(d.rides.reduce((t, r) => t + (companyOf(data.bills, r) ? 0 : paid(r)), 0) + da + (d.room_by || (d.hotel && companyOf(data.bills, d.hotel)) ? 0 : d.hotel?.amount ?? 0) + d.expenses.reduce((t, x) => t + (x.amount || 0), 0))}
+            {/* The day's km beside its rupees (the user, 27 Oct: "show total km also beautifully"). */}
+            {(() => { const k = d.rides.reduce((t, r) => t + Number((MODES[r.mode].perKm ? r.claimed_km : r.map_km) ?? 0), 0); return k > 0 && <span className="ml-2 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2.5 py-0.5 align-middle text-sm font-semibold text-amber-900 ring-1 ring-amber-200"><Route className="h-3.5 w-3.5" /> {km(k)}{(() => { const x = roadsExtra ? dayExtra(d.rides) : null; return x && x.pct > roadWhyPct() && <b className="font-bold text-cyrixRed-700">{x.pct}% more</b> })()}</span> })()}</span></span>
+          {/*
+            What stops it: on a phone its own line under the total, full width (the user, 30 Oct: "is it looking good?" — it
+            was squeezed into four short lines beside Save); beside Save on a wider screen. Save claim stays on one line
+            (the user, 28 Oct: it broke into "Save / claim").
+          */}
+          {err ? <span className="order-last w-full text-xs font-medium text-cyrixRed-700 sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:text-right">{err}</span>
+            : tried && blockers.length > 0 && (
+              <button type="button" onClick={() => goTo(blockers[0].to)} className="order-last w-full text-left text-xs font-medium leading-snug text-amber-800 underline-offset-2 hover:underline sm:order-none sm:w-auto sm:min-w-0 sm:flex-1 sm:text-right">
+                {blockers[0].text}{blockers.length > 1 ? ` · +${blockers.length - 1} more` : ''}
+              </button>
+            )}
+          <button type="button" className={`btn-primary h-11 shrink-0 whitespace-nowrap px-5 text-base ${blockers.length ? 'opacity-50' : ''}`} aria-disabled={blockers.length > 0} disabled={busy} onClick={() => void save()}>{busy && <Spinner className="h-4 w-4" />} Save claim</button>
         </div>
       {dating && (
         <Dialog title="Date" icon={<CalendarDays className="h-5 w-5 text-amber-600" />} onClose={() => setDating(false)}>
           <div className="mt-3">
-            <MonthCalendar value={d.day} min={firstDay} max={lastDay} marked={data.days.filter(x => x.id !== initial.id).map(x => x.day)}
+            <MonthCalendar value={d.day} min={fromDay} max={lastDay} marked={data.days.filter(x => x.id !== initial.id).map(x => x.day)}
               onChange={v => { set({ day: v }); setDating(false) }} />
           </div>
         </Dialog>
       )}
-      {mapRide && <RouteMap days={[d]} focus={mapRide.id} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)} />}
+      {starting && <StartConfirm onClose={() => setStarting(false)} />}
+      {ending && <StartConfirm end day={lateHere ? d.day : null} onClose={() => setEnding(null)} onStarted={s => {
+        const at = home && distanceKm(home, s) <= homeLimit(s) / 1000 ? home : { name: s.place ?? `${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}`, lat: s.lat, lng: s.lng }
+        void placed(ending, 'to', at)
+      }} />}
+      {cameraTo && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraTo(null)} onDone={(text, q, at) => {
+        const id = cameraTo
+        setCameraTo(null); refresh()
+        if (at) void placed(id, 'to', { name: at.place ?? `${at.lat.toFixed(4)}, ${at.lng.toFixed(4)}`, lat: at.lat, lng: at.lng })
+        if (q) void ask.alert('Kept on this phone', text, 'info')
+      }} />}
+      {cameraFor && <VisitCamera forDay={lateHere ? d.day : null} onClose={() => setCameraFor(null)} onDone={(text, q, at) => {
+        /*
+          The ride's To takes the photo's place when the photo was taken away from the To on the map (the user, 9 Nov:
+          E1345's 7 photos at the hospital on 7 Nov stayed unlinked, the To pin being elsewhere — "add the location
+          which is there in photo"): its name and point, so the photo links and the map km is worked out again.
+        */
+        const r = d.rides.find(x => x.id === cameraFor)
+        if (r && at && setup && (r.to_lat == null || r.to_lng == null || distanceKm(at, { lat: r.to_lat, lng: r.to_lng }) * 1000 > setup.near_m))
+          void placed(r.id, 'to', { name: at.place ?? 'Photo place', lat: at.lat, lng: at.lng })
+        setCameraFor(null); refresh(); if (q) void ask.alert('Kept on this phone', text, 'info')
+      }} />}
+      {mapRide && <RouteMap days={[d]} focus={mapRide.id}
+        onRoad={(id, k, own) => setRide(id, { map_km: k, route_km: own })} rule={rule} title={`${(mapRide.from_name ?? '').split(',')[0]} → ${(mapRide.to_name ?? '').split(',')[0]}`} onClose={() => setMapRide(null)}
+        shots={routeShotsOn(c.ecode) ? data.routes ?? [] : undefined} ecode={c.ecode} band={shotBand(data.policy)} claimId={c.id} onShots={refresh} />}
       {picking && ride && (
         <PlacePicker
           title={picking.end === 'from' ? 'From' : 'To'}
           start={picking.end === 'from' ? (ride.from_lat != null ? { name: ride.from_name!, lat: ride.from_lat, lng: ride.from_lng! } : null) : (ride.to_lat != null ? { name: ride.to_name!, lat: ride.to_lat, lng: ride.to_lng! } : null)}
           near={picking.end === 'to' && ride.from_lat != null ? { name: ride.from_name ?? '', lat: ride.from_lat, lng: ride.from_lng! } : null}
+          other={picking.end === 'to'
+            ? (ride.from_lat != null ? { name: ride.from_name ?? '', lat: ride.from_lat, lng: ride.from_lng! } : null)
+            : (ride.to_lat != null ? { name: ride.to_name ?? '', lat: ride.to_lat, lng: ride.to_lng! } : null)}
           quick={quick}
-          onPick={p => void placed(picking.ride, picking.end, p)}
-          onClose={() => setPicking(null)}
+          photos={dayPhotos}
+          used={setup && d.day ? d.rides.map(r => (shots.get(r.id) ?? photoNear(r, d.day, data.visit_photos, setup.near_m))?.photo.id).filter((x): x is string => !!x) : []}
+          suggest={picking.end === 'to' ? nextPhoto(d.rides.findIndex(x => x.id === picking.ride)) : null}
+          usedBy={setup && d.day ? (() => {
+            // A photo is the ride it was matched to; a place-only match never takes a photo another ride has (the user, 20 Nov: photo 1 shown as Ride 3).
+            const by: Record<string, number> = {}
+            d.rides.forEach((r, i) => { const h = shots.get(r.id); if (h) by[h.photo.id] = i + 1 })
+            d.rides.forEach((r, i) => { if (shots.has(r.id) || needsPhoto(r, setup, d.day, r.id === lastGoing(d.rides))) return; const id = photoNear(r, d.day!, data.visit_photos, setup.near_m)?.photo.id; if (id && !(id in by)) by[id] = i + 1 })
+            return by
+          })() : {}}
+          onPick={(p, _name, named) => { setUndoEnd(null); void placed(picking.ride, picking.end, p, named) }}
+          /*
+            Today, before the day is started, the first ride's From is Start my day: the press is the From, and it is
+            locked from then (the user, 3 Nov: "how to having start my day?, it should be from isnt"). The To's camera
+            follows once the day is started.
+          */
+          camera={setup?.on && !dayEnd && (d.day === today || lateHere)
+            ? notStarted && !lateHere
+              ? { label: 'Start my day', icon: <Sunrise className="h-5 w-5" />, onPress: () => { setPicking(null); setStarting(true) }, only: true }
+              : picking.end === 'to'
+                ? { label: 'Take visit photo', icon: <Camera className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setCameraTo(id) } }
+                : undefined
+            : undefined}
+          also={setup?.on && picking.end === 'to' && picking.ride === d.rides[d.rides.length - 1]?.id && !dayEnd
+            && ((d.day === today && !notStarted && !myDay?.end) || lateHere)
+            ? { label: lateHere ? `End ${shortDay(d.day!)}` : 'End my day', icon: <Sunset className="h-5 w-5" />, onPress: () => { const id = picking.ride; setPicking(null); setEnding(id) } }
+            : undefined}
+          onClose={() => { if (undoEnd && undoEnd.id === picking.ride) setRide(undoEnd.id, undoEnd); setUndoEnd(null); setPicking(null) }}
         />
       )}
     </div>

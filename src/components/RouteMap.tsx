@@ -3,7 +3,12 @@ import { useBackCloses } from '@/lib/useBackCloses'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
-import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, type Day, type Rule } from '@/lib/claims'
+import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, shortExtra, takenRoute, type Day, type Rule } from '@/lib/claims'
+import { googleFor, googleRoutesOn, setGoogleRoutes } from '@/lib/googleRoutes'
+import { RoadsButton, RoutePick, seedRoads } from '@/components/RoadChoice'
+import { isTestLogin, roadsFor } from '@/lib/routeShots'
+import RouteProof from '@/components/RouteProof'
+import { shotDay, type Band, type RouteShot } from '@/lib/routeShots'
 
 /*
   "See on map" (the user, 17 Oct): the day's rides on OpenStreetMap along the real roads, each in its
@@ -12,8 +17,12 @@ import { MODES, MODE_ORDER, km, money, rideAmount, roadKm, type Day, type Rule }
 */
 const PIN = { home: '#1D9E75', change: '#888780', hospital: '#E24B4A', hotel: '#7F77DD' }
 
-export default function RouteMap({ days, rule, title, focus, onClose }: {
+export default function RouteMap({ days, rule, title, focus, onClose, shots, band = { every: 10, extra: 1 }, claimId, ecode, onShots, onRoad }: {
   days: Day[]; rule: Rule | undefined; title: string
+  /** The claim's Google Maps screenshots, the km over the map that asks for one, and — while it can be changed — adding them (te_0140). */
+  shots?: RouteShot[]; band?: Band; ecode?: string | null; claimId?: string; onShots?: () => void
+  /** While the day can be changed: Google's road picked here becomes the ride's map km (18 Nov). */
+  onRoad?: (rideId: string, km: number, own: number | null) => void
   /** One ride of the days shown alone, its stops keeping the numbers they have on the whole map. */
   focus?: string
   onClose: () => void
@@ -22,13 +31,20 @@ export default function RouteMap({ days, rule, title, focus, onClose }: {
   const mapRef = useRef<import('leaflet').Map | null>(null)
   const [rows, setRows] = useState<Array<{ label: string; mode: keyof typeof MODES; claimed: number | null; map: number | null; cost: number; ends: [number, number] }>>([])
   const [total, setTotal] = useState<number | null>(null)
+  const [roadsOf, setRoadsOf] = useState<string | null>(null)
   const lift = useRef<(k: number | null) => void>(() => {})
   useBackCloses(onClose)
+  // Google's roads when every day shown is Google's (from 19 Nov; a test login's any day).
+  setGoogleRoutes(days.length > 0 && days.every(x => googleFor(isTestLogin(ecode), x.day)))
 
   /*
     The stops are numbered over all the rides opened, so a ride seen alone keeps the numbers it has on its
     day's map (the user, 21 Oct: "when looking at one it shows 1 → 2, but it should be the number in the full map").
   */
+  // Rides of days from 10 Nov, where the screenshot is asked for; an earlier one shows only one already added.
+  const shotRides = new Set(days.filter(d => shotDay(d.day, ecode)).flatMap(d => d.rides.map(r => r.id)))
+  // Rides whose day has Other routes (roadsFor: everybody's from 20 Nov, a test login's any day).
+  const roadRides = new Set(days.filter(d => roadsFor(ecode, d.day)).flatMap(d => d.rides.map(r => r.id)))
   const all = days.flatMap(d => d.rides).filter(r => r.from_lat != null && r.to_lat != null)
   const stops: Array<{ name: string; lat: number; lng: number }> = []
   const ends: Array<[number, number]> = []
@@ -40,6 +56,8 @@ export default function RouteMap({ days, rule, title, focus, onClose }: {
   })
   const shown = all.map((_, i) => i).filter(i => !focus || all[i].id === focus)
   const rides = shown.map(i => all[i])
+  // Drawn again when a road is picked here: the ride's line and km follow (18 Nov).
+  const drawn = rides.map(r => `${r.id}:${r.map_km ?? ''}:${r.claimed_km ?? ''}`).join('|')
 
   /*
     On a phone the rides' list can be pulled down to a strip, giving the map the screen; a press on the
@@ -94,25 +112,30 @@ export default function RouteMap({ days, rule, title, focus, onClose }: {
       const out: typeof rows = []
       for (let k = 0; k < shown.length; k++) {
         const r = rides[k], m = MODES[r.mode]
-        const road = await roadKm({ name: '', lat: r.from_lat!, lng: r.from_lng! }, { name: '', lat: r.to_lat!, lng: r.to_lng! }, r.mode)
+        seedRoads(r)
+        const road = await roadKm({ name: '', lat: r.from_lat!, lng: r.from_lng! }, { name: '', lat: r.to_lat!, lng: r.to_lng! }, r.mode, { known: true })
         if (!alive || !map) return
-        const line = road?.line ?? [[r.from_lat!, r.from_lng!], [r.to_lat!, r.to_lng!]]
+        // The Google route the ride took, when it chose one (test logins, 18 Nov).
+        const took = takenRoute(road?.alts, r.map_km)
+        const line = took?.line ?? road?.line ?? [[r.from_lat!, r.from_lng!], [r.to_lat!, r.to_lng!]]
+        // The km the ride has (Google's when it was asked), our own map's only when it has none.
+        const roadKmNow = took?.km ?? r.map_km ?? road?.km
         pts.push(...line)
-        sum += road?.km ?? r.map_km ?? 0
+        sum += roadKmNow ?? r.map_km ?? 0
         const edge = L.polyline(line, { color: '#fff', weight: 0, opacity: 0 }).addTo(map)
         const pl = L.polyline(line, { color: m.color, weight: 6, opacity: 0.95, className: 'rm-line' }).addTo(map)
         const mid = line[Math.floor(line.length / 2)]
-        const label = L.marker(mid, { icon: L.divIcon({ className: '', html: `<div class="rm-km" style="background:${m.bg};color:${m.fg}">${m.label} · ${km(road?.km ?? r.map_km)} · ${money(rideAmount(r, rule))}</div>`, iconSize: undefined }) }).addTo(map)
+        const label = L.marker(mid, { icon: L.divIcon({ className: '', html: `<div class="rm-km" style="background:${m.bg};color:${m.fg}">${m.label} · ${km(roadKmNow ?? r.map_km)} · ${money(rideAmount(r, rule))}</div>`, iconSize: undefined }) }).addTo(map)
         parts.push({ line: pl, edge, label })
         for (const t of [pl, label]) { t.on('mouseover', () => lift.current(k)); t.on('mouseout', () => lift.current(null)) }
-        out.push({ label: `${r.from_name ?? ''} → ${r.to_name ?? ''}`, mode: r.mode, claimed: r.claimed_km, map: road?.km ?? r.map_km, cost: rideAmount(r, rule), ends: ends[shown[k]] })
+        out.push({ label: `${r.from_name ?? ''} → ${r.to_name ?? ''}`, mode: r.mode, claimed: r.claimed_km, map: roadKmNow ?? r.map_km, cost: rideAmount(r, rule), ends: ends[shown[k]] })
       }
       if (pts.length) map.fitBounds(pts, { padding: [30, 30] })
       setRows(out); setTotal(sum)
     })()
     return () => { alive = false; map?.remove(); mapRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [drawn])
 
   const used = MODE_ORDER.filter(c => rides.some(r => r.mode === c))
   return createPortal(
@@ -156,9 +179,18 @@ export default function RouteMap({ days, rule, title, focus, onClose }: {
               <span className="text-ink-900">{r.label}</span>
               <span className="rounded-md px-2 py-0.5 text-xs font-semibold" style={{ background: MODES[r.mode].bg, color: MODES[r.mode].fg }}>{MODES[r.mode].label}</span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">
-                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}
+                {r.claimed != null ? `Claimed ${km(r.claimed)} · ` : ''}Map {km(r.map)}{rides[i] && roadRides.has(rides[i].id) && MODES[rides[i].mode].perKm && shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed }) && <b className="font-semibold text-cyrixRed-700"> · {shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.pct}% · {km(shortExtra({ ...rides[i], map_km: r.map, claimed_km: r.claimed })!.km)} more</b>}
               </span>
               <span className="rounded-md bg-ink-100 px-2 py-0.5 text-xs text-ink-700">{money(r.cost)}</span>
+              {/* Google's roads to pick from, here too (the user, 18 Nov); the screenshot only once they are off. */}
+              {rides[i] && onRoad && roadRides.has(rides[i].id) && MODES[rides[i].mode].perKm && (
+                <span className="ml-auto"><RoadsButton ride={rides[i]} onlyUnknown open={roadsOf === rides[i].id} onOpen={() => setRoadsOf(roadsOf === rides[i].id ? null : rides[i].id)} /></span>
+              )}
+              {/* Open from the start when the roads are known (the user, 18 Nov: "here defaultly expand it"); asked only on a press. */}
+              {rides[i] && onRoad && roadRides.has(rides[i].id) && MODES[rides[i].mode].perKm && (
+                <RoutePick ride={rides[i]} ask={roadsOf === rides[i].id} className="w-full" onPick={(k, own) => onRoad(rides[i].id, k, own)} />
+              )}
+              {rides[i] && shots && ((shotRides.has(rides[i].id) && !googleRoutesOn() && !roadRides.has(rides[i].id)) || shots.some(x => x.ride_id === rides[i].id)) && <RouteProof ride={rides[i]} shot={shots?.find(x => x.ride_id === rides[i].id)} band={band} claimId={claimId} onChange={onShots} />}
             </div>
           ))}
         </div>
